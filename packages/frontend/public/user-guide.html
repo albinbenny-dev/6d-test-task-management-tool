@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QA Automation Suite Runner — Deployment &amp; User Guide</title>
+</head>
+<body>
+<style>
+  :root {
+    --nv: #0A2A57;
+    --nv-deep: #06224A;
+    --bl: #2563AB;
+    --bl-soft: #DCE9F7;
+    --or: #F47B20;
+    --or-deep: #D9601A;
+    --or-soft: #FCE4CC;
+    --gold: #FFB347;
+    --teal: #2A9D8F;
+    --ink: #1F2937;
+    --muted: #6B7280;
+    --line: #E5E7EB;
+    --page: #F7F9FC;
+    --surface: #FFFFFF;
+    --surface2: #F1F5FB;
+    --good: #16A34A;
+    --good-soft: #DCFCE7;
+    --warn: #D97706;
+    --warn-soft: #FEF3C7;
+    --bad: #DC2626;
+    --bad-soft: #FEE2E2;
+    --code-bg: #0D1B2E;
+    --code-fg: #D6E4F0;
+    --code-line: #1E3A5F;
+    --shadow: 0 1px 2px rgba(10,42,87,0.06), 0 4px 14px rgba(10,42,87,0.06);
+    --banner: linear-gradient(90deg, var(--nv-deep) 0%, var(--nv) 40%, var(--bl) 100%);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #E7ECF4;
+      --muted: #93A1B8;
+      --line: #223252;
+      --page: #0B1526;
+      --surface: #101E36;
+      --surface2: #16294A;
+      --bl-soft: #16294A;
+      --or-soft: #2A1E12;
+      --good-soft: #103322;
+      --warn-soft: #33260c;
+      --bad-soft: #3a1414;
+      --code-bg: #060E1C;
+      --code-fg: #CBD9EA;
+      --code-line: #16294A;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 4px 20px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #E7ECF4;
+    --muted: #93A1B8;
+    --line: #223252;
+    --page: #0B1526;
+    --surface: #101E36;
+    --surface2: #16294A;
+    --bl-soft: #16294A;
+    --or-soft: #2A1E12;
+    --good-soft: #103322;
+    --warn-soft: #33260c;
+    --bad-soft: #3a1414;
+    --code-bg: #060E1C;
+    --code-fg: #CBD9EA;
+    --code-line: #16294A;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 4px 20px rgba(0,0,0,0.35);
+  }
+  :root[data-theme="light"] {
+    --ink: #1F2937;
+    --muted: #6B7280;
+    --line: #E5E7EB;
+    --page: #F7F9FC;
+    --surface: #FFFFFF;
+    --surface2: #F1F5FB;
+    --bl-soft: #DCE9F7;
+    --or-soft: #FCE4CC;
+    --good-soft: #DCFCE7;
+    --warn-soft: #FEF3C7;
+    --bad-soft: #FEE2E2;
+    --code-bg: #0D1B2E;
+    --code-fg: #D6E4F0;
+    --code-line: #1E3A5F;
+    --shadow: 0 1px 2px rgba(10,42,87,0.06), 0 4px 14px rgba(10,42,87,0.06);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  h1, h2, h3, h4 { text-wrap: balance; color: var(--ink); }
+  a { color: var(--bl); }
+  code, pre, .mono { font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace; }
+  ::selection { background: var(--or-soft); }
+
+  /* ── Masthead ─────────────────────────────────────────────────────── */
+  .masthead {
+    background: var(--banner);
+    padding: 34px 5vw 30px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .masthead .titles h1 {
+    color: #fff;
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0 0 6px;
+  }
+  .masthead .titles p {
+    color: rgba(255,255,255,0.82);
+    margin: 0;
+    font-size: 14px;
+    max-width: 640px;
+  }
+  .masthead img { height: 34px; width: auto; flex-shrink: 0; }
+  .masthead .meta {
+    display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap;
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.25);
+    color: #fff;
+    font-size: 11.5px;
+    padding: 4px 10px;
+    border-radius: 100px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  /* ── Layout ───────────────────────────────────────────────────────── */
+  .layout {
+    display: grid;
+    grid-template-columns: 320px minmax(0,1fr);
+    gap: 8px;
+    align-items: start;
+    max-width: 1360px;
+    margin: 0 auto;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .toc { position: static !important; max-height: none !important; }
+  }
+  .toc {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    max-height: 100vh;
+    overflow-y: auto;
+    padding: 30px 20px 40px 5vw;
+    font-size: 13.5px;
+  }
+  .toc .toc-eyebrow {
+    text-transform: uppercase; letter-spacing: 0.08em; font-size: 10.5px;
+    color: var(--muted); font-weight: 700; margin: 24px 0 8px;
+  }
+  .toc .toc-eyebrow:first-child { margin-top: 0; }
+  .toc a {
+    display: block; color: var(--ink); text-decoration: none;
+    padding: 8px 12px; border-radius: 6px; font-weight: 500;
+    line-height: 1.4; margin-bottom: 2px;
+  }
+  .toc a:hover { background: var(--surface2); }
+  .toc a.sub {
+    padding: 6px 12px 6px 24px; color: var(--muted); font-weight: 400;
+    font-size: 12.5px; line-height: 1.35;
+  }
+
+  .content { padding: 30px 5vw 80px 32px; min-width: 0; }
+  @media (max-width: 900px) { .content { padding: 20px 5vw 60px; } }
+
+  section { margin-bottom: 56px; scroll-margin-top: 16px; }
+  .section-head {
+    display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px;
+  }
+  .section-num {
+    font-family: ui-monospace, monospace; color: var(--or); font-weight: 700; font-size: 13px;
+  }
+  section > h2 { font-size: 22px; margin: 0 0 4px; }
+  section > .lede { color: var(--muted); margin: 0 0 22px; max-width: 68ch; }
+  h3 { font-size: 17px; margin: 28px 0 10px; color: var(--nv); }
+  :root[data-theme="dark"] h3, :root:not([data-theme="light"]) h3 { color: #A9C6EA; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme]) h3 { color: var(--nv); } }
+  p { max-width: 72ch; }
+  ul, ol { max-width: 72ch; padding-left: 22px; }
+  li { margin-bottom: 5px; }
+
+  /* ── Cards ────────────────────────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    padding: 18px 20px;
+    margin-bottom: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+  }
+  .card--cool::before { background: linear-gradient(90deg, var(--bl), var(--nv)); }
+  .card--warm::before { background: linear-gradient(90deg, var(--gold), var(--or)); }
+  .card h4 { margin: 6px 0 8px; font-size: 15.5px; color: var(--ink); }
+  .card ul { margin: 8px 0 0; }
+  .card p:last-child, .card ul:last-child { margin-bottom: 0; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 720px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+
+  /* ── Code blocks ──────────────────────────────────────────────────── */
+  .code-wrap { overflow-x: auto; border-radius: 8px; margin: 12px 0 18px; box-shadow: var(--shadow); }
+  pre.code {
+    margin: 0; background: var(--code-bg); color: var(--code-fg);
+    padding: 14px 16px; font-size: 12.8px; line-height: 1.55;
+    white-space: pre;
+  }
+  pre.code .c { color: #7C93B3; } /* comment */
+  code.inline {
+    background: var(--surface2); border: 1px solid var(--line);
+    padding: 1px 6px; border-radius: 5px; font-size: 0.88em;
+  }
+
+  /* ── Tables ───────────────────────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; margin: 14px 0 22px; border-radius: 8px; box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; background: var(--surface); font-size: 13px; }
+  th, td { padding: 9px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { background: var(--nv); color: #fff; font-weight: 600; font-size: 12px; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  td.center, th.center { text-align: center; }
+  .yes { color: var(--good); font-weight: 700; }
+  .no { color: var(--bad); font-weight: 700; }
+  .partial { color: var(--warn); font-weight: 700; }
+
+  /* ── Badges / labels ──────────────────────────────────────────────── */
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px;
+    border-radius: 100px; letter-spacing: 0.02em;
+  }
+  .badge.good { background: var(--good-soft); color: var(--good); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .badge.bad  { background: var(--bad-soft);  color: var(--bad); }
+  .badge.info { background: var(--bl-soft);   color: var(--bl); }
+  .kbd {
+    font-family: ui-monospace, monospace; font-size: 11.5px; background: var(--surface2);
+    border: 1px solid var(--line); border-bottom-width: 2px; padding: 1px 6px; border-radius: 5px;
+  }
+
+  /* ── Architecture diagram ─────────────────────────────────────────── */
+  .arch { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin: 20px 0; }
+  .arch-row { display: flex; gap: 12px; align-items: stretch; flex-wrap: wrap; }
+  .arch-box {
+    flex: 1; min-width: 150px; background: var(--surface); border: 1.5px solid var(--bl);
+    border-radius: 8px; padding: 10px 12px; font-size: 12.5px; text-align: center;
+    box-shadow: var(--shadow);
+  }
+  .arch-box.dark { background: var(--nv); color: #fff; border-color: var(--nv); }
+  .arch-box.warm { border-color: var(--or); }
+  .arch-box b { display: block; font-size: 13px; margin-bottom: 2px; }
+  .arch-box span { color: var(--muted); font-size: 11px; }
+  .arch-box.dark span { color: rgba(255,255,255,0.75); }
+  .arch-arrow { text-align: center; color: var(--muted); font-size: 18px; line-height: 1; margin: -2px 0; }
+
+  /* ── FAQ accordion ────────────────────────────────────────────────── */
+  details.faq {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    margin-bottom: 10px; box-shadow: var(--shadow);
+  }
+  details.faq summary {
+    cursor: pointer; padding: 13px 16px; font-weight: 600; font-size: 13.5px;
+    list-style: none; display: flex; align-items: center; gap: 10px;
+  }
+  details.faq summary::-webkit-details-marker { display: none; }
+  details.faq summary::before { content: "▸"; color: var(--or); transition: transform 0.15s; flex-shrink: 0; }
+  details.faq[open] summary::before { transform: rotate(90deg); }
+  details.faq .faq-body { padding: 0 16px 15px 34px; color: var(--ink); font-size: 13.5px; }
+  details.faq .faq-body p:first-child { margin-top: 0; }
+
+  .callout {
+    border-left: 4px solid var(--or); background: var(--or-soft); border-radius: 0 8px 8px 0;
+    padding: 12px 16px; margin: 16px 0; font-size: 13.5px;
+  }
+  .callout.blue { border-left-color: var(--bl); background: var(--bl-soft); }
+  .callout strong { color: var(--nv-deep); }
+  :root[data-theme="dark"] .callout strong, :root:not([data-theme="light"]) .callout strong { color: #fff; }
+
+  footer {
+    text-align: center; color: var(--muted); font-size: 12px; padding: 30px 5vw 50px;
+  }
+</style>
+
+<header class="masthead">
+  <div class="titles">
+    <h1>QA Automation Suite Runner</h1>
+    <p>Deployment, architecture &amp; user guide — a self-hosted platform combining manual test management (TC Library, Test Cycles) with Robot Framework browser automation, live execution monitoring, scheduling and reporting.</p>
+    <div class="meta">
+      <span class="pill">🚀 Deployment</span>
+      <span class="pill">🏗️ Architecture</span>
+      <span class="pill">📖 User Manual</span>
+      <span class="pill">🔐 Roles &amp; Permissions</span>
+      <span class="pill">🛠️ Troubleshooting</span>
+    </div>
+  </div>
+  <img src="data:image/png;base64,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" alt="6D Technologies" />
+</header>
+
+<div class="layout">
+  <nav class="toc">
+    <div class="toc-eyebrow">Contents</div>
+    <a href="#overview">1. Overview</a>
+    <a href="#architecture">2. Architecture &amp; Tech Stack</a>
+    <a href="#database">3. Database Structure</a>
+    <a href="#deployment">4. Deploy to a Remote Linux Server</a>
+    <a href="#deployment" class="sub">4.1 Prerequisites</a>
+    <a href="#deployment" class="sub">4.2 Package &amp; copy</a>
+    <a href="#deployment" class="sub">4.3 Configure &amp; install</a>
+    <a href="#deployment" class="sub">4.4 Post-install checklist</a>
+    <a href="#deployment" class="sub">4.5 Updating later</a>
+    <a href="#roles">5. Roles &amp; Permission Matrix</a>
+    <a href="#manual">6. Feature Guide</a>
+    <a href="#manual" class="sub">TC Library &amp; Script Library</a>
+    <a href="#manual" class="sub">Test Cycle</a>
+    <a href="#manual" class="sub">My Assignments</a>
+    <a href="#manual" class="sub">Automation Dashboard</a>
+    <a href="#manual" class="sub">Script Editor</a>
+    <a href="#manual" class="sub">Execution</a>
+    <a href="#manual" class="sub">Scheduler</a>
+    <a href="#manual" class="sub">Reports</a>
+    <a href="#concurrency">7. Controlling Parallelism (Threads)</a>
+    <a href="#scaling">8. Scaling Runner Instances</a>
+    <a href="#faq">9. Troubleshooting &amp; FAQ</a>
+  </nav>
+
+  <main class="content">
+
+    <!-- ══════════════════════════════════ 1. OVERVIEW ══════════════════════════════════ -->
+    <section id="overview">
+      <div class="section-head"><span class="section-num">01</span><h2>Overview</h2></div>
+      <p class="lede">What the platform is, and the two tracks of testing it manages side by side.</p>
+
+      <p>QA Automation Suite Runner is a self-hosted test management and automation platform. It runs as five Docker containers on a single Linux host and keeps two testing tracks in one place:</p>
+
+      <div class="grid2">
+        <div class="card card--cool">
+          <h4>🧾 Manual track — TC Library &amp; Test Cycles</h4>
+          <p>Business-level test cases imported from Excel, organised by feature, assigned to testers, tracked to Pass/Fail/Blocked with a reason and linked Jira bugs.</p>
+        </div>
+        <div class="card card--warm">
+          <h4>🤖 Automation track — Scripts, Execution &amp; Scheduling</h4>
+          <p>Robot Framework + Selenium scripts, edited in a browser-based Monaco IDE, executed headless-in-Docker or watched live over noVNC, run ad-hoc, in suites, or on a cron schedule.</p>
+        </div>
+      </div>
+
+      <p>A TC Library item can be <strong>linked</strong> to an automation script — once linked, the Reports and Dashboard views can show results either "by script" or grouped by the real, business-named test case ("by test case"), and Excel exports include both.</p>
+    </section>
+
+    <!-- ══════════════════════════════════ 2. ARCHITECTURE ══════════════════════════════════ -->
+    <section id="architecture">
+      <div class="section-head"><span class="section-num">02</span><h2>Architecture &amp; Tech Stack</h2></div>
+      <p class="lede">Five containers, one Docker network, one Postgres database.</p>
+
+      <div class="arch">
+        <div class="arch-row">
+          <div class="arch-box"><b>🌐 qaasr-ui</b><span>Nginx · static React SPA · :3000</span></div>
+        </div>
+        <div class="arch-arrow">↓ REST + WebSocket</div>
+        <div class="arch-row">
+          <div class="arch-box dark"><b>⚙️ qaasr-api</b><span>Express · Prisma · Socket.io · BullMQ · :4000 (localhost only)</span></div>
+        </div>
+        <div class="arch-arrow">↓ ↓</div>
+        <div class="arch-row">
+          <div class="arch-box"><b>🐘 qaasr-postgres</b><span>All application data</span></div>
+          <div class="arch-box"><b>🟥 qaasr-redis</b><span>BullMQ "test-runs" queue</span></div>
+        </div>
+        <div class="arch-arrow">↓ HTTP dispatch (round-robin if scaled)</div>
+        <div class="arch-row">
+          <div class="arch-box warm"><b>🧪 qaasr-runner</b><span>Node HTTP server + Robot Framework/Selenium/Chrome · Xvfb · noVNC :6080</span></div>
+        </div>
+      </div>
+
+      <h3>Tech stack per service</h3>
+      <div class="table-wrap"><table>
+        <tr><th>Service</th><th>Core stack</th></tr>
+        <tr><td><b>qaasr-ui</b></td><td>React 18, Vite 5, TypeScript, TanStack Query, Monaco Editor, Radix UI + Tailwind, React Router, Zustand, Recharts, Socket.io-client — served as a static bundle by Nginx</td></tr>
+        <tr><td><b>qaasr-api</b></td><td>Express 4, Prisma 5 (PostgreSQL), BullMQ + ioredis, Socket.io, JWT + bcryptjs, node-cron, multer/xlsx/adm-zip (imports &amp; exports), nodemailer, Zod, Helmet/CORS/rate-limit</td></tr>
+        <tr><td><b>qaasr-runner</b></td><td>Node HTTP layer + Python Robot Framework, Robot Framework SeleniumLibrary, Selenium, Chrome for Testing + matching ChromeDriver, Xvfb, x11vnc, noVNC/websockify, ffmpeg (video recording)</td></tr>
+        <tr><td><b>qaasr-postgres</b></td><td>PostgreSQL 16</td></tr>
+        <tr><td><b>qaasr-redis</b></td><td>Redis 7 — backs the BullMQ job queue only, no app data</td></tr>
+      </table></div>
+
+      <h3>How a test run flows through the system</h3>
+      <ol>
+        <li>The UI calls the API to trigger a run (individual TC, a Suite, or a Schedule firing).</li>
+        <li>The API enqueues a job on the BullMQ <code class="inline">test-runs</code> queue (Redis), then an in-process worker (<code class="inline">runWorker.ts</code>) picks it up.</li>
+        <li>The worker dispatches each script to a runner container over plain HTTP, round-robining across runner instances when more than one is configured.</li>
+        <li>The runner executes the script in a headless (or headed, VNC-visible) Chrome inside an Xvfb virtual display and streams log lines back.</li>
+        <li>The API pushes live updates to the browser over Socket.io on the <code class="inline">/runs</code> namespace — events <code class="inline">run:start</code>, <code class="inline">run:progress</code>, <code class="inline">run:log</code>, <code class="inline">run:complete</code> — which is what powers the Execution page's live log and the Dashboard's running-jobs card.</li>
+        <li>Final results, screenshots, videos and Robot Framework reports are written to Postgres and a shared artifacts volume.</li>
+      </ol>
+    </section>
+
+    <!-- ══════════════════════════════════ 3. DATABASE ══════════════════════════════════ -->
+    <section id="database">
+      <div class="section-head"><span class="section-num">03</span><h2>Database Structure</h2></div>
+      <p class="lede">One PostgreSQL database, one schema, everything scoped to a Project.</p>
+
+      <p><b>User</b> and <b>Project</b> sit at the root. A <b>Project</b> is the tenant boundary — it owns almost everything else: environments, test cases, scripts, runs, suites, schedules, reports, the TC Library, and test cycles. <b>ProjectMember</b> joins a User to a Project with a per-project role.</p>
+
+      <div class="table-wrap"><table>
+        <tr><th>Model</th><th>Purpose &amp; key relationships</th></tr>
+        <tr><td><b>TestCase</b></td><td>The <i>automation</i> test case — steps, expected result, type (UI/API/SIT), priority, status. Has one or more <b>Script</b>s and a <b>RunResult</b> per run it took part in.</td></tr>
+        <tr><td><b>Script</b></td><td>A Robot Framework file's content, belonging to one TestCase.</td></tr>
+        <tr><td><b>Run</b></td><td>One execution batch (status, trigger type MANUAL/SCHEDULED/INDIVIDUAL/GROUP/SUITE, sequential <code class="inline">runSeq</code>). Has many <b>RunResult</b>s and an optional <b>Report</b>.</td></tr>
+        <tr><td><b>RunResult</b></td><td>One row per TestCase executed in a Run — status, duration, screenshot/video/RF-report/RF-log paths.</td></tr>
+        <tr><td><b>Suite</b></td><td>An ordered set of "stages" (grouped by use-case tag, each sequential or parallel) for orchestrated multi-stage runs.</td></tr>
+        <tr><td><b>Schedule</b></td><td>A cron expression + TC list + environment, auto-triggering Runs.</td></tr>
+        <tr><td><b>Report</b></td><td>One-to-one with a Run — summary text and a JSON analysis blob, optional emailed-at timestamp.</td></tr>
+        <tr><td><b>TcItem</b></td><td>The <b>TC Library</b> — business test cases imported from Excel (module/feature/title/steps/expected result). Optionally linked to a TestCase via <code class="inline">linkedScriptId</code>; feeds <b>TestCycleItem</b>.</td></tr>
+        <tr><td><b>TestCycle</b></td><td>A manual regression pass — status PLANNING/ACTIVE/CLOSED, Jira label/JQL bug-discovery settings, optional Drive folder link. Deliberately separate from Suite.</td></tr>
+        <tr><td><b>TestCycleItem</b></td><td>A TcItem snapshotted into a cycle, assigned to a ProjectMember, tracked as NOT_RUN/IN_PROGRESS/PASS/FAIL/BLOCKED with a required reason on FAIL/BLOCKED and optional Jira issue keys.</td></tr>
+        <tr><td><b>TestCycleItemHistory</b></td><td>Append-only audit trail of every status change — powers the resource-wise trend dashboard even after items are reassigned or deleted.</td></tr>
+        <tr><td><b>JiraIssue</b></td><td>Locally cached Jira issue snapshot, refreshed by a poll worker so pages never call Jira live.</td></tr>
+        <tr><td><b>JiraConfig</b></td><td>One row per project — poll interval, enabled flag, project-key filter. Credentials are global env vars, not per-project secrets.</td></tr>
+        <tr><td><b>EnvConfig</b></td><td>A named environment (base URL, username/password) a project can run tests against.</td></tr>
+        <tr><td><b>ProjectResource</b></td><td>Generic uploaded-file registry per project (shared test data, etc).</td></tr>
+      </table></div>
+    </section>
+
+    <!-- ══════════════════════════════════ 4. DEPLOYMENT ══════════════════════════════════ -->
+    <section id="deployment">
+      <div class="section-head"><span class="section-num">04</span><h2>Deploy to a Remote Linux Server</h2></div>
+      <p class="lede">Build once on a Windows/Docker Desktop dev machine, package it, copy it across, install.</p>
+
+      <h3>4.1 Prerequisites</h3>
+      <ul>
+        <li><b>Dev machine:</b> Windows with Docker Desktop, PowerShell, and this repo checked out.</li>
+        <li><b>Target server:</b> Linux with Docker Engine + the Compose plugin installed, and outbound network disabled/air-gapped is fine — nothing is fetched from the internet at install time.</li>
+        <li><b>Network access needed on the server:</b> TCP <code class="inline">3000</code> (UI, must be reachable by users), TCP <code class="inline">6080</code> (noVNC live-browser view — only if you want to watch tests run live; otherwise it can stay bound to <code class="inline">127.0.0.1</code>). Port <code class="inline">4000</code> (API) is intentionally bound to <code class="inline">127.0.0.1</code> only — the UI's Nginx reverse-proxies to it, so it never needs to be opened externally.</li>
+      </ul>
+
+      <h3>4.2 Package &amp; copy</h3>
+      <p>On the dev machine, build the images and run the packaging script:</p>
+      <div class="code-wrap"><pre class="code"><span class="c"># from the repo root</span>
+docker compose build
+.\make-fresh-package.ps1 <span class="c"># -AdminEmail / -AdminName / -AdminPassword params override the defaults</span></pre></div>
+      <p>This produces a self-contained <code class="inline">fresh-deploy/</code> folder: Docker images saved as <code class="inline">.tar</code> files, the compose files, <code class="inline">.env.example</code>, Nginx config, a generated <code class="inline">restore.sh</code> installer, and a <code class="inline">manifest.txt</code>. Copy the whole folder to the server:</p>
+      <div class="code-wrap"><pre class="code">scp -r fresh-deploy/ user@server:/opt/qaasr/</pre></div>
+
+      <h3>4.3 Configure &amp; install</h3>
+      <div class="code-wrap"><pre class="code">ssh user@server
+<span class="c"># on the server:</span>
+cd /opt/qaasr/fresh-deploy
+cp config/.env.example config/.env
+nano config/.env   <span class="c"># set real secrets — see below</span>
+chmod +x restore.sh
+sudo ./restore.sh</pre></div>
+
+      <div class="callout">
+        <strong>Edit these in <code class="inline">.env</code> before running <code class="inline">restore.sh</code>:</strong>
+        <ul style="margin-bottom:0">
+          <li><code class="inline">POSTGRES_PASSWORD</code>, <code class="inline">REDIS_PASSWORD</code>, <code class="inline">JWT_SECRET</code>, <code class="inline">RUNNER_SECRET</code> — generate with <code class="inline">openssl rand -hex 32</code></li>
+          <li><code class="inline">VNC_HOST</code> — leave as <code class="inline">127.0.0.1</code> for local-only, set to <code class="inline">0.0.0.0</code> to allow remote noVNC viewing on port 6080</li>
+          <li><code class="inline">SMTP_*</code> — only needed if you want emailed reports</li>
+          <li><code class="inline">JIRA_HOST</code> / <code class="inline">JIRA_EMAIL</code> / <code class="inline">JIRA_API_TOKEN</code> — only needed for Jira bug-linking in Test Cycles</li>
+        </ul>
+      </div>
+
+      <p><code class="inline">restore.sh</code> then, unattended: loads all five images, creates the named volumes for Postgres/scripts/artifacts data, starts Postgres and Redis and waits for them to be healthy, starts the API (Prisma migrations run automatically on boot) and polls its healthcheck, seeds the first <b>SUPER_ADMIN</b> user directly into the database, then brings up the UI and runner and prints the access URLs.</p>
+
+      <h3>4.4 Post-install checklist</h3>
+      <ul>
+        <li>Open <code class="inline">http://&lt;server&gt;:3000</code> and sign in with the seeded admin account.</li>
+        <li><b>Registration is closed by default.</b> To onboard more users: set <code class="inline">OPEN_REGISTRATION=true</code> in <code class="inline">.env</code>, recreate the API container (<code class="inline">docker compose up -d --force-recreate qaasr-api</code>), have people register, then set it back to <code class="inline">false</code> and recreate again.</li>
+        <li>If you need noVNC reachable from outside the server, confirm the host firewall/security group allows inbound TCP <code class="inline">6080</code> — this is the single most common "it doesn't work" report post-deploy (see FAQ).</li>
+      </ul>
+
+      <h3>4.5 Updating later</h3>
+      <p>For an application code change, rebuild and recreate the affected container(s) on the dev machine, save the new image, and load+recreate it on the server — the same <code class="inline">docker save</code> / <code class="inline">scp</code> / <code class="inline">docker load</code> / <code class="inml">docker compose up -d --force-recreate &lt;service&gt;</code> cycle used during development. There is no in-place auto-update.</p>
+    </section>
+
+    <!-- ══════════════════════════════════ 5. ROLES ══════════════════════════════════ -->
+    <section id="roles">
+      <div class="section-head"><span class="section-num">05</span><h2>Roles &amp; Permission Matrix</h2></div>
+      <p class="lede">Two independent role axes, resolved together on every request.</p>
+
+      <div class="grid2">
+        <div class="card card--cool">
+          <h4>Global role — <code class="inline">User.globalRole</code></h4>
+          <p><span class="badge info">SUPER_ADMIN</span> <span class="badge info">ADMIN</span> <span class="badge info">SUPER_USER</span> <span class="badge info">STANDARD_USER</span></p>
+          <p>Applies platform-wide, independent of any one project.</p>
+        </div>
+        <div class="card card--warm">
+          <h4>Project role — <code class="inline">ProjectMember.role</code></h4>
+          <p><span class="badge info">ADMIN</span> <span class="badge info">SUPER_USER</span> <span class="badge info">STANDARD_USER</span> <span class="badge info">TEST_USER</span></p>
+          <p>Applies only within the project a user is a member of.</p>
+        </div>
+      </div>
+
+      <div class="callout blue"><strong>Precedence:</strong> a global <b>SUPER_ADMIN</b> or <b>ADMIN</b> bypasses every project-level check and every membership requirement — no <code class="inline">ProjectMember</code> row needed. Everyone else falls through to their actual project role. The one place SUPER_ADMIN and ADMIN diverge: <b>User Management is SUPER_ADMIN-only</b> — global ADMIN cannot manage other users.</div>
+
+      <div class="table-wrap"><table>
+        <tr><th>Permission</th><th class="center">Global SUPER_ADMIN / ADMIN</th><th class="center">Project ADMIN</th><th class="center">Project SUPER_USER</th><th class="center">Project STANDARD_USER</th><th class="center">Project TEST_USER</th></tr>
+        <tr><td>Automation section at all (Scripts, Execution, Scheduler, Reports, Dashboard)</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center no">✕</td></tr>
+        <tr><td>UI Scanner / Healing Agent</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center no">✕</td><td class="center no">✕</td></tr>
+        <tr><td>Script Editor (view, edit, import, delete)</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center no">✕</td><td class="center no">✕</td></tr>
+        <tr><td>TC Library — edit / link script / scope toggle</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center no">✕</td></tr>
+        <tr><td>TC Library — import / bulk-delete</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center no">✕</td><td class="center no">✕</td></tr>
+        <tr><td>Test Cycle — create / edit / delete / manage items</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center no">✕</td><td class="center no">✕</td></tr>
+        <tr><td>Test Cycle — execute own assigned item, link/unlink bug</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center yes">✓</td></tr>
+        <tr><td>View other testers' assignments / workload dashboard</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center no">✕</td><td class="center no">✕</td></tr>
+        <tr><td>Jira config (connect / edit)</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center no">✕</td><td class="center no">✕</td><td class="center no">✕</td></tr>
+        <tr><td>Project Settings — env configs, plaintext passwords</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center partial">masked</td><td class="center partial">masked</td><td class="center partial">masked</td></tr>
+        <tr><td>Member management / project deletion</td><td class="center yes">✓</td><td class="center yes">✓</td><td class="center no">✕</td><td class="center no">✕</td><td class="center no">✕</td></tr>
+        <tr><td>User Management (all users, global roles)</td><td class="center partial">SUPER_ADMIN only</td><td class="center no">✕</td><td class="center no">✕</td><td class="center no">✕</td><td class="center no">✕</td></tr>
+      </table></div>
+
+      <p><b>TEST_USER in one line:</b> execution-only. No automation section access at all, and read-only on TC Library / Test Cycle administration — but can still execute and record results for whatever's assigned to them.</p>
+      <p><b>STANDARD_USER vs SUPER_USER</b> at the project level are identical on day-to-day TC/script/run/scheduler/report work. SUPER_USER additionally gets the UI Scanner, Healing Agent, Script Editor, Settings, TC Library import/delete, and Test Cycle administration.</p>
+    </section>
+
+    <!-- ══════════════════════════════════ 6. FEATURE GUIDE ══════════════════════════════════ -->
+    <section id="manual">
+      <div class="section-head"><span class="section-num">06</span><h2>Feature Guide</h2></div>
+      <p class="lede">What each screen actually lets you do.</p>
+
+      <h3>📋 TC Library <span class="badge info">Test Management</span></h3>
+      <div class="card card--cool">
+        <p>The business-level test case repository, grouped by <b>Feature</b>. This is where manual test cases live and where they get linked to automation.</p>
+        <ul>
+          <li><b>Import Excel</b> — bulk import with columns Test Case ID / Module / Feature / Title / Description / Steps / Expected Result / RF Script ID. A downloadable template is provided; the import summary reports new vs updated rows and any unmatched script IDs.</li>
+          <li><b>Automation status</b> — each item is <b>In Scope</b> or <b>Not Applicable</b> (manual-only); toggling this changes what counts toward the automation coverage stats.</li>
+          <li><b>Link to Script</b> — attach a TC to an existing automation script (individually or in bulk); linked items show a green "⚡ linked" badge, unlinked ones show "Unlinked".</li>
+          <li>Bulk actions: link/unlink, mark N/A or back In Scope, move to another feature, run linked scripts, add to a Test Cycle, delete.</li>
+          <li>Export the whole library to Excel.</li>
+        </ul>
+      </div>
+
+      <h3>📂 Script Library <span class="badge info">Automation</span></h3>
+      <div class="card card--warm">
+        <p>The automation side — generated Robot Framework scripts, grouped by use case. Easy to confuse with TC Library, but this is scripts, not business test cases.</p>
+        <ul>
+          <li>Filter by type (UI/API/SIT) and status (Draft/Approved/Deprecated); drag-reorder within a use case.</li>
+          <li>Run a whole use-case group or a single script directly from the list.</li>
+          <li><b>Send to Execution</b> pushes a selection over to the Execution page for a bigger run.</li>
+          <li>Export all, selected, or by use case, to Excel.</li>
+        </ul>
+      </div>
+
+      <h3>🧪 Test Cycle <span class="badge info">Test Management</span></h3>
+      <div class="card card--cool">
+        <p>A manual regression pass, deliberately separate from automation Suites — a snapshot of TC Library items assigned to testers and tracked to closure.</p>
+        <ul>
+          <li><b>New Cycle</b> — name, description, and optionally comma-separated Jira labels or a raw JQL query that auto-discovers related bugs.</li>
+          <li>Add test cases from the TC Library (feature-grouped picker), then assign each to a project member.</li>
+          <li>Record a result per item: <b>Pass / Fail / In Progress / Blocked / Not Run</b>. Fail and Blocked require a typed reason and can attach comma-separated Jira issue keys — that's the bug-linking mechanism.</li>
+          <li>Start / Close the cycle; a dedicated Bugs tab lists everything auto-discovered via labels/JQL, with a manual "Sync Now".</li>
+          <li>The <b>Test Cycle Dashboard</b> rolls all active cycles up into pass-rate stats, a status-by-cycle table, and a resource-wise (per-tester) summary.</li>
+        </ul>
+      </div>
+
+      <h3>📌 My Assignments</h3>
+      <div class="card card--warm">
+        <p>What a tester sees: every test case assigned to them across all cycles, grouped by cycle. Record a result directly from the row — Fail/Blocked expand an inline reason + Jira-key editor. Managers can switch to another tester's view via a Resource dropdown. A Daily Run History chart underneath shows pass/fail/blocked trend over 7–90 days, drillable to the individual runs of any day.</p>
+      </div>
+
+      <h3>📊 Automation Dashboard</h3>
+      <div class="card card--cool">
+        <p>The automation-side overview: Total Test Cases / Automation Scope / Scripts Done / Automation % (with progress bar) / Automation Status (passed/failed/not-run) stat tiles; a Test Suites browser side-by-side with Recent Runs; a 7-day Pass/Fail trend chart; and a Flaky Tests card when any exist. Clicking into a suite run opens a full per-run dashboard with a <b>By Script / By Test Case</b> toggle and its own Excel export.</p>
+      </div>
+
+      <h3>🖊️ Script Editor</h3>
+      <div class="card card--warm">
+        <p>A Monaco-based IDE for <code class="inline">.robot</code> files, with a project file tree and tabbed editing.</p>
+        <ul>
+          <li><b>Import Script</b> — link to an existing TC or import standalone; <b>Import Folder</b> bulk-imports a whole use case.</li>
+          <li>Project-wide content search, and <span class="kbd">F12</span> / <span class="kbd">Ctrl+Click</span> go-to-definition on keywords, with hover previews.</li>
+          <li><b>Run</b> executes headless inside Docker; <b>Run in Host Browser</b> does the same but opens a live noVNC view so you watch the browser drive in real time.</li>
+        </ul>
+      </div>
+
+      <h3>▶️ Execution</h3>
+      <div class="card card--cool">
+        <p>The run console. Select individual test cases or whole use-case groups from a checklist, set the <b>Workers</b> stepper, and hit <b>Run</b>. A horizontally-scrollable strip of Running Jobs cards sits above the Live Execution Log, which streams colour-coded pass/fail/warn lines in real time with an elapsed timer and a Stop button.</p>
+      </div>
+
+      <h3>⏰ Scheduler</h3>
+      <div class="card card--warm">
+        <p>Suites, ad-hoc Quick Runs, and recurring cron Schedules, all in one place.</p>
+        <ul>
+          <li><b>New Suite</b> — build an ordered list of stages (one per use case), each toggled Sequential or Parallel.</li>
+          <li>The <b>Threads</b> stepper and <b>Video</b> toggle next to the Suites list set the parallel-worker count and recording for that suite's Quick Run.</li>
+          <li><b>Quick Run</b> — a one-off run against a chosen environment, from a saved Suite or a hand-picked TC list.</li>
+          <li><b>New Schedule</b> — Daily / Weekdays / Weekly / Monthly / Hourly / raw cron, an environment, a TC source, email recipients, and a recording toggle. Each schedule can also be triggered ad-hoc with "Run Now".</li>
+        </ul>
+      </div>
+
+      <h3>📈 Reports</h3>
+      <div class="card card--cool">
+        <p>Run history with stat tiles (total runs, average pass rate, flaky tests, average run time), a trend chart, and an expandable per-run list — each run shows pass/fail/skip counts, a Retry action, and downloadable per-script results with screenshots/video/RF logs. A sidebar tracks flaky tests and configures automated email reports.</p>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════ 7. CONCURRENCY ══════════════════════════════════ -->
+    <section id="concurrency">
+      <div class="section-head"><span class="section-num">07</span><h2>Controlling Parallelism ("Threads")</h2></div>
+      <p class="lede">Two knobs that look similar but do different things.</p>
+
+      <h3>The Threads / Workers stepper (Scheduler &amp; Execution pages)</h3>
+      <p>This sets <code class="inline">parallelWorkers</code> for a suite run or a manual selection — how many test cases that specific run tries to execute at once. It's shared between the Scheduler's "Threads" control and the Execution page's "Workers" control via the same setting, so changing it in one place carries over to the other.</p>
+      <div class="callout"><strong>Keep it at 8 or below.</strong> The stepper UI allows up to 16, but the API validates and rejects any request above 8 — values of 9–16 will fail with an error when you try to run.</div>
+
+      <h3><code class="inline">RUNNER_CONCURRENCY</code> — the real physical ceiling</h3>
+      <p>Set in <code class="inline">.env</code> (default <b>4</b>), this controls how many parallel virtual displays (Xvfb) one runner container makes available — one display per test case actually executing at once inside that container. If every display is busy, the runner returns "all slots busy" and the request queues. <b>The Threads/Workers value only matters up to however many slots <code class="inline">RUNNER_CONCURRENCY</code> actually provides</b> — raising the stepper past that number just means requests wait for a free slot rather than truly running in parallel.</p>
+      <p>Each slot uses roughly 400–700 MB RAM under load, so size <code class="inline">RUNNER_CONCURRENCY</code> to the host's available memory, not just CPU count.</p>
+    </section>
+
+    <!-- ══════════════════════════════════ 8. SCALING ══════════════════════════════════ -->
+    <section id="scaling">
+      <div class="section-head"><span class="section-num">08</span><h2>Scaling Runner Instances</h2></div>
+      <p class="lede">More runner <em>containers</em>, not just more slots in one.</p>
+
+      <p>When one runner's <code class="inline">RUNNER_CONCURRENCY</code> ceiling isn't enough — you need more total parallel capacity across the whole system — add more runner containers with <code class="inline">RUNNER_REPLICAS</code>:</p>
+
+      <div class="code-wrap"><pre class="code"><span class="c"># edit .env</span>
+RUNNER_REPLICAS=3
+RUNNER_CONCURRENCY=4      <span class="c"># applies to each replica</span>
+
+<span class="c"># regenerate the compose override and apply it</span>
+./gen-compose-override.sh
+docker compose up -d
+
+<span class="c"># verify</span>
+docker ps --filter "name=qaasr-runner"</pre></div>
+
+      <p>This spins up <code class="inline">qaasr-runner-1</code> … <code class="inline">qaasr-runner-N</code>, each with its own noVNC port (<code class="inline">6081</code>, <code class="inline">6082</code>, …), and disables the original single <code class="inline">qaasr-runner</code> service. The API itself round-robins new work across all of them — <b>there is no separate load balancer</b>; total system-wide parallel capacity is simply:</p>
+      <p style="text-align:center; font-size: 16px; font-weight: 700; color: var(--nv-deep);">RUNNER_REPLICAS &times; RUNNER_CONCURRENCY = total parallel test slots</p>
+      <p>For example, 3 replicas × 4 concurrency = 12 tests running simultaneously across the whole platform.</p>
+    </section>
+
+    <!-- ══════════════════════════════════ 9. FAQ ══════════════════════════════════ -->
+    <section id="faq">
+      <div class="section-head"><span class="section-num">09</span><h2>Troubleshooting &amp; FAQ</h2></div>
+      <p class="lede">Real issues encountered running this platform, and how they were actually resolved.</p>
+
+      <details class="faq">
+        <summary>"Registration is disabled. Contact your administrator." — how do I add a new user?</summary>
+        <div class="faq-body">
+          <p>Registration is closed by design (<code class="inline">OPEN_REGISTRATION=false</code>). Set it to <code class="inline">true</code> in <code class="inline">.env</code>, recreate the API container so it picks up the change (<code class="inline">docker compose up -d --force-recreate qaasr-api</code> — a plain restart won't reload the env file), have the person register, then set it back to <code class="inline">false</code> and recreate the container again to close it.</p>
+        </div>
+      </details>
+
+      <details class="faq">
+        <summary>I lost the admin password / need to create the very first admin — there's no self-service way to become an admin</summary>
+        <div class="faq-body">
+          <p>There is no bootstrap admin seed beyond the one created at install time, and no in-app "promote to admin" action. Temporarily open registration (above), register a new account, then promote it directly in the database:</p>
+          <div class="code-wrap"><pre class="code">docker exec -it qaasr-postgres psql -U &lt;user&gt; -d &lt;db&gt; \
+  -c "UPDATE \"User\" SET \"globalRole\"='SUPER_ADMIN' WHERE email='you@example.com';"</pre></div>
+          <p>Close registration again afterwards.</p>
+        </div>
+      </details>
+
+      <details class="faq">
+        <summary><code class="inline">docker compose up</code> fails: "container name already in use"</summary>
+        <div class="faq-body">
+          <p>Usually means a previous deployment's containers are still running under a different Compose project name (Compose derives the project name from the current directory unless pinned). Check where the running container actually came from before touching anything:</p>
+          <div class="code-wrap"><pre class="code">docker inspect &lt;container&gt; --format '{{index .Config.Labels "com.docker.compose.project"}}'</pre></div>
+          <p>If it's genuinely stale and there's no data to lose, stop and remove the old containers, then bring the new stack up.</p>
+        </div>
+      </details>
+
+      <details class="faq">
+        <summary>The noVNC "watch tests run live" page won't load, or times out</summary>
+        <div class="faq-body">
+          <p>Two very different causes, so diagnose in order:</p>
+          <ol>
+            <li><b>Check the runner container itself</b> — <code class="inline">docker logs qaasr-runner</code>. If you see an x11vnc "Address already in use" crash, the VNC process is failing to bind (an application-level bug, already fixed in the current version's startup script).</li>
+            <li><b>If the app-level check is clean</b>, confirm it's reachable at all: <code class="inline">curl -v http://localhost:6080/vnc.html</code> from the server itself. If that succeeds but your browser still can't connect, it's a network/firewall block between your machine and the server (or a VDI egress policy blocking that specific port) — not an application bug. Compare against a port you know works (e.g. 3000) using the same test from your machine to isolate it.</li>
+          </ol>
+        </div>
+      </details>
+
+      <details class="faq">
+        <summary>The Script Editor is stuck on "Loading" and never shows the code</summary>
+        <div class="faq-body">
+          <p>The Monaco editor's assets were historically fetched from a public CDN at runtime — on networks where a firewall silently drops that CDN's traffic, the editor hangs forever with no visible error. The current version bundles Monaco directly into the app so it never depends on any CDN. If this resurfaces after a custom build, check for a reintroduced CDN dependency in the editor's loader configuration.</p>
+        </div>
+      </details>
+
+      <details class="faq">
+        <summary>I hot-patched a file into a running container but the fix doesn't seem to be applied</summary>
+        <div class="faq-body">
+          <p><code class="inline">docker cp</code>-ing a changed file into a container running a file-watcher (like <code class="inline">tsx watch</code>) can silently stop triggering restarts after repeated copies. Don't assume the copy worked — check the container logs or directly test the affected behaviour afterward. For anything beyond a trivial one-file fix, rebuild the image properly instead.</p>
+        </div>
+      </details>
+
+      <details class="faq">
+        <summary>A Suite run fails immediately with a 400 error</summary>
+        <div class="faq-body">
+          <p>Almost always stale data inside an old Suite definition — one of its saved test cases was deleted or its script changed since the suite was built. Recreate the suite (or re-add the affected stage) rather than debugging the old one.</p>
+        </div>
+      </details>
+
+      <details class="faq">
+        <summary>An automation script fails with a path error like <code class="inline">\\?\</code> or backslash-in-path</summary>
+        <div class="faq-body">
+          <p>That prefix is a Windows-only long-path convention that has no meaning on the Linux runner — the script (or whatever generated it) assumed a Windows execution environment. Replace hardcoded Windows-style paths with Robot Framework's own OS-aware separator, <code class="inline">${/}</code>, or a plain forward-slash join.</p>
+        </div>
+      </details>
+
+      <details class="faq">
+        <summary>I set the Threads stepper above 8 and the run won't start</summary>
+        <div class="faq-body">
+          <p>The stepper UI permits up to 16, but the API caps <code class="inline">parallelWorkers</code> at 8 and rejects anything higher. Keep it at 8 or below — see <a href="#concurrency">Controlling Parallelism</a>.</p>
+        </div>
+      </details>
+
+      <details class="faq">
+        <summary>Where do I open ports, and which ones actually matter?</summary>
+        <div class="faq-body">
+          <p>Only two ports are ever meant to be reached from outside the server: <b>3000</b> (the UI — always needed) and <b>6080</b> (noVNC live-browser view — only if you want people to watch tests run live). The API (<b>4000</b>), Postgres and Redis are intentionally not exposed beyond the Docker network / localhost and never need a firewall rule.</p>
+        </div>
+      </details>
+
+    </section>
+
+  </main>
+</div>
+
+<footer>QA Automation Suite Runner — internal documentation · 6D Technologies</footer>
+
+</body>
+</html>

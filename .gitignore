@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.next/
+local_artifacts/
+*.log
+qaasr-deploy.zip
+.env
+packages/api/prisma/*.db-journal
+
+# Deploy bundle — generated artifacts, never commit
+deploy-bundle/images/
+deploy-bundle/*.tar.gz
+deploy-bundle/*.sql
+deploy-bundle/docker-compose.yml
+*.tar
+qasr-dump.sql
+.deploy-tmp/
+
+# Project-specific ignores
+prod-deploy/
+Airtel_Ventas.zip
+cellcard-ventas-lab-Selinium-structured.zip
