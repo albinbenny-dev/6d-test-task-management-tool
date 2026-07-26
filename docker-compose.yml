@@ -1,11 +1,11 @@
 name: 6d-ttmt
 
 # ── Named volumes ──────────────────────────────────────────────────────────
+# Only Postgres needs persistent storage — ttmt-data/-scripts/-artifacts were
+# for automation features (Reports email config, RF script/artifact storage)
+# that aren't wired to any active route in this manual-testing-only build.
 volumes:
   ttmt-pgdata:
-  ttmt-data:
-  ttmt-scripts:
-  ttmt-artifacts:
 
 # ── Services ───────────────────────────────────────────────────────────────
 services:
@@ -98,17 +98,11 @@ services:
       - RUNNER_PRIMARY_URL=http://ttmt-runner:5001
       - RUNNER_REPLICAS=${RUNNER_REPLICAS:-1}
       - RUNNER_CONCURRENCY=${RUNNER_CONCURRENCY:-4}
-      - SCRIPTS_ROOT=/scripts
-      - ARTIFACTS_ROOT=/artifacts
     depends_on:
       ttmt-redis:
         condition: service_healthy
       ttmt-postgres:
         condition: service_healthy
-    volumes:
-      - ttmt-data:/data
-      - ttmt-scripts:/scripts
-      - ttmt-artifacts:/artifacts
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
       interval: 15s
@@ -147,9 +141,6 @@ services:
         condition: service_healthy
     ports:
       - "${VNC_HOST:-127.0.0.1}:6280:6080"
-    volumes:
-      - ttmt-scripts:/scripts
-      - ttmt-artifacts:/artifacts
     shm_size: '512m'
     extra_hosts:
       - "airtel6d-in-ventas-master-int-aavm-alpha-01.ocplab.6d.local:10.0.12.244"
