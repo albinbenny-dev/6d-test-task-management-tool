@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import Topbar, { TbBtn } from '../components/layout/Topbar';
 import { useProjects, useCreateProject, useCloneProject } from '../hooks/useProjects';
 import { useProjectStore } from '../stores/projectStore';
-import { formatRelativeTime, passRateBadgeClass, slugify, PROJECT_GRADIENTS } from '../lib/utils';
+import { formatRelativeTime, slugify, PROJECT_GRADIENTS } from '../lib/utils';
 import type { Project } from '../types';
 
 // ── Stat tile ──────────────────────────────────────────────────────────────
@@ -35,11 +35,8 @@ function ProjectCard({ project, onOpen }: { project: Project; onOpen: () => void
   const gradientIdx = project.id.charCodeAt(0) % PROJECT_GRADIENTS.length;
   const projectColor = project.color ?? PROJECT_GRADIENTS[gradientIdx];
 
-  const totalTests  = project._count?.testCases ?? 0;
-  const passing     = 0; // populated in later stages
-  const failing     = 0;
-  const heals       = 0;
-  const passRate    = totalTests > 0 ? Math.round((passing / totalTests) * 100) : null;
+  const totalTestCases = project._count?.tcItems ?? 0;
+  const totalMembers   = project._count?.members ?? 0;
 
   return (
     <div
@@ -112,9 +109,6 @@ function ProjectCard({ project, onOpen }: { project: Project; onOpen: () => void
         </div>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
           <span className="badge badge-cyan">Active</span>
-          {passRate !== null && (
-            <span className={`badge ${passRateBadgeClass(passRate)}`}>{passRate}%</span>
-          )}
         </div>
       </div>
 
@@ -138,16 +132,14 @@ function ProjectCard({ project, onOpen }: { project: Project; onOpen: () => void
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
+          gridTemplateColumns: 'repeat(2, 1fr)',
           gap: '8px',
           marginBottom: '14px',
         }}
       >
         {[
-          { label: 'Tests',   value: totalTests, color: 'var(--cyan)' },
-          { label: 'Passing', value: passing,    color: 'var(--pass)' },
-          { label: 'Failing', value: failing,    color: 'var(--fail)' },
-          { label: 'Heals',   value: heals,      color: 'var(--amber)' },
+          { label: 'Test Cases', value: totalTestCases, color: 'var(--cyan)' },
+          { label: 'Members',    value: totalMembers,   color: 'var(--violet)' },
         ].map((s) => (
           <div
             key={s.label}
@@ -167,12 +159,7 @@ function ProjectCard({ project, onOpen }: { project: Project; onOpen: () => void
       </div>
 
       {/* Footer */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', gap: '4px' }}>
-          <span className="tag tag-ui">ui</span>
-          <span className="tag tag-api">api</span>
-          <span className="tag tag-sit">sit</span>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-dim)' }}>
           Created {formatRelativeTime(project.createdAt)}
         </div>
@@ -192,7 +179,6 @@ function CreateProjectModal({
   const [name, setName]         = useState('');
   const [slug, setSlug]         = useState('');
   const [desc, setDesc]         = useState('');
-  const [baseUrl, setBaseUrl]   = useState('');
   const [colorIdx, setColorIdx] = useState(0);
 
   // Clone mode
@@ -240,7 +226,7 @@ function CreateProjectModal({
         });
         toast.success('Project cloned!');
         onOpenChange(false);
-        navigate(`/projects/${proj.slug}/dashboard`);
+        navigate(`/projects/${proj.slug}/test-cycles`);
       } catch (err: unknown) {
         const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Clone failed.';
         toast.error(msg);
@@ -252,12 +238,11 @@ function CreateProjectModal({
       const proj = await createProject.mutateAsync({
         name: name.trim(),
         description: desc.trim() || undefined,
-        baseUrl: baseUrl.trim() || undefined,
         color: PROJECT_GRADIENTS[colorIdx],
       });
       toast.success('Project created!');
       onOpenChange(false);
-      navigate(`/projects/${proj.slug}/dashboard`);
+      navigate(`/projects/${proj.slug}/test-cycles`);
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
@@ -487,32 +472,6 @@ function CreateProjectModal({
               </div>
               )}
 
-              {!cloneMode && (
-              <div>
-                <label
-                  style={{
-                    display: 'block',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '10px',
-                    fontWeight: 700,
-                    letterSpacing: '1.2px',
-                    textTransform: 'uppercase',
-                    color: 'var(--text-mid)',
-                    marginBottom: '6px',
-                  }}
-                >
-                  Base URL
-                </label>
-                <input
-                  className="input-field"
-                  value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder="https://app.example.com"
-                  style={{ fontFamily: 'var(--font-mono)' }}
-                />
-              </div>
-              )}
-
               <div>
                 <label
                   style={{
@@ -597,23 +556,22 @@ export default function GlobalProjects() {
     // navigation is handled by the <Link> wrapper on each card
   }
 
-  // TEST_USER has no Automation access, so the automation Dashboard is a
-  // dead end for them — land on My Assignments instead. Reads myRole off
-  // the project itself (from GET /projects), not the active-project store,
-  // since no project is "active" yet at this list.
+  // TEST_USER lands on My Assignments (their actionable work); everyone else
+  // lands on Test Cycles, the project's main surface now that there's no
+  // automation dashboard. Reads myRole off the project itself (from GET
+  // /projects), not the active-project store, since no project is "active"
+  // yet at this list.
   function landingPath(project: Project): string {
     const isGloballyElevated = currentUser?.globalRole === 'SUPER_ADMIN' || currentUser?.globalRole === 'ADMIN';
     const isTestUser = !isGloballyElevated && project.myRole === 'TEST_USER';
     return isTestUser
       ? `/projects/${project.slug}/test-cycles/assignments`
-      : `/projects/${project.slug}/dashboard`;
+      : `/projects/${project.slug}/test-cycles`;
   }
 
   const totalProjects = projects.length;
-  const openFailures  = 0; // requires run data — populated in Stage 5
-  const pendingHeals  = 0; // requires heal data — populated in Stage 6
-  const scheduledRuns = 0; // requires schedule data — populated in Stage 5
-  const passRate      = '--'; // requires run data
+  const totalTestCases = projects.reduce((sum, p) => sum + (p._count?.tcItems ?? 0), 0);
+  const totalMembers   = projects.reduce((sum, p) => sum + (p._count?.members ?? 0), 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -645,22 +603,20 @@ export default function GlobalProjects() {
         <div>
           <div className="page-eyebrow">Global overview</div>
           <h1 className="page-title">All Projects</h1>
-          <p className="page-sub">Manage and monitor all QA automation projects across your organization.</p>
+          <p className="page-sub">Manage and monitor all test &amp; task management projects across your organization.</p>
         </div>
 
         {/* Stats row */}
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(5, 1fr)',
+            gridTemplateColumns: 'repeat(3, 1fr)',
             gap: '12px',
           }}
         >
-          <StatTile label="Total Projects"  value={totalProjects} delta="Across all teams"    colorClass="sc-cyan"   />
-          <StatTile label="Avg Pass Rate"   value={passRate}      delta="↑ target ≥90%"       colorClass="sc-pass"   />
-          <StatTile label="Open Failures"   value={openFailures}  delta="Across all projects"  colorClass="sc-fail"   />
-          <StatTile label="Pending Heals"   value={pendingHeals}  delta="Awaiting approval"    colorClass="sc-skip"   />
-          <StatTile label="Scheduled Runs"  value={scheduledRuns} delta="Active schedules"     colorClass="sc-violet" />
+          <StatTile label="Total Projects"   value={totalProjects}  delta="Across all teams"        colorClass="sc-cyan"   />
+          <StatTile label="Total Test Cases" value={totalTestCases} delta="In TC Library"            colorClass="sc-pass"   />
+          <StatTile label="Team Members"     value={totalMembers}   delta="Across all projects"      colorClass="sc-violet" />
         </div>
 
         {/* Project grid */}

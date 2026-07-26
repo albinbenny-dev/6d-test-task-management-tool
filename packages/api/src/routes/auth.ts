@@ -73,7 +73,13 @@ router.post('/login', loginRateLimit, async (req: Request, res: Response) => {
 // POST /api/auth/register
 router.post('/register', async (req: Request, res: Response) => {
   try {
-    if (process.env.OPEN_REGISTRATION !== 'true') {
+    // The very first account on a fresh database bootstraps itself as
+    // SUPER_ADMIN and may register even when OPEN_REGISTRATION is off —
+    // there's no other self-serve way to get an admin onto a brand-new
+    // deploy. Every registration after that follows the normal gate.
+    const isFirstUser = (await prisma.user.count()) === 0;
+
+    if (process.env.OPEN_REGISTRATION !== 'true' && !isFirstUser) {
       res.status(403).json({ error: 'Registration is disabled. Contact your administrator.' });
       return;
     }
@@ -93,7 +99,7 @@ router.post('/register', async (req: Request, res: Response) => {
 
     const passwordHash = await bcrypt.hash(password, 12);
     const user = await prisma.user.create({
-      data: { email, name, passwordHash, globalRole: 'STANDARD_USER' },
+      data: { email, name, passwordHash, globalRole: isFirstUser ? 'SUPER_ADMIN' : 'STANDARD_USER' },
     });
 
     const token = generateToken({

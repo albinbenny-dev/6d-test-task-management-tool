@@ -2,16 +2,25 @@ import { Router, Request, Response, NextFunction, RequestHandler } from 'express
 import projectsRouter from './projects.js';
 import authRouter from './auth.js';
 import testCasesRouter from './testCases.js';
-import scriptsRouter from './scripts.js';
-import runsRouter from './runs.js';
-import reportsRouter from './reports.js';
-import suitesRouter from './suites.js';
 import adminRouter from './admin.js';
-import resourcesRouter from './resources.js';
 import tcItemsRouter from './tcItems.js';
 import testCyclesRouter from './testCycles.js';
 import jiraRouter from './jira.js';
+import taskListsRouter from './taskLists.js';
+import tasksRouter from './tasks.js';
+import personalTasksRouter from './personalTasks.js';
 import { verifyToken } from '../middleware/auth.js';
+
+// Automation routers (scripts/runs/suites/reports/resources) are unmounted
+// below — this deployment is manual testing + task management only, no
+// Robot Framework automation. The files and their Prisma models are left in
+// place (not deleted) so automation can be re-enabled later by uncommenting
+// the imports and router.use() calls below.
+// import scriptsRouter from './scripts.js';
+// import runsRouter from './runs.js';
+// import reportsRouter from './reports.js';
+// import suitesRouter from './suites.js';
+// import resourcesRouter from './resources.js';
 
 const router = Router();
 
@@ -30,23 +39,15 @@ router.use('/auth', authRouter);
 // ── Test Cases (Stage 4) ───────────────────────────────────────────────────
 router.use('/projects/:projectId/test-cases', testCasesRouter);
 
-// ── Scripts (Stage 6) ─────────────────────────────────────────────────────
-router.use('/projects/:projectId/scripts', scriptsRouter);
-
-// ── Runs (Stage 5) ────────────────────────────────────────────────────────
-router.use('/projects/:projectId/runs', runsRouter);
-
-// ── Reports (Stage 9) ─────────────────────────────────────────────────────
-router.use('/projects/:projectId/reports', reportsRouter);
-
-// ── Suites ────────────────────────────────────────────────────────────────
-router.use('/projects/:projectId/suites', suitesRouter);
+// ── Scripts / Runs / Reports / Suites / Resources — automation, disabled ──
+// router.use('/projects/:projectId/scripts', scriptsRouter);
+// router.use('/projects/:projectId/runs', runsRouter);
+// router.use('/projects/:projectId/reports', reportsRouter);
+// router.use('/projects/:projectId/suites', suitesRouter);
+// router.use('/projects/:projectId/resources', resourcesRouter);
 
 // ── Admin / platform-level ────────────────────────────────────────────────
 router.use('/admin', adminRouter);
-
-// ── Robot Framework resources ─────────────────────────────────────────────
-router.use('/projects/:projectId/resources', resourcesRouter);
 
 // ── TC Library items ──────────────────────────────────────────────────────
 router.use('/projects/:projectId/tc-items', tcItemsRouter);
@@ -54,5 +55,12 @@ router.use('/projects/:projectId/tc-items', tcItemsRouter);
 // ── Test Management — manual test cycles + Jira integration ───────────────
 router.use('/projects/:projectId/test-cycles', testCyclesRouter);
 router.use('/projects/:projectId/jira', jiraRouter);
+
+// ── Task Management — ClickUp-style project task tracking ─────────────────
+router.use('/projects/:projectId/task-lists', taskListsRouter);
+router.use('/projects/:projectId/tasks', tasksRouter);
+
+// ── Personal Tasks — private per-user to-do tracker, not project-scoped ───
+router.use('/personal-tasks', personalTasksRouter);
 
 export default router;

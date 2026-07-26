@@ -40,7 +40,7 @@ export default function StatTile({
         style={{
           fontSize: 28,
           fontWeight: 800,
-          color: '#F47B20',
+          color: 'var(--6d-orange)',
           lineHeight: 1,
           marginTop: 4,
         }}

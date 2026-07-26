@@ -1,24 +1,42 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { LogOut } from 'lucide-react';
+import {
+  LogOut, Globe, ShieldCheck, BookOpen, ClipboardList, FlaskConical,
+  BarChart3, UserCheck, ListChecks, Settings, ChevronDown, ListTodo,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
 import { clearAuth } from '../../lib/auth';
 import { getInitials, PROJECT_GRADIENTS } from '../../lib/utils';
-import { useSchedules } from '../../hooks/useRuns';
 import { useRBAC } from '../../hooks/useRBAC';
-import type { NavSection } from '../../types';
 
 interface SidebarProps {
   slug?: string;
 }
 
+interface NavEntry {
+  label: string;
+  path: string;
+  Icon: LucideIcon;
+  badge?: number;
+}
+
+interface NavGroup {
+  label: string;
+  items: NavEntry[];
+}
+
+// Manual testing + task management only — no automation section. See
+// App.tsx / routes/index.ts for the (disabled, not deleted) automation
+// routes this product used to expose.
 export default function Sidebar({ slug }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { activeProject, projects, currentUser, setCurrentUser } = useProjectStore();
   const [logoutHover, setLogoutHover] = useState(false);
+  const { canAccessSettings } = useRBAC();
 
   function handleLogout() {
     clearAuth();
@@ -26,41 +44,34 @@ export default function Sidebar({ slug }: SidebarProps) {
     qc.clear();
     navigate('/login', { replace: true });
   }
-  const projectId = activeProject?.id ?? '';
-  const { canAccessScriptEditor, canAccessSettings, canAccessAutomationSection } = useRBAC();
-  const { data: schedules = [] } = useSchedules(projectId || undefined);
-  const activeScheduleCount = schedules.filter((s) => s.isActive).length;
 
-  const navSections: NavSection[] = slug
+  const navGroups: NavGroup[] = slug
     ? [
+        {
+          label: 'My Work',
+          items: [
+            { label: 'My Work', path: `/projects/${slug}/my-work`, Icon: UserCheck },
+          ],
+        },
         {
           label: 'Test Management',
           items: [
-            { label: 'TC Library', path: `/projects/${slug}/test-cases`, icon: '📋', badge: activeProject?._count?.tcItems ?? undefined, badgeVariant: 'blue' },
-            { label: 'Test Cycle', path: `/projects/${slug}/test-cycles`, icon: '🧪' },
-            { label: 'Test Dashboard', path: `/projects/${slug}/test-cycles/dashboard`, icon: '📊' },
-            { label: 'My Assignments', path: `/projects/${slug}/test-cycles/assignments`, icon: '🗂' },
+            { label: 'TC Library', path: `/projects/${slug}/test-cases`, Icon: ClipboardList, badge: activeProject?._count?.tcItems ?? undefined },
+            { label: 'Test Cycles', path: `/projects/${slug}/test-cycles`, Icon: FlaskConical },
+            { label: 'Test Dashboard', path: `/projects/${slug}/test-cycles/dashboard`, Icon: BarChart3 },
           ],
         },
-        ...(canAccessAutomationSection
-          ? ([{
-              label: 'Automation',
-              items: [
-                { label: 'Dashboard', path: `/projects/${slug}/dashboard`, icon: '▦' },
-                ...(canAccessScriptEditor ? [{ label: 'Script Editor', path: `/projects/${slug}/scripts`, icon: '⌨' }] : []),
-                { label: 'Script Library', path: `/projects/${slug}/tc-library`, icon: '📂', badge: activeProject?._count?.testCases ?? undefined, badgeVariant: 'green' },
-                { label: 'Execution', path: `/projects/${slug}/execution`, icon: '▶' },
-                { label: 'Scheduler', path: `/projects/${slug}/scheduler`, icon: '⏰', badge: activeScheduleCount || undefined, badgeVariant: 'blue' },
-                { label: 'Reports', path: `/projects/${slug}/reports`, icon: '📈' },
-              ],
-            }] as NavSection[])
-          : []),
+        {
+          label: 'Task Management',
+          items: [
+            { label: 'Task Lists', path: `/projects/${slug}/tasks`, Icon: ListChecks },
+            { label: 'Task Dashboard', path: `/projects/${slug}/tasks/dashboard`, Icon: BarChart3 },
+          ],
+        },
         ...(canAccessSettings
           ? [{
-              label: 'Project Tools',
-              items: [
-                { label: 'Settings', path: `/projects/${slug}/settings`, icon: '⚙' },
-              ],
+              label: 'Project',
+              items: [{ label: 'Settings', path: `/projects/${slug}/settings`, Icon: Settings }],
             }]
           : []),
       ]
@@ -76,7 +87,7 @@ export default function Sidebar({ slug }: SidebarProps) {
   return (
     <aside
       style={{
-        width: '220px',
+        width: '216px',
         flexShrink: 0,
         background: 'var(--surface)',
         borderRight: '1px solid var(--border)',
@@ -101,12 +112,12 @@ export default function Sidebar({ slug }: SidebarProps) {
               style={{
                 width: '32px',
                 height: '32px',
-                borderRadius: '8px',
+                borderRadius: '10px',
                 background: projectColor,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: '14px',
+                fontSize: '13px',
                 flexShrink: 0,
                 color: '#fff',
                 fontWeight: 700,
@@ -137,22 +148,14 @@ export default function Sidebar({ slug }: SidebarProps) {
                   letterSpacing: '0.5px',
                 }}
               >
-                {activeProject._count?.testCases ?? 0} tests
+                {activeProject._count?.tcItems ?? 0} test cases
               </div>
             </div>
-            <span style={{ color: 'var(--text-dim)', fontSize: '11px' }}>⌄</span>
+            <ChevronDown size={13} color="var(--text-dim)" />
           </div>
         ) : (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              color: 'var(--text-dim)',
-              fontSize: '12px',
-            }}
-          >
-            <span style={{ fontSize: '16px' }}>∞</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-dim)', fontSize: '12px' }}>
+            <Globe size={16} />
             <span>No project selected</span>
           </div>
         )}
@@ -160,168 +163,94 @@ export default function Sidebar({ slug }: SidebarProps) {
 
       {/* All Projects link */}
       <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
-        <Link
-          to="/projects"
-          className={`nav-item${location.pathname === '/projects' ? ' active' : ''}`}
-        >
-          <span className="nav-icon">🌐</span>
+        <Link to="/projects" className={`nav-item${location.pathname === '/projects' ? ' active' : ''}`}>
+          <span className="nav-icon"><Globe size={16} /></span>
           All Projects
           {projects.length > 0 && (
-            <span className="nav-badge blue" style={{ marginLeft: 'auto' }}>
-              {projects.length}
-            </span>
+            <span className="nav-badge blue" style={{ marginLeft: 'auto' }}>{projects.length}</span>
           )}
         </Link>
+        <Link to="/personal-tasks" className={`nav-item${location.pathname === '/personal-tasks' ? ' active' : ''}`}>
+          <span className="nav-icon"><ListTodo size={16} /></span>
+          Personal Tasks
+        </Link>
         {currentUser?.globalRole === 'SUPER_ADMIN' && (
-          <Link
-            to="/admin/users"
-            className={`nav-item${location.pathname === '/admin/users' ? ' active' : ''}`}
-          >
-            <span className="nav-icon">👤</span>
+          <Link to="/admin/users" className={`nav-item${location.pathname === '/admin/users' ? ' active' : ''}`}>
+            <span className="nav-icon"><ShieldCheck size={16} /></span>
             User Management
-            <span className="nav-badge" style={{ marginLeft: 'auto', background: 'rgba(244,123,32,0.2)', color: 'var(--6d-orange)', fontSize: '8px', padding: '1px 5px' }}>
+            <span className="nav-badge" style={{ marginLeft: 'auto', background: 'var(--violet-dim)', color: 'var(--violet)', fontSize: '8px', padding: '1px 5px' }}>
               ADMIN
             </span>
           </Link>
         )}
-        <a
-          href="/user-guide.html"
-          download="QA Automation Suite Runner — Deployment & User Guide.html"
+        {/* Disabled until the guide content is refreshed to match the
+            current app — swap this back to the download <a> once it's updated. */}
+        <span
           className="nav-item"
+          title="User guide is being updated — check back soon"
+          style={{ cursor: 'default', color: 'var(--text-dim)', opacity: 0.5 }}
         >
-          <span className="nav-icon">📖</span>
+          <span className="nav-icon"><BookOpen size={16} /></span>
           User Guide
-        </a>
+        </span>
       </div>
 
-      {/* Nav sections */}
-      <nav
-        style={{
-          flex: 1,
-          padding: '8px 10px',
-          overflowY: 'auto',
-        }}
-      >
-        {navSections.map((section) => (
-          <div key={section.label}>
-            <div className="nav-section-label">{section.label}</div>
-            {section.items.map((item) => (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`nav-item${isActive(item.path) ? ' active' : ''}`}
-              >
-                <span className="nav-icon">{item.icon}</span>
+      {/* Nav groups */}
+      <nav style={{ flex: 1, padding: '8px 10px', overflowY: 'auto' }}>
+        {navGroups.map((group) => (
+          <div key={group.label}>
+            <div className="nav-section-label">{group.label}</div>
+            {group.items.map((item) => (
+              <Link key={item.path} to={item.path} className={`nav-item${isActive(item.path) ? ' active' : ''}`}>
+                <span className="nav-icon"><item.Icon size={16} /></span>
                 <span style={{ flex: 1 }}>{item.label}</span>
-                {item.badge !== undefined && (
-                  <span
-                    className={`nav-badge${item.badgeVariant === 'green' ? ' green' : item.badgeVariant === 'blue' ? ' blue' : ''}`}
-                  >
-                    {item.badge}
-                  </span>
-                )}
+                {item.badge !== undefined && <span className="nav-badge blue">{item.badge}</span>}
               </Link>
             ))}
           </div>
         ))}
 
         {!slug && (
-          <div
-            style={{
-              padding: '20px 10px',
-              textAlign: 'center',
-              color: 'var(--text-dim)',
-              fontSize: '11px',
-              fontFamily: 'var(--font-mono)',
-            }}
-          >
+          <div style={{ padding: '20px 10px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
             Select a project to see<br />its navigation
           </div>
         )}
       </nav>
 
       {/* User widget + logout */}
-      <div
-        style={{
-          padding: '10px 10px',
-          borderTop: '1px solid var(--border)',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '7px 8px',
-            borderRadius: 'var(--radius)',
-            background: 'transparent',
-          }}
-        >
-          {/* Avatar */}
+      <div style={{ padding: '10px 10px', borderTop: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 8px', borderRadius: 'var(--radius)', background: 'transparent' }}>
           <div
             style={{
-              width: '28px',
-              height: '28px',
-              borderRadius: '50%',
+              width: '28px', height: '28px', borderRadius: '50%',
               background: 'linear-gradient(135deg, var(--violet), var(--cyan))',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '11px',
-              fontWeight: 700,
-              color: '#fff',
-              flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '11px', fontWeight: 700, color: '#fff', flexShrink: 0,
             }}
           >
             {currentUser ? getInitials(currentUser.name) : 'U'}
           </div>
 
-          {/* Name + role */}
           <div style={{ flex: 1, overflow: 'hidden' }}>
-            <div
-              style={{
-                fontSize: '12px',
-                fontWeight: 600,
-                color: 'var(--text)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
+            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {currentUser?.name ?? 'Guest'}
             </div>
-            <div
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: '9px',
-                color: 'var(--text-dim)',
-                letterSpacing: '1px',
-                textTransform: 'uppercase',
-              }}
-            >
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-dim)', letterSpacing: '1px', textTransform: 'uppercase' }}>
               {currentUser?.globalRole?.replace('_', ' ') ?? 'User'}
             </div>
           </div>
 
-          {/* Logout button */}
           <button
             onClick={handleLogout}
             onMouseEnter={() => setLogoutHover(true)}
             onMouseLeave={() => setLogoutHover(false)}
             title="Sign out"
             style={{
-              flexShrink: 0,
-              width: '28px',
-              height: '28px',
-              borderRadius: '7px',
-              border: `1px solid ${logoutHover ? 'rgba(220,38,38,0.4)' : 'var(--border)'}`,
-              background: logoutHover ? 'rgba(220,38,38,0.10)' : 'transparent',
+              flexShrink: 0, width: '28px', height: '28px', borderRadius: '7px',
+              border: `1px solid ${logoutHover ? 'rgba(225,29,72,0.4)' : 'var(--border)'}`,
+              background: logoutHover ? 'rgba(225,29,72,0.10)' : 'transparent',
               color: logoutHover ? 'var(--fail)' : 'var(--text-dim)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'all 0.15s',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s',
             }}
           >
             <LogOut size={14} />

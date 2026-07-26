@@ -9,7 +9,10 @@ import { prisma } from '../lib/prisma.js';
  *
  * Attaches:
  *   req.project       — the found Project row
- *   req.projectMember — the ProjectMember row (undefined for SUPER_ADMIN)
+ *   req.projectMember — the caller's real ProjectMember row, if one exists
+ *                       (undefined for a SUPER_ADMIN/ADMIN with no actual
+ *                       membership row — they still pass via bypass, but
+ *                       have no project-specific role to read)
  *
  * Returns:
  *   404  Project not found
@@ -37,26 +40,25 @@ export async function requireProjectAccess(
       return;
     }
 
-    // SUPER_ADMIN and ADMIN bypass membership check
-    if (bypassesMembership) {
-      req.project = project;
-      next();
-      return;
-    }
-
+    // Look up real membership regardless of bypass status — a global
+    // SUPER_ADMIN/ADMIN who *also* happens to be a real project member (e.g.
+    // the project creator) should still get their actual ProjectMember row
+    // attached, so downstream role checks that read req.projectMember.role
+    // (rather than re-deriving admin-ness from globalRole) see accurate data
+    // instead of silently treating them as memberless.
     const member = await prisma.projectMember.findUnique({
       where: {
         projectId_userId: { projectId: project.id, userId },
       },
     });
 
-    if (!member) {
+    if (!member && !bypassesMembership) {
       res.status(403).json({ error: 'You do not have access to this project' });
       return;
     }
 
     req.project = project;
-    req.projectMember = member;
+    req.projectMember = member ?? undefined;
     next();
   } catch (err) {
     next(err);

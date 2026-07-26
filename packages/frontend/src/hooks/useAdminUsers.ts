@@ -10,13 +10,14 @@ export interface AdminUser {
   _count: { memberships: number };
 }
 
-export function useAdminUsers() {
+export function useAdminUsers(enabled = true) {
   return useQuery({
     queryKey: ['admin-users'],
     queryFn: async () => {
       const res = await api.get<{ users: AdminUser[] }>('/admin/users');
       return res.data.users;
     },
+    enabled,
   });
 }
 

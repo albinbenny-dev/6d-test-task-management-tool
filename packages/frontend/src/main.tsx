@@ -5,7 +5,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import App from './App';
 import './styles/globals.css';
-import './lib/monacoSetup';
+// Monaco (used only by the removed Script Editor) is no longer loaded
+// globally — see packages/frontend/src/lib/monacoSetup.ts.
 
 const queryClient = new QueryClient({
   defaultOptions: {

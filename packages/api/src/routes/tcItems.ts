@@ -6,28 +6,15 @@ import { verifyToken } from '../middleware/auth.js';
 import { requireProjectAccess } from '../middleware/projectAccess.js';
 import { requireAdvancedFeatures, blockAutomationAccess } from '../middleware/rbac.js';
 
+// TC Library — manual test cases (TcItem). This is a manual-testing-only
+// tool, so there is no script/automation linkage here: no RF Script ID
+// import matching, no automation-scope flag, no link-to-script actions.
+
 const router = Router({ mergeParams: true });
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 router.use(verifyToken as RequestHandler);
 router.use(requireProjectAccess as unknown as RequestHandler);
-
-// ── GET /stats ─────────────────────────────────────────────────────────────
-router.get('/stats', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { projectId } = req.params;
-    const [total, linked, notApplicable] = await Promise.all([
-      prisma.tcItem.count({ where: { projectId } }),
-      prisma.tcItem.count({ where: { projectId, linkedScriptId: { not: null }, automationStatus: 'IN_SCOPE' } }),
-      prisma.tcItem.count({ where: { projectId, automationStatus: 'NOT_APPLICABLE' } }),
-    ]);
-    const inScope = total - notApplicable;
-    const unlinked = inScope - linked;
-    res.json({ total, linked, unlinked, notApplicable, inScope });
-  } catch (err) {
-    next(err);
-  }
-});
 
 // ── GET / ──────────────────────────────────────────────────────────────────
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
@@ -46,9 +33,6 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
             { feature: { contains: search, mode: 'insensitive' } },
           ],
         } : {}),
-      },
-      include: {
-        linkedScript: { select: { id: true, tcId: true, title: true, useCaseTag: true } },
       },
       orderBy: [{ module: 'asc' }, { srNo: 'asc' }, { createdAt: 'asc' }],
     });
@@ -79,7 +63,6 @@ router.post('/', blockAutomationAccess as RequestHandler, async (req: Request, r
         steps: steps || undefined,
         expectedResult: expectedResult || undefined,
       },
-      include: { linkedScript: { select: { id: true, tcId: true, title: true, useCaseTag: true } } },
     });
     res.status(201).json({ item });
   } catch (err) {
@@ -87,12 +70,11 @@ router.post('/', blockAutomationAccess as RequestHandler, async (req: Request, r
   }
 });
 
-// ── PATCH /:id — handles edit + single-item link + single-item scope toggle
-// in one route; TEST_USER may not do any of these (read-only). ─────────────
+// ── PATCH /:id — edit; TEST_USER may not (read-only) ───────────────────────
 router.patch('/:id', blockAutomationAccess as RequestHandler, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { projectId, id } = req.params;
-    const { srNo, module: mod, feature, title, description, steps, expectedResult, linkedScriptId, automationStatus } = req.body as Record<string, string | null>;
+    const { srNo, module: mod, feature, title, description, steps, expectedResult, labels } = req.body as Record<string, unknown>;
 
     const existing = await prisma.tcItem.findFirst({ where: { id, projectId } });
     if (!existing) { res.status(404).json({ error: 'Not found' }); return; }
@@ -100,17 +82,15 @@ router.patch('/:id', blockAutomationAccess as RequestHandler, async (req: Reques
     const item = await prisma.tcItem.update({
       where: { id },
       data: {
-        ...(srNo !== undefined ? { srNo: srNo || null } : {}),
-        ...(mod !== undefined ? { module: mod || null } : {}),
-        ...(feature !== undefined ? { feature: feature || null } : {}),
+        ...(srNo !== undefined ? { srNo: (srNo as string) || null } : {}),
+        ...(mod !== undefined ? { module: (mod as string) || null } : {}),
+        ...(feature !== undefined ? { feature: (feature as string) || null } : {}),
         ...(title !== undefined ? { title: (title as string).trim() } : {}),
-        ...(description !== undefined ? { description: description || null } : {}),
-        ...(steps !== undefined ? { steps: steps || null } : {}),
-        ...(expectedResult !== undefined ? { expectedResult: expectedResult || null } : {}),
-        ...(linkedScriptId !== undefined ? { linkedScriptId: linkedScriptId || null } : {}),
-        ...(automationStatus !== undefined ? { automationStatus: automationStatus || 'IN_SCOPE' } : {}),
+        ...(description !== undefined ? { description: (description as string) || null } : {}),
+        ...(steps !== undefined ? { steps: (steps as string) || null } : {}),
+        ...(expectedResult !== undefined ? { expectedResult: (expectedResult as string) || null } : {}),
+        ...(labels !== undefined ? { labels: JSON.stringify(Array.isArray(labels) ? labels : []) } : {}),
       },
-      include: { linkedScript: { select: { id: true, tcId: true, title: true, useCaseTag: true } } },
     });
     res.json({ item });
   } catch (err) {
@@ -167,94 +147,65 @@ router.post('/bulk-move-feature', blockAutomationAccess as RequestHandler, async
   }
 });
 
-// ── POST /bulk-link-script — TEST_USER may not link test cases to scripts ──
-router.post('/bulk-link-script', blockAutomationAccess as RequestHandler, async (req: Request, res: Response, next: NextFunction) => {
+// ── POST /bulk-add-label — add one label to every selected TC's label set
+// (no duplicates); TEST_USER may not mutate TC Library. ────────────────────
+router.post('/bulk-add-label', blockAutomationAccess as RequestHandler, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { projectId } = req.params;
-    const { ids, testCaseId } = req.body as { ids: string[]; testCaseId: string | null };
+    const { ids, label } = req.body as { ids: string[]; label: string };
     if (!Array.isArray(ids) || ids.length === 0) {
       res.status(400).json({ error: 'ids array required' });
       return;
     }
-    const { count } = await prisma.tcItem.updateMany({
-      where: { projectId, id: { in: ids } },
-      data: { linkedScriptId: testCaseId ?? null },
-    });
-    res.json({ updated: count });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// ── POST /bulk-set-automation-status — TEST_USER may not mark scope/unscope ─
-router.post('/bulk-set-automation-status', blockAutomationAccess as RequestHandler, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { projectId } = req.params;
-    const { ids, automationStatus } = req.body as { ids: string[]; automationStatus: string };
-    if (!Array.isArray(ids) || ids.length === 0) { res.status(400).json({ error: 'ids array required' }); return; }
-    if (!['IN_SCOPE', 'NOT_APPLICABLE'].includes(automationStatus)) {
-      res.status(400).json({ error: 'automationStatus must be IN_SCOPE or NOT_APPLICABLE' }); return;
+    const trimmed = label?.trim();
+    if (!trimmed) {
+      res.status(400).json({ error: 'label is required' });
+      return;
     }
-    const { count } = await prisma.tcItem.updateMany({
-      where: { projectId, id: { in: ids } },
-      data: { automationStatus },
-    });
-    res.json({ updated: count });
+    const items = await prisma.tcItem.findMany({ where: { projectId, id: { in: ids } }, select: { id: true, labels: true } });
+    await Promise.all(items.map((item) => {
+      let existing: string[] = [];
+      try { existing = JSON.parse(item.labels); } catch { /* corrupted row — start fresh */ }
+      if (existing.includes(trimmed)) return Promise.resolve();
+      return prisma.tcItem.update({ where: { id: item.id }, data: { labels: JSON.stringify([...existing, trimmed]) } });
+    }));
+    res.json({ updated: items.length });
   } catch (err) {
     next(err);
   }
 });
 
-// ── GET /export — download all TcItems as Excel ──────────────────────────
-router.get('/export', async (req: Request, res: Response, next: NextFunction) => {
+// ── POST /export — download TcItems as Excel. Body may include `ids` to
+// export only a filtered/selected subset; omit it to export everything. ───
+router.post('/export', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { projectId } = req.params;
+    const { ids } = (req.body ?? {}) as { ids?: string[] };
 
     const items = await prisma.tcItem.findMany({
-      where: { projectId },
-      include: {
-        linkedScript: { select: { id: true, tcId: true, title: true } },
-      },
+      where: { projectId, ...(Array.isArray(ids) && ids.length > 0 ? { id: { in: ids } } : {}) },
       orderBy: [{ module: 'asc' }, { srNo: 'asc' }, { createdAt: 'asc' }],
     });
 
-    // Also fetch Script records to resolve the .robot filename for linked scripts
-    const linkedScriptIds = [...new Set(items.map((i) => i.linkedScriptId).filter(Boolean))] as string[];
-    const scriptFilenames = new Map<string, string>(); // testCaseId → Script.filename
-    if (linkedScriptIds.length > 0) {
-      const scripts = await prisma.script.findMany({
-        where: { projectId, testCaseId: { in: linkedScriptIds } },
-        select: { testCaseId: true, filename: true },
-      });
-      for (const s of scripts) {
-        if (s.testCaseId) {
-          const basename = s.filename.includes('/') ? s.filename.split('/').pop()! : s.filename;
-          scriptFilenames.set(s.testCaseId, basename);
-        }
-      }
-    }
+    const headers = ['Test Case ID', 'Module', 'Feature', 'Test Case Title', 'Test Case Description', 'Steps', 'Expected Result', 'Labels'];
 
-    const headers = [
-      'Test Case ID', 'Module', 'Feature', 'Test Case Title',
-      'Test Case Description', 'Steps', 'Expected Result',
-      'Automation Scope', 'RF Script ID', 'Script Title',
-    ];
-
-    const rows = items.map((item) => ({
-      'Test Case ID':          item.srNo ?? '',
-      'Module':                item.module ?? '',
-      'Feature':               item.feature ?? '',
-      'Test Case Title':       item.title,
-      'Test Case Description': item.description ?? '',
-      'Steps':                 item.steps ?? '',
-      'Expected Result':       item.expectedResult ?? '',
-      'Automation Scope':      item.automationStatus === 'NOT_APPLICABLE' ? 'No' : 'Yes',
-      'RF Script ID':          item.linkedScriptId ? (scriptFilenames.get(item.linkedScriptId) ?? '') : '',
-      'Script Title':          item.linkedScript?.title ?? '',
-    }));
+    const rows = items.map((item) => {
+      let labels: string[] = [];
+      try { labels = JSON.parse(item.labels); } catch { /* corrupted row — skip */ }
+      return {
+        'Test Case ID':          item.srNo ?? '',
+        'Module':                item.module ?? '',
+        'Feature':               item.feature ?? '',
+        'Test Case Title':       item.title,
+        'Test Case Description': item.description ?? '',
+        'Steps':                 item.steps ?? '',
+        'Expected Result':       item.expectedResult ?? '',
+        'Labels':                labels.join(', '),
+      };
+    });
 
     const ws = xlsx.utils.json_to_sheet(rows, { header: headers });
-    ws['!cols'] = [14, 18, 28, 40, 50, 60, 50, 16, 40, 40].map((w) => ({ wch: w }));
+    ws['!cols'] = [14, 18, 28, 40, 50, 60, 50, 24].map((w) => ({ wch: w }));
     const wb = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(wb, ws, 'TC Library');
     const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
@@ -270,7 +221,7 @@ router.get('/export', async (req: Request, res: Response, next: NextFunction) =>
 // ── GET /template — download Excel import template ────────────────────────
 router.get('/template', (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const headers = ['Test Case ID', 'Module', 'Feature', 'Test Case Title', 'Test Case Description', 'Step', 'Expected Result', 'Automation Scope', 'RF Script ID'];
+    const headers = ['Test Case ID', 'Module', 'Feature', 'Test Case Title', 'Test Case Description', 'Step', 'Expected Result'];
     const samples = [
       {
         'Test Case ID': 'AIR-TC-001',
@@ -280,13 +231,11 @@ router.get('/template', (_req: Request, res: Response, next: NextFunction) => {
         'Test Case Description': 'Admin User / User with privilege can Modify the Geo Hierarchy',
         'Step': '1. Admin or user with privileges will login to CPM UI\n2. User navigates to Geo Hierarchy',
         'Expected Result': 'Admin User / User with privilege should be able to modify the Geo Hierarchy.',
-        'Automation Scope': 'Yes',
-        'RF Script ID': 'TC01_Modify_Geo_Hierarchy.robot',
       },
     ];
 
     const ws = xlsx.utils.json_to_sheet(samples, { header: headers });
-    ws['!cols'] = [14, 20, 25, 40, 50, 60, 50, 16, 16].map((w) => ({ wch: w }));
+    ws['!cols'] = [14, 20, 25, 40, 50, 60, 50].map((w) => ({ wch: w }));
     const wb = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(wb, ws, 'Test Cases');
     const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
@@ -300,15 +249,12 @@ router.get('/template', (_req: Request, res: Response, next: NextFunction) => {
 });
 
 // ── GET /:id — single test case, full detail ───────────────────────────────
-// Registered after every other static-segment GET route (/stats, /export,
-// /template) so :id can't shadow them.
+// Registered after every other static-segment GET/POST route (export,
+// template, bulk-*) so :id can't shadow them.
 router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { projectId, id } = req.params;
-    const item = await prisma.tcItem.findFirst({
-      where: { id, projectId },
-      include: { linkedScript: { select: { id: true, tcId: true, title: true, useCaseTag: true } } },
-    });
+    const item = await prisma.tcItem.findFirst({ where: { id, projectId } });
     if (!item) { res.status(404).json({ error: 'Test case not found' }); return; }
     res.json({ item });
   } catch (err) {
@@ -316,8 +262,8 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-// ── POST /import — parse Excel and bulk-create TcItems — same restriction
-// as delete above. ─────────────────────────────────────────────────────────
+// ── POST /import — parse Excel and bulk-create/update TcItems — same
+// restriction as delete above. ──────────────────────────────────────────────
 router.post('/import', requireAdvancedFeatures as RequestHandler, upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { projectId } = req.params;
@@ -343,8 +289,6 @@ router.post('/import', requireAdvancedFeatures as RequestHandler, upload.single(
     const descKeys     = ['test case description', 'description', 'objective', 'desc'];
     const stepsKeys    = ['step', 'steps', 'test steps', 'test step'];
     const expectedKeys = ['expected result', 'expected results', 'expected outcome', 'expected'];
-    const rfScriptKeys      = ['rf script id', 'rfscriptid', 'rf_script_id', 'script id', 'scriptid', 'rf script', 'rfscript'];
-    const automationScopeKeys = ['automation scope', 'automationscope', 'automation_scope', 'include in automation', 'eligible for automation'];
 
     // Collect rows from ALL sheets so multi-sheet workbooks are fully imported
     const allRows: Record<string, unknown>[] = [];
@@ -363,7 +307,6 @@ router.post('/import', requireAdvancedFeatures as RequestHandler, upload.single(
     type RawRow = {
       projectId: string; srNo: string | null; module: string | null; feature: string | null;
       title: string; description: string | null; steps: string | null; expectedResult: string | null;
-      automationStatus: string; _rfScriptId: string | null;
     };
 
     let skippedEmpty = 0;
@@ -382,9 +325,6 @@ router.post('/import', requireAdvancedFeatures as RequestHandler, upload.single(
         lastFeature = feature;
         lastTitle   = title;
 
-        const scopeRaw = findVal(row, automationScopeKeys).toLowerCase();
-        const automationStatus = ['no', 'n', 'false', '0'].includes(scopeRaw) ? 'NOT_APPLICABLE' : 'IN_SCOPE';
-
         return {
           projectId,
           srNo:             tcId || null,
@@ -394,8 +334,6 @@ router.post('/import', requireAdvancedFeatures as RequestHandler, upload.single(
           description:      findVal(row, descKeys)     || null,
           steps:            findVal(row, stepsKeys)    || null,
           expectedResult:   findVal(row, expectedKeys) || null,
-          automationStatus,
-          _rfScriptId:      findVal(row, rfScriptKeys) || null,
         };
       })
       .filter(Boolean) as RawRow[];
@@ -442,77 +380,22 @@ router.post('/import', requireAdvancedFeatures as RequestHandler, upload.single(
       }
     }
 
-    // Resolve RF Script column values → TestCase.id (linkedScriptId FK target)
-    // Primary: Script.filename match (stable — what resources put in the sheet)
-    // Fallback: TestCase.tcId match for backwards compatibility
-    const allRows2 = [...toInsert, ...toUpdate];
-    const rfValues = [...new Set(allRows2.map((d) => d._rfScriptId).filter(Boolean))] as string[];
-    const scriptMap = new Map<string, string>(); // rfValue → TestCase.id
-    if (rfValues.length > 0) {
-      const scriptsByFilename = await prisma.script.findMany({
-        where: {
-          projectId,
-          OR: rfValues.flatMap((v) => [
-            { filename: v },
-            { filename: { endsWith: '/' + v } },
-          ]),
-        },
-        select: { filename: true, testCaseId: true },
-      });
-      for (const s of scriptsByFilename) {
-        if (s.testCaseId) {
-          const basename = s.filename.includes('/') ? s.filename.split('/').pop()! : s.filename;
-          scriptMap.set(basename, s.testCaseId);
-          scriptMap.set(s.filename, s.testCaseId);
-        }
-      }
-      const unmapped = rfValues.filter((v) => !scriptMap.has(v));
-      if (unmapped.length > 0) {
-        const tcsByTcId = await prisma.testCase.findMany({
-          where: { projectId, tcId: { in: unmapped } },
-          select: { id: true, tcId: true },
-        });
-        for (const tc of tcsByTcId) scriptMap.set(tc.tcId, tc.id);
-      }
+    if (toInsert.length > 0) {
+      await prisma.tcItem.createMany({ data: toInsert });
     }
 
-    // Insert new rows
-    const insertData = toInsert.map(({ _rfScriptId, ...rest }) => ({
-      ...rest,
-      linkedScriptId: _rfScriptId ? (scriptMap.get(_rfScriptId) ?? null) : null,
-    }));
-    if (insertData.length > 0) {
-      await prisma.tcItem.createMany({ data: insertData });
-    }
-
-    // Update existing rows (upsert — overwrite all mutable fields)
     await Promise.all(
-      toUpdate.map(({ _rfScriptId, _existingId, ...rest }) =>
-        prisma.tcItem.update({
-          where: { id: _existingId },
-          data: {
-            ...rest,
-            linkedScriptId: _rfScriptId ? (scriptMap.get(_rfScriptId) ?? null) : null,
-          },
-        })
-      )
+      toUpdate.map(({ _existingId, ...rest }) =>
+        prisma.tcItem.update({ where: { id: _existingId }, data: rest }),
+      ),
     );
 
-    const rfNotFound = rfValues.filter((v) => !scriptMap.has(v));
-    const totalLinked = [...insertData, ...toUpdate].filter((d) => {
-      const rf = d._rfScriptId ?? null;
-      return rf ? scriptMap.has(rf) : false;
-    }).length;
-
     res.status(201).json({
-      imported:      insertData.length,
+      imported:      toInsert.length,
       updated:       toUpdate.length,
-      linked:        totalLinked,
       skippedEmpty,
       duplicateRows,
-      rfNotFound,
       totalRows:     allRows.length,
-      alreadyExists: 0,
     });
   } catch (err) {
     next(err);

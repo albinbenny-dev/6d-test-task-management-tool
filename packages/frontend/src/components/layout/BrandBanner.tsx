@@ -1,4 +1,5 @@
 import { useProjectStore } from '../../stores/projectStore';
+import { AppMark } from '../ui/AppMark';
 
 export default function BrandBanner() {
   const { theme, toggleTheme, activeProject } = useProjectStore();
@@ -8,21 +9,17 @@ export default function BrandBanner() {
     <header className="brand-banner-top">
       {/* Left: identity */}
       <div className="bb-left">
-        <span className="bb-icon">∞</span>
+        <span className="bb-icon"><AppMark size={22} /></span>
         <div className="bb-text">
-          <div className="bb-subtitle">Test Automation Platform</div>
-          <div className="bb-title">QA Automation Suite Runner</div>
+          <div className="bb-subtitle">Test &amp; Task Management</div>
+          <div className="bb-title">6D Test &amp; Task Management Tool</div>
         </div>
       </div>
 
       {/* Center: project context */}
       <div className="bb-center">
         {activeProject ? (
-          <>
-            <span className="bb-proj">{activeProject.name}</span>
-            <span className="bb-sep">·</span>
-            <span className="bb-env">{activeProject.baseUrl ?? 'localhost'}</span>
-          </>
+          <span className="bb-proj">{activeProject.name}</span>
         ) : (
           <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px' }}>
             Select a project to begin

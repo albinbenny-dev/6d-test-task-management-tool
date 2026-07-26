@@ -31,6 +31,9 @@ const CreateTestCycleSchema = z.object({
   // Lead-provided Drive folder link for tester-uploaded artifacts — free-text,
   // not validated as a real Drive URL (mirrors jiraJql's hand-tuned, unvalidated style).
   driveFolderUrl: z.string().max(500).optional(),
+  // Planned completion date for the whole cycle — color-coded on each of its
+  // items in My Work, since individual TestCycleItems have no due date of their own.
+  dueDate:     z.string().datetime().optional().nullable(),
 });
 
 const UpdateTestCycleSchema = z.object({
@@ -39,6 +42,7 @@ const UpdateTestCycleSchema = z.object({
   jiraLabels:  z.array(z.string().min(1)).optional(),
   jiraJql:     z.string().max(2000).nullable().optional(),
   driveFolderUrl: z.string().max(500).nullable().optional(),
+  dueDate:     z.string().datetime().nullable().optional(),
 });
 
 const LinkBugSchema = z.object({
@@ -58,6 +62,11 @@ const BulkRemoveItemsSchema = z.object({
 });
 
 const AssignItemSchema = z.object({
+  assigneeUserId: z.string().nullable(),
+});
+
+const BulkAssignItemsSchema = z.object({
+  itemIds: z.array(z.string()).min(1),
   assigneeUserId: z.string().nullable(),
 });
 
@@ -286,8 +295,8 @@ router.get('/assignments', (async (req, res) => {
   const items = await prisma.testCycleItem.findMany({
     where: { projectId, assigneeId: member.id },
     include: {
-      testCase: { select: { id: true, srNo: true, module: true, feature: true, title: true, description: true, steps: true, expectedResult: true } },
-      testCycle: { select: { id: true, name: true, status: true } },
+      testCase: { select: { id: true, srNo: true, module: true, feature: true, title: true, description: true, steps: true, expectedResult: true, labels: true } },
+      testCycle: { select: { id: true, name: true, status: true, dueDate: true } },
     },
     orderBy: [{ testCycleId: 'asc' }, { sortOrder: 'asc' }],
   });
@@ -348,7 +357,7 @@ router.post('/', requireAdvancedFeatures as RequestHandler, (async (req, res) =>
   if (!parsed.success) {
     return res.status(400).json({ error: 'Validation failed', issues: parsed.error.issues });
   }
-  const { name, description, testCaseIds, jiraLabels, jiraJql, driveFolderUrl } = parsed.data;
+  const { name, description, testCaseIds, jiraLabels, jiraJql, driveFolderUrl, dueDate } = parsed.data;
 
   // TcItem (the real TC Library test case) has no sortOrder of its own —
   // preserve the order the caller selected them in instead.
@@ -372,6 +381,7 @@ router.post('/', requireAdvancedFeatures as RequestHandler, (async (req, res) =>
         jiraLabels: JSON.stringify(jiraLabels ?? []),
         jiraJql: jiraJql?.trim() || null,
         driveFolderUrl: driveFolderUrl?.trim() || null,
+        dueDate: dueDate ? new Date(dueDate) : null,
       },
     });
     await tx.testCycleItem.createMany({
@@ -519,7 +529,7 @@ router.put('/:cycleId', requireAdvancedFeatures as RequestHandler, (async (req, 
   const existing = await prisma.testCycle.findFirst({ where: { id: cycleId, projectId } });
   if (!existing) return res.status(404).json({ error: 'Test cycle not found' });
 
-  const { jiraLabels, jiraJql, driveFolderUrl, ...rest } = parsed.data;
+  const { jiraLabels, jiraJql, driveFolderUrl, dueDate, ...rest } = parsed.data;
   const trimmedJql = jiraJql === undefined ? undefined : (jiraJql?.trim() || null);
   const trimmedDriveUrl = driveFolderUrl === undefined ? undefined : (driveFolderUrl?.trim() || null);
   const cycle = await prisma.testCycle.update({
@@ -531,6 +541,7 @@ router.put('/:cycleId', requireAdvancedFeatures as RequestHandler, (async (req, 
       // doesn't keep showing stale JQL-discovered issues after the query is removed.
       ...(trimmedJql !== undefined ? { jiraJql: trimmedJql, ...(trimmedJql === null ? { jqlDiscoveredKeys: '[]' } : {}) } : {}),
       ...(trimmedDriveUrl !== undefined ? { driveFolderUrl: trimmedDriveUrl } : {}),
+      ...(dueDate !== undefined ? { dueDate: dueDate ? new Date(dueDate) : null } : {}),
     },
   });
   res.json({ cycle });
@@ -661,6 +672,14 @@ router.patch('/:cycleId/items/:itemId/assign', requireWrite as RequestHandler, (
   const item = await prisma.testCycleItem.findFirst({ where: { id: itemId, testCycleId: cycleId, projectId } });
   if (!item) return res.status(404).json({ error: 'Test cycle item not found' });
 
+  // TEST_USER may only assign test cases to themselves — never to a peer.
+  // Global SUPER_ADMIN/ADMIN and project ADMIN/SUPER_USER are unaffected.
+  const isTestUser = req.projectMember?.role === 'TEST_USER'
+    && req.user.globalRole !== 'SUPER_ADMIN' && req.user.globalRole !== 'ADMIN';
+  if (isTestUser && parsed.data.assigneeUserId && parsed.data.assigneeUserId !== req.user.id) {
+    return res.status(403).json({ error: 'You can only assign test cases to yourself' });
+  }
+
   let assigneeId: string | null = null;
   if (parsed.data.assigneeUserId) {
     const member = await prisma.projectMember.findFirst({
@@ -680,6 +699,39 @@ router.patch('/:cycleId/items/:itemId/assign', requireWrite as RequestHandler, (
   res.json({ item: updated });
 }) as RequestHandler);
 
+// ── PATCH /:cycleId/items/assign — bulk-assign selected items to one member ─
+// Same rules as the single-item version above (open to any project writer;
+// TEST_USER may only assign to themselves), applied across the whole batch.
+
+router.patch('/:cycleId/items/assign', requireWrite as RequestHandler, (async (req, res) => {
+  const projectId = req.project.id;
+  const { cycleId } = req.params;
+  const parsed = BulkAssignItemsSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Validation failed', issues: parsed.error.issues });
+  }
+  const { itemIds, assigneeUserId } = parsed.data;
+
+  const isTestUser = req.projectMember?.role === 'TEST_USER'
+    && req.user.globalRole !== 'SUPER_ADMIN' && req.user.globalRole !== 'ADMIN';
+  if (isTestUser && assigneeUserId && assigneeUserId !== req.user.id) {
+    return res.status(403).json({ error: 'You can only assign test cases to yourself' });
+  }
+
+  let assigneeId: string | null = null;
+  if (assigneeUserId) {
+    const member = await prisma.projectMember.findFirst({ where: { projectId, userId: assigneeUserId } });
+    if (!member) return res.status(400).json({ error: 'That user is not a member of this project' });
+    assigneeId = member.id;
+  }
+
+  const result = await prisma.testCycleItem.updateMany({
+    where: { id: { in: itemIds }, testCycleId: cycleId, projectId },
+    data: { assigneeId, lastUpdatedByUserId: req.user.id, lastUpdatedAt: new Date() },
+  });
+  res.json({ updated: result.count });
+}) as RequestHandler);
+
 // ── PATCH /:cycleId/items/:itemId/status — record a manual result ──────────
 // Gated by requireWrite at the role level, plus a row-level ownership check
 // below (the assignee, or ADMIN/SUPER_USER/global-SUPER_ADMIN) — this can't
@@ -695,6 +747,19 @@ router.patch('/:cycleId/items/:itemId/status', requireWrite as RequestHandler, (
 
   const item = await prisma.testCycleItem.findFirst({ where: { id: itemId, testCycleId: cycleId, projectId } });
   if (!item) return res.status(404).json({ error: 'Test cycle item not found' });
+
+  const cycle = await prisma.testCycle.findFirst({ where: { id: cycleId, projectId } });
+  if (!cycle) return res.status(404).json({ error: 'Test cycle not found' });
+
+  // Hard business-rule gates — apply to every role, no privileged bypass:
+  // a result recorded before the cycle is officially started, or against an
+  // unassigned item, isn't a meaningful test result.
+  if (cycle.status === 'PLANNING') {
+    return res.status(409).json({ error: 'This test cycle has not started yet. Start the cycle before recording results.' });
+  }
+  if (!item.assigneeId) {
+    return res.status(409).json({ error: 'Assign this test case to a resource before recording a result.' });
+  }
 
   const isPrivileged =
     req.user.globalRole === 'SUPER_ADMIN' ||

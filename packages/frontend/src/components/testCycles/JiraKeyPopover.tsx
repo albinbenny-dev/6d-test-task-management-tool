@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useClickOutside } from '../../hooks/useClickOutside';
+import { FloatingPortal } from '../ui/FloatingPortal';
 import { useTestCycleBugs, useUnlinkBugFromItem } from '../../hooks/useTestCycles';
 import { useJiraHost } from '../../hooks/useJira';
 
@@ -19,7 +20,8 @@ function JiraKeyChip({ issueKey, projectId, cycleId, itemId, canUnlink }: {
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  useClickOutside(rootRef, () => setIsOpen(false), isOpen);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useClickOutside([rootRef, menuRef], () => setIsOpen(false), isOpen);
 
   const { data: bugs = [] } = useTestCycleBugs(projectId, cycleId);
   const { data: jiraHost } = useJiraHost(projectId);
@@ -54,12 +56,11 @@ function JiraKeyChip({ issueKey, projectId, cycleId, itemId, canUnlink }: {
         {issueKey}
       </button>
 
-      {isOpen && (
+      <FloatingPortal anchorRef={rootRef} open={isOpen} align="end" portalRef={menuRef} width={240}>
         <div
           style={{
-            position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 20,
             background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-            boxShadow: 'var(--shadow-card)', padding: '10px 12px', width: '240px',
+            boxShadow: 'var(--shadow-card)', padding: '10px 12px',
             fontSize: '11px', color: 'var(--text)', textAlign: 'left',
           }}
         >
@@ -103,7 +104,7 @@ function JiraKeyChip({ issueKey, projectId, cycleId, itemId, canUnlink }: {
             )}
           </div>
         </div>
-      )}
+      </FloatingPortal>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside';
+import { FloatingPortal } from '../ui/FloatingPortal';
 import { ALL_MANUAL_STATUSES, STATUS_LABEL, STATUS_PILL_STYLE } from '../../lib/manualStatus';
 import type { ManualResultStatus } from '../../types';
 
@@ -14,22 +15,25 @@ import type { ManualResultStatus } from '../../types';
 
 const PILL_WIDTH = '104px';
 
-export function StatusPillPicker({ value, disabled, onChange }: {
+export function StatusPillPicker({ value, disabled, disabledReason, onChange }: {
   value: ManualResultStatus;
   disabled?: boolean;
+  disabledReason?: string | null;
   onChange: (status: ManualResultStatus) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const style = STATUS_PILL_STYLE[value];
 
-  useClickOutside(rootRef, () => setIsOpen(false), isOpen);
+  useClickOutside([rootRef, menuRef], () => setIsOpen(false), isOpen);
 
   return (
     <div ref={rootRef} style={{ position: 'relative', width: PILL_WIDTH }}>
       <button
         type="button"
         disabled={disabled}
+        title={disabled ? (disabledReason ?? undefined) : undefined}
         onClick={() => setIsOpen((v) => !v)}
         style={{
           width: PILL_WIDTH, height: '24px', boxSizing: 'border-box',
@@ -44,12 +48,11 @@ export function StatusPillPicker({ value, disabled, onChange }: {
         {!disabled && <span style={{ fontSize: '8px', opacity: 0.7 }}>▾</span>}
       </button>
 
-      {isOpen && (
+      <FloatingPortal anchorRef={rootRef} open={isOpen} portalRef={menuRef} width={130}>
         <div
           style={{
-            position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 20,
             background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-            boxShadow: 'var(--shadow-card)', minWidth: '130px', overflow: 'hidden',
+            boxShadow: 'var(--shadow-card)', overflow: 'hidden',
           }}
         >
           {ALL_MANUAL_STATUSES.map((s) => {
@@ -71,7 +74,7 @@ export function StatusPillPicker({ value, disabled, onChange }: {
             );
           })}
         </div>
-      )}
+      </FloatingPortal>
     </div>
   );
 }

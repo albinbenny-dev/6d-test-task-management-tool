@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside';
+import { FloatingPortal } from '../ui/FloatingPortal';
 
 // ── Reason icon with a click-to-open popover — the `title` attribute alone
 // (native hover tooltip) wasn't discoverable/reliable enough, so clicking
@@ -8,7 +9,8 @@ import { useClickOutside } from '../../hooks/useClickOutside';
 export function ReasonPopover({ reason }: { reason: string | null | undefined }) {
   const [isOpen, setIsOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  useClickOutside(rootRef, () => setIsOpen(false), isOpen);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useClickOutside([rootRef, menuRef], () => setIsOpen(false), isOpen);
 
   if (!reason) {
     return <div style={{ textAlign: 'center', color: 'var(--text-dim)' }}>—</div>;
@@ -24,12 +26,11 @@ export function ReasonPopover({ reason }: { reason: string | null | undefined })
       >
         📝
       </button>
-      {isOpen && (
+      <FloatingPortal anchorRef={rootRef} open={isOpen} align="end" portalRef={menuRef} width={260}>
         <div
           style={{
-            position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 20,
             background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-            boxShadow: 'var(--shadow-card)', padding: '8px 10px', width: '260px', maxHeight: '240px', overflowY: 'auto',
+            boxShadow: 'var(--shadow-card)', padding: '8px 10px', maxHeight: '240px', overflowY: 'auto',
             boxSizing: 'border-box',
             fontSize: '11px', color: 'var(--text)', lineHeight: 1.5, textAlign: 'left',
             // pre-wrap alone preserves newlines but won't break an unbroken
@@ -41,7 +42,7 @@ export function ReasonPopover({ reason }: { reason: string | null | undefined })
         >
           {reason}
         </div>
-      )}
+      </FloatingPortal>
     </div>
   );
 }

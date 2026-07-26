@@ -24,7 +24,7 @@ const STATUS_BADGE: Record<TestCycle['status'], string> = {
 
 function CreateCycleModal({ onClose, onCreate, isSaving }: {
   onClose: () => void;
-  onCreate: (data: { name: string; description?: string; testCaseIds: string[]; jiraLabels?: string[]; jiraJql?: string; driveFolderUrl?: string }) => void;
+  onCreate: (data: { name: string; description?: string; testCaseIds: string[]; jiraLabels?: string[]; jiraJql?: string; driveFolderUrl?: string; dueDate?: string | null }) => void;
   isSaving: boolean;
 }) {
   const [name, setName] = useState('');
@@ -32,6 +32,7 @@ function CreateCycleModal({ onClose, onCreate, isSaving }: {
   const [jiraLabelsInput, setJiraLabelsInput] = useState('');
   const [jiraJql, setJiraJql] = useState('');
   const [driveFolderUrl, setDriveFolderUrl] = useState('');
+  const [dueDate, setDueDate] = useState('');
 
   function handleSubmit() {
     if (!name.trim()) { toast.error('Cycle name is required'); return; }
@@ -43,6 +44,7 @@ function CreateCycleModal({ onClose, onCreate, isSaving }: {
       jiraLabels: jiraLabels.length > 0 ? jiraLabels : undefined,
       jiraJql: jiraJql.trim() || undefined,
       driveFolderUrl: driveFolderUrl.trim() || undefined,
+      dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
     });
   }
 
@@ -82,6 +84,17 @@ function CreateCycleModal({ onClose, onCreate, isSaving }: {
           onChange={(e) => setDescription(e.target.value)}
           rows={2}
           style={{ marginBottom: '12px', resize: 'vertical' }}
+        />
+
+        <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-mid)', marginBottom: '4px' }}>
+          Due date (optional)
+        </label>
+        <input
+          type="date"
+          className="input-field"
+          value={dueDate}
+          onChange={(e) => setDueDate(e.target.value)}
+          style={{ marginBottom: '12px' }}
         />
 
         <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-mid)', marginBottom: '4px' }}>
@@ -219,7 +232,7 @@ export default function TestCycles() {
   const [statusFilter, setStatusFilter] = useState<TestCycle['status'] | 'ALL'>('ALL');
   const filteredSummaries = statusFilter === 'ALL' ? summaries : summaries.filter((s) => s.cycle.status === statusFilter);
 
-  async function handleCreate(data: { name: string; description?: string; testCaseIds: string[]; jiraLabels?: string[]; jiraJql?: string; driveFolderUrl?: string }) {
+  async function handleCreate(data: { name: string; description?: string; testCaseIds: string[]; jiraLabels?: string[]; jiraJql?: string; driveFolderUrl?: string; dueDate?: string | null }) {
     try {
       const cycle = await createCycle.mutateAsync(data);
       toast.success(`"${cycle.name}" created`);
@@ -235,7 +248,7 @@ export default function TestCycles() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Topbar
         breadcrumbs={[
-          { label: project?.name ?? slug ?? 'Project', href: `/projects/${slug}/dashboard` },
+          { label: project?.name ?? slug ?? 'Project', href: `/projects/${slug}/test-cycles` },
           { label: 'Test Cycles' },
         ]}
         actions={(

@@ -11,6 +11,7 @@ import {
   useSetTestCycleStatus,
   useDeleteTestCycle,
   useAssignTestCycleItem,
+  useBulkAssignTestCycleItems,
   useUpdateTestCycleItemStatus,
   useTestCycleBugs,
   useUpdateTestCycle,
@@ -78,19 +79,28 @@ function AssigneePicker({ projectId, item, onAssign }: {
   onAssign: (userId: string | null) => void;
 }) {
   const { data: members = [] } = useProjectMembers(projectId);
+  const { isTestUser } = useRBAC();
+  const { currentUser } = useProjectStore();
+
+  // TEST_USER may only ever assign a test case to themselves — never to a
+  // peer. Peer options stay visible (so the picker still shows who it's
+  // currently assigned to) but disabled, so the only real choices are
+  // Unassigned or themselves.
+  const canPickAnyone = !isTestUser;
 
   return (
     <select
       className="input-field"
       value={item.assignee?.user.id ?? ''}
       onChange={(e) => onAssign(e.target.value || null)}
+      title={!canPickAnyone ? 'You can only assign test cases to yourself' : undefined}
       // Fills its grid cell exactly (FEATURE_GRID's Assignee column is 150px) —
       // a hardcoded 180px here overflowed into the Status column next to it.
       style={{ fontSize: '12px', padding: '4px 8px', width: '100%', boxSizing: 'border-box' }}
     >
       <option value="">Unassigned</option>
       {members.map((m) => (
-        <option key={m.userId} value={m.userId}>{m.user.name}</option>
+        <option key={m.userId} value={m.userId} disabled={!canPickAnyone && m.userId !== currentUser?.id}>{m.user.name}</option>
       ))}
     </select>
   );
@@ -376,9 +386,10 @@ function InlineResultEditor({ item, pendingStatus, onSave, onCancel }: {
   );
 }
 
-function FeatureItemRow({ item, canEdit, canManage, selected, onToggleSelect, onAssign, onStatusChange, onRemove, isEditingResult, pendingStatus, onSaveResult, onCancelResult, onViewTestCase }: {
+function FeatureItemRow({ item, canEdit, lockedReason, canManage, selected, onToggleSelect, onAssign, onStatusChange, onRemove, isEditingResult, pendingStatus, onSaveResult, onCancelResult, onViewTestCase }: {
   item: TestCycleItem;
   canEdit: boolean;
+  lockedReason: string | null;
   canManage: boolean;
   selected: boolean;
   onToggleSelect: () => void;
@@ -415,7 +426,10 @@ function FeatureItemRow({ item, canEdit, canManage, selected, onToggleSelect, on
         <AssigneePicker projectId={item.projectId} item={item} onAssign={onAssign} />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <StatusPillPicker value={item.manualStatus} disabled={!canEdit} onChange={onStatusChange} />
+          <StatusPillPicker value={item.manualStatus} disabled={!canEdit} disabledReason={lockedReason} onChange={onStatusChange} />
+          {lockedReason && (
+            <span title={lockedReason} style={{ fontSize: '11px', color: 'var(--amber)', cursor: 'help' }}>⚠</span>
+          )}
           <RetestedBadge projectId={item.projectId} cycleId={item.testCycleId} itemId={item.id} currentStatus={item.manualStatus} />
         </div>
 
@@ -488,11 +502,12 @@ function FeatureItemRow({ item, canEdit, canManage, selected, onToggleSelect, on
   );
 }
 
-function FeatureGroup({ feature, color, items, canEditItem, canManage, selectedIds, onToggleSelect, onToggleGroupSelect, onAssign, onStatusChange, onRemove, editingItemId, editingStatus, onSaveResult, onCancelResult, onViewTestCase }: {
+function FeatureGroup({ feature, color, items, canEditItem, statusLockedReason, canManage, selectedIds, onToggleSelect, onToggleGroupSelect, onAssign, onStatusChange, onRemove, editingItemId, editingStatus, onSaveResult, onCancelResult, onViewTestCase }: {
   feature: string;
   color: string;
   items: TestCycleItem[];
   canEditItem: (item: TestCycleItem) => boolean;
+  statusLockedReason: (item: TestCycleItem) => string | null;
   canManage: boolean;
   selectedIds: Set<string>;
   onToggleSelect: (itemId: string) => void;
@@ -559,6 +574,7 @@ function FeatureGroup({ feature, color, items, canEditItem, canManage, selectedI
               key={item.id}
               item={item}
               canEdit={canEditItem(item)}
+              lockedReason={statusLockedReason(item)}
               canManage={canManage}
               selected={selectedIds.has(item.id)}
               onToggleSelect={() => onToggleSelect(item.id)}
@@ -578,10 +594,11 @@ function FeatureGroup({ feature, color, items, canEditItem, canManage, selectedI
   );
 }
 
-function TestCasesTab({ items, groupBy, canEditItem, canManage, selectedIds, onToggleSelect, onToggleGroupSelect, onAssign, onStatusChange, onRemove, editingItemId, editingStatus, onSaveResult, onCancelResult, onViewTestCase }: {
+function TestCasesTab({ items, groupBy, canEditItem, statusLockedReason, canManage, selectedIds, onToggleSelect, onToggleGroupSelect, onAssign, onStatusChange, onRemove, editingItemId, editingStatus, onSaveResult, onCancelResult, onViewTestCase }: {
   items: TestCycleItem[];
   groupBy: 'feature' | 'assignee';
   canEditItem: (item: TestCycleItem) => boolean;
+  statusLockedReason: (item: TestCycleItem) => string | null;
   canManage: boolean;
   selectedIds: Set<string>;
   onToggleSelect: (itemId: string) => void;
@@ -618,6 +635,7 @@ function TestCasesTab({ items, groupBy, canEditItem, canManage, selectedIds, onT
           color={groupColor(i)}
           items={featureItems}
           canEditItem={canEditItem}
+          statusLockedReason={statusLockedReason}
           canManage={canManage}
           selectedIds={selectedIds}
           onToggleSelect={onToggleSelect}
@@ -641,7 +659,7 @@ function TestCasesTab({ items, groupBy, canEditItem, canManage, selectedIds, onT
 function EditCycleModal({ cycle, onClose, onSave, isSaving }: {
   cycle: TestCycle;
   onClose: () => void;
-  onSave: (data: { name: string; description?: string; jiraLabels: string[]; jiraJql?: string | null; driveFolderUrl?: string | null }) => void;
+  onSave: (data: { name: string; description?: string; jiraLabels: string[]; jiraJql?: string | null; driveFolderUrl?: string | null; dueDate?: string | null }) => void;
   isSaving: boolean;
 }) {
   const [name, setName] = useState(cycle.name);
@@ -651,6 +669,7 @@ function EditCycleModal({ cycle, onClose, onSave, isSaving }: {
   });
   const [jiraJql, setJiraJql] = useState(cycle.jiraJql ?? '');
   const [driveFolderUrl, setDriveFolderUrl] = useState(cycle.driveFolderUrl ?? '');
+  const [dueDate, setDueDate] = useState(cycle.dueDate ? cycle.dueDate.slice(0, 10) : '');
 
   function handleSubmit() {
     if (!name.trim()) { toast.error('Cycle name is required'); return; }
@@ -661,6 +680,7 @@ function EditCycleModal({ cycle, onClose, onSave, isSaving }: {
       jiraLabels,
       jiraJql: jiraJql.trim() || null,
       driveFolderUrl: driveFolderUrl.trim() || null,
+      dueDate: dueDate ? new Date(dueDate).toISOString() : null,
     });
   }
 
@@ -677,6 +697,15 @@ function EditCycleModal({ cycle, onClose, onSave, isSaving }: {
 
         <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-mid)', marginBottom: '4px' }}>Description</label>
         <textarea className="input-field" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} style={{ marginBottom: '12px', resize: 'vertical' }} />
+
+        <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-mid)', marginBottom: '4px' }}>Due date</label>
+        <input
+          type="date"
+          className="input-field"
+          value={dueDate}
+          onChange={(e) => setDueDate(e.target.value)}
+          style={{ marginBottom: '16px' }}
+        />
 
         <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-mid)', marginBottom: '4px' }}>Jira labels</label>
         <input
@@ -887,6 +916,8 @@ export default function TestCycleDetail() {
   const updateCycle = useUpdateTestCycle(projectId);
   const removeItem = useRemoveTestCycleItem(projectId);
   const bulkRemoveItems = useBulkRemoveTestCycleItems(projectId);
+  const bulkAssignItems = useBulkAssignTestCycleItems(projectId);
+  const { data: members = [] } = useProjectMembers(projectId);
 
   const [activeTab, setActiveTab] = useState<'testcases' | 'bugs'>('testcases');
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -922,7 +953,18 @@ export default function TestCycleDetail() {
 
   const isPrivileged = canManageTestCycles;
 
+  // Hard business-rule gates (mirrored on the backend, which is the real
+  // enforcement point) — apply to every role, including privileged ones:
+  // a result recorded before the cycle starts, or against an unassigned
+  // item, isn't a meaningful test result.
+  function statusLockedReason(item: TestCycleItem): string | null {
+    if (cycle.status === 'PLANNING') return 'Start the cycle before recording results';
+    if (!item.assignee) return 'Assign this test case before recording a result';
+    return null;
+  }
+
   function canEditItem(item: TestCycleItem): boolean {
+    if (statusLockedReason(item)) return false;
     if (isPrivileged) return true;
     return !!item.assignee && item.assignee.user.id === currentUser?.id;
   }
@@ -980,6 +1022,19 @@ export default function TestCycleDetail() {
     }
   }
 
+  async function handleBulkAssign(userId: string | null) {
+    const count = selectedItemIds.size;
+    if (count === 0) return;
+    try {
+      const result = await bulkAssignItems.mutateAsync({ cycleId: cycleId!, itemIds: [...selectedItemIds], assigneeUserId: userId });
+      toast.success(`${result.updated} test case${result.updated === 1 ? '' : 's'} assigned`);
+      setSelectedItemIds(new Set());
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Failed to assign test cases';
+      toast.error(msg);
+    }
+  }
+
   function handleStatusChange(item: TestCycleItem, status: ManualResultStatus) {
     if (status === 'FAIL' || status === 'BLOCKED') {
       setEditingItemId(item.id);
@@ -1029,7 +1084,7 @@ export default function TestCycleDetail() {
     }
   }
 
-  async function handleSaveEdit(edit: { name: string; description?: string; jiraLabels: string[]; jiraJql?: string | null; driveFolderUrl?: string | null }) {
+  async function handleSaveEdit(edit: { name: string; description?: string; jiraLabels: string[]; jiraJql?: string | null; driveFolderUrl?: string | null; dueDate?: string | null }) {
     try {
       await updateCycle.mutateAsync({ id: cycleId!, ...edit });
       toast.success('Cycle updated');
@@ -1044,7 +1099,7 @@ export default function TestCycleDetail() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Topbar
         breadcrumbs={[
-          { label: project?.name ?? slug ?? 'Project', href: `/projects/${slug}/dashboard` },
+          { label: project?.name ?? slug ?? 'Project', href: `/projects/${slug}/test-cycles` },
           { label: 'Test Cycles', href: `/projects/${slug}/test-cycles` },
           { label: cycle.name },
         ]}
@@ -1082,6 +1137,11 @@ export default function TestCycleDetail() {
           <div className="page-eyebrow">Test cycle</div>
           <h1 className="page-title">{cycle.name}</h1>
           {cycle.description && <p className="page-sub">{cycle.description}</p>}
+          {cycle.dueDate && (
+            <p style={{ fontSize: '11.5px', color: new Date(cycle.dueDate).getTime() < Date.now() && cycle.status !== 'CLOSED' ? 'var(--fail)' : 'var(--text-dim)', fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
+              📅 Due {new Date(cycle.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+            </p>
+          )}
           {cycle.driveFolderUrl && (
             <a
               href={cycle.driveFolderUrl}
@@ -1155,6 +1215,22 @@ export default function TestCycleDetail() {
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px', padding: '4px 10px', background: 'var(--cyan-dim)', border: '1px solid rgba(37,99,171,0.3)', borderRadius: 'var(--radius)' }}>
                 <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>{selectedItemIds.size} selected</span>
                 <TbBtn variant="ghost" onClick={() => setSelectedItemIds(new Set())}>Clear</TbBtn>
+                <select
+                  className="input-field"
+                  value="__placeholder"
+                  disabled={bulkAssignItems.isPending}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '__placeholder') return;
+                    void handleBulkAssign(v === '__unassign' ? null : v);
+                  }}
+                  style={{ fontSize: '11px', padding: '4px 8px', width: 'auto' }}
+                  title="Assign selected test cases to…"
+                >
+                  <option value="__placeholder" disabled>👤 Assign to…</option>
+                  <option value="__unassign">Unassigned</option>
+                  {members.map((m) => <option key={m.userId} value={m.userId}>{m.user.name}</option>)}
+                </select>
                 <TbBtn variant="danger" onClick={() => void handleBulkRemove()} disabled={bulkRemoveItems.isPending}>
                   {bulkRemoveItems.isPending ? 'Removing…' : `🗑 Remove ${selectedItemIds.size} from Cycle`}
                 </TbBtn>
@@ -1168,6 +1244,7 @@ export default function TestCycleDetail() {
             items={filteredItems}
             groupBy={groupBy}
             canEditItem={canEditItem}
+            statusLockedReason={statusLockedReason}
             canManage={isPrivileged}
             selectedIds={selectedItemIds}
             onToggleSelect={toggleSelectItem}

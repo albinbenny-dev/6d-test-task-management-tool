@@ -19,7 +19,12 @@ const router = Router();
 // ── RBAC helper — checks project-level ADMIN role ──────────────────────────
 
 function requireProjectAdmin(req: Request, res: Response, next: NextFunction): void {
-  if (req.user.globalRole === 'SUPER_ADMIN') {
+  // SUPER_ADMIN and ADMIN bypass all project-level role restrictions — same
+  // convention as requireRole/blockRole in middleware/rbac.ts. Keeping this in
+  // sync matters: requireProjectAccess already lets a global ADMIN in without
+  // a ProjectMember row, so req.projectMember can be undefined here even for
+  // a legitimate admin — checking only SUPER_ADMIN left global ADMINs 403'd.
+  if (req.user.globalRole === 'SUPER_ADMIN' || req.user.globalRole === 'ADMIN') {
     next();
     return;
   }

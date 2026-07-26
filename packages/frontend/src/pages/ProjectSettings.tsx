@@ -18,8 +18,6 @@ import {
   useDeleteReqDoc,
   useUpdateProject,
   useDeleteProject,
-  useCreateEnvConfig,
-  useDeleteEnvConfig,
   useUserSearch,
   type UserSearchResult,
 } from '../hooks/useProjects';
@@ -75,22 +73,17 @@ function DetailsTab() {
   const updateProject = useUpdateProject(activeProject?.id ?? '');
   const updateCtx     = useUpdateContext(activeProject?.id ?? '');
   const { data: context } = useProjectContext(activeProject?.id ?? '');
-  const { isAdmin } = useRBAC(activeProject?.id ?? '');
 
   const [name, setName]       = useState(activeProject?.name ?? '');
   const [desc, setDesc]       = useState(activeProject?.description ?? '');
-  const [baseUrl, setBaseUrl] = useState(activeProject?.baseUrl ?? '');
   const [colorIdx, setColorIdx] = useState(0);
   const [customInstructions, setCustomInstructions] = useState('');
   const [instructionsSaved, setInstructionsSaved] = useState(false);
-  const [videoEnabled, setVideoEnabled] = useState<boolean>(() => activeProject?.videoEnabled ?? true);
 
   useEffect(() => {
     if (activeProject) {
       setName(activeProject.name);
       setDesc(activeProject.description ?? '');
-      setBaseUrl(activeProject.baseUrl ?? '');
-      setVideoEnabled(activeProject.videoEnabled ?? true);
     }
   }, [activeProject]);
 
@@ -104,7 +97,7 @@ function DetailsTab() {
   async function handleSave() {
     if (!activeProject) return;
     try {
-      await updateProject.mutateAsync({ name, description: desc, baseUrl, videoEnabled });
+      await updateProject.mutateAsync({ name, description: desc });
       toast.success('Project details saved.');
     } catch {
       toast.error('Failed to save project details.');
@@ -160,17 +153,6 @@ function DetailsTab() {
       </div>
 
       <div>
-        <label style={LABEL_STYLE}>Base URL</label>
-        <input
-          className="input-field"
-          value={baseUrl}
-          onChange={(e) => setBaseUrl(e.target.value)}
-          placeholder="https://app.example.com"
-          style={{ fontFamily: 'var(--font-mono)' }}
-        />
-      </div>
-
-      <div>
         <label style={LABEL_STYLE}>Project Color</label>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <div
@@ -214,39 +196,6 @@ function DetailsTab() {
           </span>
         </div>
       </div>
-
-      {isAdmin && (
-        <div style={{
-          padding: '16px', borderRadius: '10px',
-          background: 'var(--surface2)',
-          border: `1px solid ${videoEnabled ? 'rgba(245,158,11,0.3)' : 'var(--border)'}`,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ ...LABEL_STYLE, marginBottom: 2 }}>🎬 Video Recording</div>
-              <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
-                {videoEnabled ? 'Enabled — all runs record by default' : 'Disabled — no videos will be captured'}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setVideoEnabled(v => !v)}
-              style={{
-                width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
-                background: videoEnabled ? '#f59e0b' : 'var(--surface3)',
-                position: 'relative', transition: 'background 0.2s', flexShrink: 0,
-              }}
-            >
-              <span style={{
-                position: 'absolute', top: 3, left: videoEnabled ? 23 : 3,
-                width: 18, height: 18, borderRadius: '50%',
-                background: '#fff', transition: 'left 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-              }} />
-            </button>
-          </div>
-        </div>
-      )}
 
       <div>
         <button
@@ -347,208 +296,6 @@ function DetailsTab() {
               ? 'Last saved: ' + (context.updatedAt ? new Date(context.updatedAt).toLocaleDateString() : 'previously')
               : 'Not set yet'}
           </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Environments tab ───────────────────────────────────────────────────────
-function EnvironmentsTab() {
-  const { activeProject } = useProjectStore();
-  const { data: envs = [] } = useProjectEnvConfigs(activeProject?.id);
-  const createEnv = useCreateEnvConfig(activeProject?.id ?? '');
-  const deleteEnv = useDeleteEnvConfig(activeProject?.id ?? '');
-
-  const [newName, setNewName]         = useState('');
-  const [newUrl, setNewUrl]           = useState('');
-  const [newUsername, setNewUsername] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [showNewPw, setShowNewPw]     = useState(false);
-  const [deletingId, setDeletingId]   = useState<string | null>(null);
-
-  async function handleAdd() {
-    const name = newName.trim();
-    const baseUrl = newUrl.trim();
-    if (!name || !baseUrl) return;
-    try {
-      await createEnv.mutateAsync({
-        name,
-        baseUrl: baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`,
-        username: newUsername.trim() || undefined,
-        password: newPassword.trim() || undefined,
-      });
-      setNewName(''); setNewUrl(''); setNewUsername(''); setNewPassword('');
-      toast.success(`Environment "${name}" added.`);
-    } catch {
-      toast.error('Failed to add environment.');
-    }
-  }
-
-  async function handleDelete(id: string) {
-    try {
-      await deleteEnv.mutateAsync(id);
-      setDeletingId(null);
-      toast.success('Environment deleted.');
-    } catch {
-      toast.error('Failed to delete environment.');
-    }
-  }
-
-  const ENV_BADGE = (name: string) => {
-    const n = name.toLowerCase();
-    if (n === 'qa' || n === 'qa env') return 'badge-cyan';
-    if (n.includes('staging') || n.includes('stage')) return 'badge-skip';
-    if (n.includes('prod')) return 'badge-fail';
-    return 'badge-draft';
-  };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">Configured Environments</div>
-          <span className="badge badge-draft">{envs.length}</span>
-        </div>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Base URL</th>
-              <th>Credentials</th>
-              <th>Default</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {envs.length === 0 ? (
-              <tr>
-                <td colSpan={5} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
-                  No environments configured yet. Add one below.
-                </td>
-              </tr>
-            ) : (
-              envs.map((env) => (
-                <tr key={env.id}>
-                  <td className="primary">
-                    <span className={`badge ${ENV_BADGE(env.name)}`}>{env.name}</span>
-                  </td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>{env.baseUrl}</td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
-                    {env.username ? (
-                      <span style={{ color: 'var(--text-mid)' }}>👤 {env.username} · ••••••</span>
-                    ) : (
-                      <span style={{ color: 'var(--text-dim)', fontSize: '10px' }}>—</span>
-                    )}
-                  </td>
-                  <td>
-                    {env.isDefault && <span className="badge badge-pass">Default</span>}
-                  </td>
-                  <td>
-                    {deletingId === env.id ? (
-                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                        <span style={{ fontSize: '10px', color: 'var(--fail)' }}>Delete?</span>
-                        <button
-                          className="tb-btn tb-btn-ghost"
-                          style={{ padding: '3px 8px', fontSize: '10px', color: 'var(--rose)', borderColor: 'rgba(220,38,38,0.3)' }}
-                          onClick={() => handleDelete(env.id)}
-                        >Yes</button>
-                        <button
-                          className="tb-btn tb-btn-ghost"
-                          style={{ padding: '3px 8px', fontSize: '10px' }}
-                          onClick={() => setDeletingId(null)}
-                        >No</button>
-                      </div>
-                    ) : (
-                      <button
-                        className="tb-btn tb-btn-ghost"
-                        style={{ padding: '4px 10px', fontSize: '11px', color: 'var(--rose)', borderColor: 'rgba(220,38,38,0.3)' }}
-                        onClick={() => setDeletingId(env.id)}
-                      >Delete</button>
-                    )}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Add environment form */}
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">Add Environment</div>
-        </div>
-        <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div style={{ display: 'flex', gap: '12px' }}>
-            <div style={{ flex: '0 0 140px' }}>
-              <label style={LABEL_STYLE}>Name</label>
-              <input
-                className="input-field"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="QA / Staging / Dev"
-                style={{ fontFamily: 'var(--font-ui)' }}
-              />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={LABEL_STYLE}>Base URL</label>
-              <input
-                className="input-field"
-                value={newUrl}
-                onChange={(e) => setNewUrl(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
-                placeholder="https://qa.example.com"
-                style={{ fontFamily: 'var(--font-mono)' }}
-              />
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
-            <div style={{ flex: 1 }}>
-              <label style={LABEL_STYLE}>Username <span style={{ color: 'var(--text-dim)', fontWeight: 400, letterSpacing: 0 }}>(optional)</span></label>
-              <input
-                className="input-field"
-                value={newUsername}
-                onChange={(e) => setNewUsername(e.target.value)}
-                placeholder="login username"
-                style={{ fontFamily: 'var(--font-mono)' }}
-              />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={LABEL_STYLE}>Password <span style={{ color: 'var(--text-dim)', fontWeight: 400, letterSpacing: 0 }}>(optional)</span></label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  className="input-field"
-                  type={showNewPw ? 'text' : 'password'}
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
-                  placeholder="••••••••"
-                  style={{ fontFamily: 'var(--font-mono)', width: '100%', paddingRight: '32px', boxSizing: 'border-box' }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowNewPw((v) => !v)}
-                  style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: 'var(--text-dim)', padding: 0 }}
-                >{showNewPw ? '🙈' : '👁'}</button>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={handleAdd}
-              disabled={!newName.trim() || !newUrl.trim() || createEnv.isPending}
-              style={{
-                padding: '8px 20px',
-                background: newName.trim() && newUrl.trim() ? 'var(--cyan)' : 'var(--surface3)',
-                border: 'none', borderRadius: '6px', color: newName.trim() && newUrl.trim() ? '#fff' : 'var(--text-dim)',
-                fontSize: '12px', fontWeight: 600, cursor: newName.trim() && newUrl.trim() ? 'pointer' : 'default',
-                fontFamily: 'var(--font-ui)', flexShrink: 0,
-                opacity: createEnv.isPending ? 0.6 : 1,
-              }}
-            >
-              {createEnv.isPending ? 'Adding…' : '+ Add'}
-            </button>
-          </div>
         </div>
       </div>
     </div>
@@ -2180,7 +1927,6 @@ function JiraSettingsTab() {
 // ── Page ──────────────────────────────────────────────────────────────────
 const TABS = [
   { value: 'details',     label: '🏗 Details' },
-  { value: 'environments',label: '🌐 Environments' },
   { value: 'members',     label: '👥 Members' },
   { value: 'jira',        label: '🐛 Jira' },
   { value: 'danger',      label: '⚠ Danger Zone' },
@@ -2207,7 +1953,7 @@ export default function ProjectSettings() {
         <Topbar
           breadcrumbs={[
             { label: 'All Projects', href: '/projects' },
-            { label: activeProject?.name ?? slug ?? 'Project', href: `/projects/${slug}/dashboard` },
+            { label: activeProject?.name ?? slug ?? 'Project', href: `/projects/${slug}/test-cycles` },
             { label: '⚙ Settings' },
           ]}
         />
@@ -2225,7 +1971,7 @@ export default function ProjectSettings() {
       <Topbar
         breadcrumbs={[
           { label: 'All Projects', href: '/projects' },
-          { label: activeProject?.name ?? slug ?? 'Project', href: `/projects/${slug}/dashboard` },
+          { label: activeProject?.name ?? slug ?? 'Project', href: `/projects/${slug}/test-cycles` },
           { label: '⚙ Settings' },
         ]}
         actions={
@@ -2281,9 +2027,6 @@ export default function ProjectSettings() {
 
           <Tabs.Content value="details">
             <DetailsTab />
-          </Tabs.Content>
-          <Tabs.Content value="environments">
-            <EnvironmentsTab />
           </Tabs.Content>
           <Tabs.Content value="members">
             <MembersTab />

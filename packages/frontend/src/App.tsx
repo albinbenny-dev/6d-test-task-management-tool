@@ -5,19 +5,17 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import GlobalProjects from './pages/GlobalProjects';
 import ProjectSettings from './pages/ProjectSettings';
-import TCLibrary from './pages/TCLibrary';
 import TestCaseLibrary from './pages/TestCaseLibrary';
-import Scripts from './pages/Scripts';
-import Execution from './pages/Execution';
-import Dashboard from './pages/Dashboard';
-import RunDashboard from './pages/RunDashboard';
-import Reports from './pages/Reports';
-import Scheduler from './pages/Scheduler';
 import TestCycles from './pages/TestCycles';
 import TestCyclesDashboard from './pages/TestCyclesDashboard';
 import TestCycleDetail from './pages/TestCycleDetail';
 import Assignments from './pages/Assignments';
+import MyWork from './pages/MyWork';
+import TaskLists from './pages/TaskLists';
+import TaskListDetail from './pages/TaskListDetail';
+import TaskDashboard from './pages/TaskDashboard';
 import UserManagement from './pages/UserManagement';
+import PersonalTasks from './pages/PersonalTasks';
 import { isAuthenticated } from './lib/auth';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
@@ -30,6 +28,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 // ── App ────────────────────────────────────────────────────────────────────
+// Manual testing + task management only — no automation (script editor,
+// execution, scheduler, reports) in this deployment.
 export default function App() {
   return (
     <Routes>
@@ -51,20 +51,18 @@ export default function App() {
         <Route path="/projects" element={<GlobalProjects />} />
 
         {/* Per-project screens */}
-        <Route path="/projects/:slug/dashboard"    element={<Dashboard />} />
-        <Route path="/projects/:slug/dashboard/runs/:runId" element={<RunDashboard />} />
         <Route path="/projects/:slug/test-cases"   element={<TestCaseLibrary />} />
-        <Route path="/projects/:slug/tc-library"   element={<TCLibrary />} />
-        <Route path="/projects/:slug/scripts"      element={<Scripts />} />
-        <Route path="/projects/:slug/execution"    element={<Execution />} />
-        <Route path="/projects/:slug/scheduler"    element={<Scheduler />} />
         <Route path="/projects/:slug/test-cycles"  element={<TestCycles />} />
         <Route path="/projects/:slug/test-cycles/dashboard" element={<TestCyclesDashboard />} />
         <Route path="/projects/:slug/test-cycles/assignments" element={<Assignments />} />
         <Route path="/projects/:slug/test-cycles/:cycleId" element={<TestCycleDetail />} />
-        <Route path="/projects/:slug/reports"      element={<Reports />} />
+        <Route path="/projects/:slug/my-work"      element={<MyWork />} />
+        <Route path="/projects/:slug/tasks"        element={<TaskLists />} />
+        <Route path="/projects/:slug/tasks/dashboard" element={<TaskDashboard />} />
+        <Route path="/projects/:slug/tasks/:listId" element={<TaskListDetail />} />
         <Route path="/projects/:slug/settings"     element={<ProjectSettings />} />
         <Route path="/admin/users"                 element={<UserManagement />} />
+        <Route path="/personal-tasks"              element={<PersonalTasks />} />
       </Route>
 
       {/* Root redirect */}

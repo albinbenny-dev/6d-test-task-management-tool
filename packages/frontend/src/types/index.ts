@@ -320,6 +320,7 @@ export interface TestCycle {
   jiraJql?: string | null; // raw JQL, additive alongside jiraLabels
   jqlDiscoveredKeys: string; // JSON string — parse to string[] — cache of jiraJql's last sync match
   driveFolderUrl?: string | null; // lead-provided Drive folder link for tester-uploaded artifacts
+  dueDate?: string | null; // planned completion date for the whole cycle
   createdByUserId: string;
   createdAt: string;
   updatedAt: string;
@@ -345,6 +346,7 @@ export interface TestManagementTcItem {
   description?: string | null;
   steps?: string | null;
   expectedResult?: string | null;
+  labels?: string; // JSON string — parse to string[] — only populated where the caller selected it
 }
 
 export interface TestCycleItem {
@@ -374,7 +376,7 @@ export interface AssignmentItem {
   lastUpdatedAt?: string | null;
   sortOrder: number;
   testCase?: TestManagementTcItem;
-  testCycle: Pick<TestCycle, 'id' | 'name' | 'status'>;
+  testCycle: Pick<TestCycle, 'id' | 'name' | 'status' | 'dueDate'>;
 }
 
 // One row per manual status change on a TestCycleItem, across the whole
@@ -467,4 +469,72 @@ export interface ResourceSummaryRow {
   counts: Record<ManualResultStatus, number>;
   total: number;
   passRate: number;
+}
+
+// ── Task Management — ClickUp-style project task tracking ──────────────────
+// Separate from TestCycle/TestCycleItem (manual test execution) — a Task is
+// general project work, not a test result. See schema.prisma's Task comment.
+
+export type TaskStatus = 'TO_DO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE';
+export type TaskPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+
+export interface TaskList {
+  id: string;
+  projectId: string;
+  name: string;
+  color: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { tasks: number };
+}
+
+export interface TaskCommentEntry {
+  id: string;
+  taskId: string;
+  userId: string;
+  body: string;
+  createdAt: string;
+  user: { id: string; name: string };
+}
+
+export interface Task {
+  id: string;
+  projectId: string;
+  taskListId: string;
+  parentTaskId?: string | null;
+  title: string;
+  description?: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  assigneeId?: string | null;
+  startDate?: string | null;
+  dueDate?: string | null;
+  tags: string; // JSON string — parse to string[]
+  sortOrder: number;
+  createdByUserId: string;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  taskList?: Pick<TaskList, 'id' | 'name' | 'color'>;
+  assignee?: ProjectMemberSearchResult | null;
+  _count?: { subtasks: number; comments: number };
+  subtasks?: Task[];
+  comments?: TaskCommentEntry[];
+}
+
+export interface TaskAssigneeSummary {
+  assigneeId: string | null;
+  assigneeName: string;
+  total: number;
+  overdue: number;
+}
+
+export interface TaskDashboardSummary {
+  counts: Record<TaskStatus, number>;
+  total: number;
+  completedThisWeek: number;
+  overdueCount: number;
+  overdueTasks: Task[];
+  byAssignee: TaskAssigneeSummary[];
 }

@@ -397,7 +397,7 @@ export default function Assignments() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Topbar
         breadcrumbs={[
-          { label: project?.name ?? slug ?? 'Project', href: `/projects/${slug}/dashboard` },
+          { label: project?.name ?? slug ?? 'Project', href: `/projects/${slug}/test-cycles` },
           { label: 'My Assignments' },
         ]}
       />

@@ -59,7 +59,7 @@ export function useTestCycle(projectId: string | undefined, cycleId: string | un
 export function useCreateTestCycle(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: { name: string; description?: string; testCaseIds: string[]; jiraLabels?: string[]; jiraJql?: string; driveFolderUrl?: string }) => {
+    mutationFn: async (data: { name: string; description?: string; testCaseIds: string[]; jiraLabels?: string[]; jiraJql?: string; driveFolderUrl?: string; dueDate?: string | null }) => {
       const res = await api.post<{ cycle: TestCycle }>(`/projects/${projectId}/test-cycles`, data);
       return res.data.cycle;
     },
@@ -70,7 +70,7 @@ export function useCreateTestCycle(projectId: string) {
 export function useUpdateTestCycle(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: { id: string; name?: string; description?: string; jiraLabels?: string[]; jiraJql?: string | null; driveFolderUrl?: string | null }) => {
+    mutationFn: async (data: { id: string; name?: string; description?: string; jiraLabels?: string[]; jiraJql?: string | null; driveFolderUrl?: string | null; dueDate?: string | null }) => {
       const { id, ...body } = data;
       const res = await api.put<{ cycle: TestCycle }>(`/projects/${projectId}/test-cycles/${id}`, body);
       return res.data.cycle;
@@ -210,6 +210,22 @@ export function useAssignTestCycleItem(projectId: string) {
         { assigneeUserId: data.assigneeUserId },
       );
       return res.data.item;
+    },
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: ['test-cycle', projectId, vars.cycleId] });
+    },
+  });
+}
+
+export function useBulkAssignTestCycleItems(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { cycleId: string; itemIds: string[]; assigneeUserId: string | null }) => {
+      const res = await api.patch<{ updated: number }>(
+        `/projects/${projectId}/test-cycles/${data.cycleId}/items/assign`,
+        { itemIds: data.itemIds, assigneeUserId: data.assigneeUserId },
+      );
+      return res.data;
     },
     onSuccess: (_data, vars) => {
       void qc.invalidateQueries({ queryKey: ['test-cycle', projectId, vars.cycleId] });

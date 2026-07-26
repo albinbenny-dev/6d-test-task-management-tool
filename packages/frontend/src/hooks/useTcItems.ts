@@ -11,23 +11,12 @@ export interface TcItem {
   description: string | null;
   steps: string | null;
   expectedResult: string | null;
-  linkedScriptId: string | null;
-  linkedScript: { id: string; tcId: string; title: string; useCaseTag: string | null } | null;
-  automationStatus: 'IN_SCOPE' | 'NOT_APPLICABLE';
+  labels: string; // JSON string — parse to string[]
   createdAt: string;
   updatedAt: string;
 }
 
-export interface TcItemStats {
-  total: number;
-  linked: number;
-  unlinked: number;
-  notApplicable: number;
-  inScope: number;
-}
-
 const ITEMS_KEY = (pid: string) => ['tc-items', pid];
-const STATS_KEY = (pid: string) => ['tc-items-stats', pid];
 
 export function useTcItems(projectId: string | undefined) {
   return useQuery({
@@ -51,26 +40,12 @@ export function useTcItem(projectId: string | undefined, id: string | undefined)
   });
 }
 
-export function useTcItemStats(projectId: string | undefined) {
-  return useQuery({
-    queryKey: STATS_KEY(projectId ?? ''),
-    queryFn: async () => {
-      const res = await api.get<TcItemStats>(`/projects/${projectId}/tc-items/stats`);
-      return res.data;
-    },
-    enabled: !!projectId,
-  });
-}
-
 export interface ImportResult {
   imported: number;
   updated: number;
-  linked: number;
   skippedEmpty: number;
   duplicateRows: string[];
-  rfNotFound: string[];
   totalRows: number;
-  alreadyExists: number;
 }
 
 export function useImportTcItems(projectId: string | undefined) {
@@ -86,21 +61,21 @@ export function useImportTcItems(projectId: string | undefined) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ITEMS_KEY(projectId ?? '') });
-      qc.invalidateQueries({ queryKey: STATS_KEY(projectId ?? '') });
     },
   });
 }
 
+type TcItemPatch = Partial<Omit<TcItem, 'labels'>> & { labels?: string[] };
+
 export function useUpdateTcItem(projectId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, patch }: { id: string; patch: Partial<TcItem> & { linkedScriptId?: string | null } }) => {
+    mutationFn: async ({ id, patch }: { id: string; patch: TcItemPatch }) => {
       const res = await api.patch<{ item: TcItem }>(`/projects/${projectId}/tc-items/${id}`, patch);
       return res.data.item;
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ITEMS_KEY(projectId ?? '') });
-      qc.invalidateQueries({ queryKey: STATS_KEY(projectId ?? '') });
       qc.invalidateQueries({ queryKey: ['tc-item', projectId, vars.id] });
     },
   });
@@ -114,7 +89,6 @@ export function useDeleteTcItem(projectId: string | undefined) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ITEMS_KEY(projectId ?? '') });
-      qc.invalidateQueries({ queryKey: STATS_KEY(projectId ?? '') });
     },
   });
 }
@@ -127,20 +101,6 @@ export function useBulkDeleteTcItems(projectId: string | undefined) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ITEMS_KEY(projectId ?? '') });
-      qc.invalidateQueries({ queryKey: STATS_KEY(projectId ?? '') });
-    },
-  });
-}
-
-export function useBulkLinkTcItems(projectId: string | undefined) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ ids, testCaseId }: { ids: string[]; testCaseId: string | null }) => {
-      await api.post(`/projects/${projectId}/tc-items/bulk-link-script`, { ids, testCaseId });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ITEMS_KEY(projectId ?? '') });
-      qc.invalidateQueries({ queryKey: STATS_KEY(projectId ?? '') });
     },
   });
 }
@@ -157,15 +117,36 @@ export function useBulkMoveTcItems(projectId: string | undefined) {
   });
 }
 
-export function useBulkSetAutomationStatus(projectId: string | undefined) {
+export function useBulkAddLabelToTcItems(projectId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ ids, automationStatus }: { ids: string[]; automationStatus: 'IN_SCOPE' | 'NOT_APPLICABLE' }) => {
-      await api.post(`/projects/${projectId}/tc-items/bulk-set-automation-status`, { ids, automationStatus });
+    mutationFn: async ({ ids, label }: { ids: string[]; label: string }) => {
+      const res = await api.post<{ updated: number }>(`/projects/${projectId}/tc-items/bulk-add-label`, { ids, label });
+      return res.data;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ITEMS_KEY(projectId ?? '') });
-      qc.invalidateQueries({ queryKey: STATS_KEY(projectId ?? '') });
     },
   });
+}
+
+/** Parses a TcItem's JSON-encoded labels column; returns [] on empty/corrupted rows. */
+export function parseTcItemLabels(labels: string): string[] {
+  try {
+    const parsed = JSON.parse(labels);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Downloads TC Library as Excel. Pass `ids` to export only that subset — omit for everything. */
+export async function exportTcItems(projectId: string, filenameSuffix: string, ids?: string[]): Promise<void> {
+  const res = await api.post(`/projects/${projectId}/tc-items/export`, ids?.length ? { ids } : {}, { responseType: 'blob' });
+  const url = URL.createObjectURL(res.data as Blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `tc-library-${filenameSuffix}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
 }

@@ -21,8 +21,10 @@ model User {
   globalRole   String          @default("STANDARD_USER") // "SUPER_ADMIN" | "ADMIN" | "SUPER_USER" | "STANDARD_USER"
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
-  memberships  ProjectMember[]
-  projects     Project[]       @relation("CreatedBy")
+  memberships   ProjectMember[]
+  projects      Project[]      @relation("CreatedBy")
+  taskComments  TaskComment[]
+  personalTasks PersonalTask[]
 }
 
 model Project {
@@ -54,6 +56,8 @@ model Project {
   jiraConfig           JiraConfig?
   testCycleItems       TestCycleItem[]
   testCycleItemHistory TestCycleItemHistory[]
+  taskLists            TaskList[]
+  tasks                Task[]
 
   @@index([createdBy])
 }
@@ -68,6 +72,7 @@ model ProjectMember {
   user                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   assignedItems        TestCycleItem[]
   testCycleItemHistory TestCycleItemHistory[]
+  assignedTasks        Task[]
 
   @@unique([projectId, userId])
   @@index([userId])
@@ -255,8 +260,9 @@ model TcItem {
   description      String?
   steps            String? // raw text from Excel "Step" column
   expectedResult   String?
-  linkedScriptId   String? // FK to TestCase (Script Library entry)
-  automationStatus String          @default("IN_SCOPE") // "IN_SCOPE" | "NOT_APPLICABLE"
+  linkedScriptId   String? // FK to TestCase (Script Library entry) — unused; automation is not part of this product
+  automationStatus String          @default("IN_SCOPE") // unused; kept for backward compatibility with existing rows
+  labels           String          @default("[]") // JSON: string[] — free-text labels (e.g. release tags) for filtering
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   project          Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -287,6 +293,7 @@ model TestCycle {
   jiraJql           String? // raw JQL, additive alongside jiraLabels — lets an admin hand-tune bug discovery per cycle when label matching isn't precise enough
   jqlDiscoveredKeys String          @default("[]") // JSON: string[] — cache of issue keys matched by jiraJql on the last sync (mirrors how label matches are re-derived from the JiraIssue cache, since JQL matches can't be re-derived from cached fields alone)
   driveFolderUrl    String? // lead-provided link to a Google Drive folder where testers upload execution artifacts (screenshots/logs), organized into TC-ID-named subfolders by convention — not app-enforced
+  dueDate           DateTime? // planned completion date for the whole cycle — surfaced (color-coded) on each of its items in My Work, since individual TestCycleItems don't have their own due date
   createdByUserId   String
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
@@ -398,4 +405,94 @@ model JiraConfig {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
   project             Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// ── Task Management — ClickUp-style project task tracking ───────────────────
+// Deliberately separate from TestCycle/TestCycleItem (manual test execution)
+// and from Suite/Run (automation) — a Task is general project work (a sign-off,
+// an integration, an ops item), not a test result. Project-scoped only, one
+// assignee per task (kept simple for the MVP — no multi-assignee), fixed
+// four-stage status shared across every list (no per-list custom statuses).
+// "Overdue" is not a stored status — it's computed by the frontend from
+// dueDate vs. now for any task not yet DONE, so it can never go stale.
+
+model TaskList {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String
+  color     String   @default("#2563AB")
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+
+  @@unique([projectId, name])
+  @@index([projectId])
+}
+
+model Task {
+  id              String    @id @default(cuid())
+  projectId       String
+  taskListId      String
+  parentTaskId    String? // set for subtasks — see parentTask/subtasks below
+  title           String
+  description     String?
+  status          String    @default("TO_DO") // "TO_DO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE"
+  priority        String    @default("NORMAL") // "LOW" | "NORMAL" | "HIGH" | "URGENT"
+  assigneeId      String? // FK -> ProjectMember.id
+  startDate       DateTime?
+  dueDate         DateTime?
+  tags            String    @default("[]") // JSON: string[]
+  sortOrder       Int       @default(0)
+  createdByUserId String
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  project    Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  taskList   TaskList       @relation(fields: [taskListId], references: [id], onDelete: Cascade)
+  parentTask Task?          @relation("SubtaskOf", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  subtasks   Task[]         @relation("SubtaskOf")
+  assignee   ProjectMember? @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
+  comments   TaskComment[]
+
+  @@index([projectId])
+  @@index([taskListId])
+  @@index([assigneeId])
+  @@index([parentTaskId])
+  @@index([projectId, status])
+}
+
+model TaskComment {
+  id        String   @id @default(cuid())
+  taskId    String
+  userId    String
+  body      String
+  createdAt DateTime @default(now())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+// A private, per-user to-do tracker — deliberately NOT project-scoped. Only
+// the owning user (or a SUPER_ADMIN, read-only) can ever see a row here; see
+// packages/api/src/routes/personalTasks.ts for the ownership check.
+model PersonalTask {
+  id          String    @id @default(cuid())
+  userId      String
+  title       String
+  notes       String?
+  done        Boolean   @default(false)
+  priority    String    @default("NORMAL") // "LOW" | "NORMAL" | "HIGH" | "URGENT"
+  dueDate     DateTime?
+  sortOrder   Int       @default(0)
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
