@@ -20,3 +20,6 @@ qasr-dump.sql
 prod-deploy/
 Airtel_Ventas.zip
 cellcard-ventas-lab-Selinium-structured.zip
+
+# Nightly DB backups (scripts/backup-db.sh) — real data, never commit
+backups/

@@ -190,6 +190,10 @@ if (Test-Path "$PSScriptRoot\nginx\nginx.conf") {
     New-Item -ItemType Directory -Force -Path "$TmpDir\nginx" | Out-Null
     Copy-Item "$PSScriptRoot\nginx\nginx.conf" "$TmpDir\nginx\nginx.conf" -Force
 }
+if (Test-Path "$PSScriptRoot\scripts\backup-db.sh") {
+    New-Item -ItemType Directory -Force -Path "$TmpDir\scripts" | Out-Null
+    Copy-Item "$PSScriptRoot\scripts\backup-db.sh" "$TmpDir\scripts\backup-db.sh" -Force
+}
 Log-Ok "Config files ready"
 
 # ==============================================================================
@@ -251,6 +255,12 @@ if (Test-Path "$TmpDir\docker-compose.override.yml") {
 if (Test-Path "$TmpDir\nginx\nginx.conf") {
     Run-SSH "mkdir -p $RemoteDir/nginx"
     Run-SCP "$TmpDir\nginx\nginx.conf" "$RemoteDir/nginx/nginx.conf"
+}
+
+if (Test-Path "$TmpDir\scripts\backup-db.sh") {
+    Run-SSH "mkdir -p $RemoteDir/scripts $RemoteDir/backups"
+    Run-SCP "$TmpDir\scripts\backup-db.sh" "$RemoteDir/scripts/backup-db.sh"
+    Run-SSH "chmod +x $RemoteDir/scripts/backup-db.sh"
 }
 
 if ($Mode -eq 'full') {
@@ -326,7 +336,20 @@ if ($healthy) {
 }
 
 # ==============================================================================
-# PHASE 9 - Disk usage
+# PHASE 9 - Install/refresh the nightly DB backup cron job (idempotent -
+# re-running this always ends with exactly one correct entry, never
+# duplicates, even if $RemoteDir ever changes between deploys)
+# ==============================================================================
+if (Test-Path "$PSScriptRoot\scripts\backup-db.sh") {
+    Log-Step "Installing nightly backup cron job (03:00 daily, 14-day retention, on-host only)"
+    $cronLine = "0 3 * * * $RemoteDir/scripts/backup-db.sh >>$RemoteDir/backups/cron.log 2>&1"
+    $cronCmd  = "(crontab -l 2>/dev/null | grep -v backup-db.sh; echo '$cronLine') | crontab -"
+    Run-SSH-Soft $cronCmd
+    Log-Ok "Backup cron installed - dumps land in $RemoteDir/backups, check $RemoteDir/backups/backup.log"
+}
+
+# ==============================================================================
+# PHASE 10 - Disk usage
 # ==============================================================================
 Log-Step "Remote disk usage"
 Run-SSH "df -h /data"

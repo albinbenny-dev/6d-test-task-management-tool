@@ -11,7 +11,11 @@ import { setRunsNamespace, setProjectsNamespace } from './lib/socket.js';
 import { prisma } from './lib/prisma.js';
 import { loadSchedules } from './lib/scheduler.js';
 import { startRunWorker, getRunWorker } from './jobs/runWorker.js';
-import { startRetentionSchedule } from './jobs/retentionWorker.js';
+// Automation-only retention sweep (Run/RunResult/Report tables + an artifacts
+// folder that no longer has a volume) — disabled, not deleted, so it can come
+// back if automation is ever re-enabled. Real Postgres backups are handled
+// separately by scripts/backup-db.sh via host cron, not by this job.
+// import { startRetentionSchedule } from './jobs/retentionWorker.js';
 import { startJiraPollSchedule } from './jobs/jiraPollWorker.js';
 
 const app = express();
@@ -247,8 +251,8 @@ httpServer.listen(PORT, () => {
     // Load saved schedules from DB
     void loadSchedules();
 
-    // Start nightly data-retention sweep
-    startRetentionSchedule();
+    // Nightly data-retention sweep — disabled (automation-only, see import above)
+    // startRetentionSchedule();
 
     // Start Jira issue poll (no-op if JIRA_HOST/JIRA_EMAIL/JIRA_API_TOKEN aren't set)
     startJiraPollSchedule();
