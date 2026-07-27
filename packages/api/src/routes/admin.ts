@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction, RequestHandler } from 'express';
 import bcrypt from 'bcryptjs';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { verifyToken } from '../middleware/auth.js';
 
@@ -112,7 +113,18 @@ router.delete('/users/:uid', requireSuperAdmin as RequestHandler, async (req: Re
 
     await prisma.user.delete({ where: { id: uid } });
     res.status(204).send();
-  } catch (err) { next(err); }
+  } catch (err) {
+    // Defense-in-depth: a required FK to User with no cascade/set-null
+    // behavior would surface here as an opaque foreign key violation. All
+    // known cases are fixed at the schema level (see Project.creator), but
+    // catching this generically means any future one fails with a clear
+    // message instead of a bare 500.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003') {
+      res.status(409).json({ error: 'This user is still referenced by other data and cannot be deleted yet.' });
+      return;
+    }
+    next(err);
+  }
 });
 
 export default router;

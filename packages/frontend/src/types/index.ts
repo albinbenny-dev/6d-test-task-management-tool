@@ -23,7 +23,7 @@ export interface Project {
   reqLibraryPath?: string;
   videoEnabled?: boolean;
   createdAt: string;
-  createdBy: string;
+  createdBy: string | null;
   /** The authenticated user's role in this project (injected by GET /projects) */
   myRole?: ProjectRole | null;
   _count?: {

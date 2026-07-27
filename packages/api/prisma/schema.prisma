@@ -38,8 +38,12 @@ model Project {
   videoEnabled   Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
-  createdBy      String
-  creator        User     @relation("CreatedBy", fields: [createdBy], references: [id])
+  createdBy      String?
+  // SetNull, not Cascade or the Postgres default (Restrict) — creator is
+  // audit metadata, not something a project's lifetime should depend on.
+  // Deleting a user whose only tie to a project is having created it must
+  // not delete the project itself, and must not silently fail either.
+  creator        User?    @relation("CreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
 
   members              ProjectMember[]
   envConfigs           EnvConfig[]
