@@ -360,7 +360,7 @@ const STATUS_DOT: Record<string, string> = {
 
 function SuiteRunRow({ suite, projectId, slug }: { suite: TopSuiteEntry; projectId: string; slug: string }) {
   const navigate = useNavigate();
-  const { data: runsData, isLoading } = useReportRuns(projectId, 1, { triggerType: 'SUITE', name: suite.name });
+  const { data: runsData, isLoading } = useReportRuns(projectId, 1, { triggerType: suite.triggerType, name: suite.name });
   const runs = runsData?.runs ?? [];
 
   return (
@@ -483,6 +483,11 @@ function SuiteRunsSection({
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
               >
                 <span style={{ fontSize: 10, color: 'var(--text-dim)', display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>▶</span>
+
+                {/* Scheduled indicator */}
+                {suite.triggerType === 'SCHEDULED' && (
+                  <span title="Scheduled run" style={{ fontSize: 11, flexShrink: 0 }}>⏰</span>
+                )}
 
                 {/* Suite name */}
                 <span

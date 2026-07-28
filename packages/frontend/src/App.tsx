@@ -4,6 +4,7 @@ import AppShell from './components/layout/AppShell';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import GlobalProjects from './pages/GlobalProjects';
+import Portfolio from './pages/Portfolio';
 import ProjectSettings from './pages/ProjectSettings';
 import TestCaseLibrary from './pages/TestCaseLibrary';
 import TestCycles from './pages/TestCycles';
@@ -14,6 +15,7 @@ import MyWork from './pages/MyWork';
 import TaskLists from './pages/TaskLists';
 import TaskListDetail from './pages/TaskListDetail';
 import TaskDashboard from './pages/TaskDashboard';
+import Wiki from './pages/Wiki';
 import UserManagement from './pages/UserManagement';
 import PersonalTasks from './pages/PersonalTasks';
 import { isAuthenticated } from './lib/auth';
@@ -60,9 +62,12 @@ export default function App() {
         <Route path="/projects/:slug/tasks"        element={<TaskLists />} />
         <Route path="/projects/:slug/tasks/dashboard" element={<TaskDashboard />} />
         <Route path="/projects/:slug/tasks/:listId" element={<TaskListDetail />} />
+        <Route path="/projects/:slug/wiki"         element={<Wiki />} />
+        <Route path="/projects/:slug/wiki/:pageId" element={<Wiki />} />
         <Route path="/projects/:slug/settings"     element={<ProjectSettings />} />
         <Route path="/admin/users"                 element={<UserManagement />} />
         <Route path="/personal-tasks"              element={<PersonalTasks />} />
+        <Route path="/portfolio"                   element={<Portfolio />} />
       </Route>
 
       {/* Root redirect */}

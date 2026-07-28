@@ -83,12 +83,15 @@ function replaceSlugInDir(dir: string, oldSlug: string, newSlug: string): void {
 // ══════════════════════════════════════════════════════════════════════════════
 
 // GET /api/projects — list all projects the authenticated user is a member of
+// (SUPER_ADMIN/ADMIN see every project, matching requireProjectAccess's own
+// membership bypass — a global ADMIN could already open any project by URL,
+// this just makes the list consistent with that).
 router.get('/', verifyToken as RequestHandler, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const isSuperAdmin = req.user.globalRole === 'SUPER_ADMIN';
+    const isGloballyElevated = req.user.globalRole === 'SUPER_ADMIN' || req.user.globalRole === 'ADMIN';
 
     const projects = await prisma.project.findMany({
-      where: isSuperAdmin ? undefined : { members: { some: { userId: req.user.id } } },
+      where: isGloballyElevated ? undefined : { members: { some: { userId: req.user.id } } },
       include: {
         _count: {
           select: {
@@ -111,7 +114,7 @@ router.get('/', verifyToken as RequestHandler, async (req: Request, res: Respons
     res.json({
       projects: projects.map((p) => ({
         ...p,
-        myRole: p.members[0]?.role ?? (isSuperAdmin ? 'ADMIN' : null),
+        myRole: p.members[0]?.role ?? (isGloballyElevated ? 'ADMIN' : null),
         members: undefined, // remove raw members array from response
       })),
     });

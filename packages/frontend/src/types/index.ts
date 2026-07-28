@@ -216,6 +216,7 @@ export interface TopSuiteEntry {
   lastRunStatuses: string[];
   successRate: number;
   lastRunAt: string;
+  triggerType: string;
 }
 
 export interface DashboardData {
@@ -460,6 +461,7 @@ export interface TestCycleSummary {
   counts: Record<ManualResultStatus, number>;
   total: number;
   bugs: { resolved: number; total: number };
+  labels: string[]; // this cycle's own configured jiraLabels (TestCycle.jiraLabels), not TC Library tags
 }
 
 export interface ResourceSummaryRow {
@@ -525,9 +527,21 @@ export interface Task {
 
 export interface TaskAssigneeSummary {
   assigneeId: string | null;
+  /** Real User.id (not the project-scoped ProjectMember.id in assigneeId) — the stable identity for merging one person's workload across projects. Null for the 'Unassigned' bucket. */
+  assigneeUserId: string | null;
   assigneeName: string;
   total: number;
   overdue: number;
+}
+
+export interface TaskListSummary {
+  taskListId: string;
+  name: string;
+  color: string;
+  total: number;
+  done: number;
+  overdue: number;
+  completionRate: number;
 }
 
 export interface TaskDashboardSummary {
@@ -536,5 +550,40 @@ export interface TaskDashboardSummary {
   completedThisWeek: number;
   overdueCount: number;
   overdueTasks: Task[];
+  dueThisWeek: number;
+  dueNextWeek: number;
+  completionRate: number;
+  onTimeRate: number | null;
+  avgCycleTimeDays: number | null;
+  unassignedOpenCount: number;
+  priorityBreakdown: Record<TaskPriority, number>;
   byAssignee: TaskAssigneeSummary[];
+  byTaskList: TaskListSummary[];
+}
+
+// ── Wiki — per-project living documentation ────────────────────────────────
+// Confluence-style but deliberately minimal: markdown pages with plain links
+// out to Drive/SharePoint/etc, one level of nesting via parentPageId. See
+// schema.prisma's WikiPage comment.
+
+export interface WikiPageAuthorSummary {
+  user: { id: string; name: string };
+}
+
+export interface WikiPage {
+  id: string;
+  projectId: string;
+  parentPageId?: string | null;
+  title: string;
+  content: string;
+  tags: string; // JSON string — parse to string[]
+  sortOrder: number;
+  createdByUserId?: string | null;
+  updatedByUserId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: WikiPageAuthorSummary | null;
+  updatedBy?: WikiPageAuthorSummary | null;
+  _count?: { childPages: number };
+  childPages?: WikiPage[]; // only populated on GET /:pageId detail response
 }

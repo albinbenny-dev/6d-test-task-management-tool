@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   LogOut, Globe, ShieldCheck, BookOpen, ClipboardList, FlaskConical,
-  BarChart3, UserCheck, ListChecks, Settings, ChevronDown, ListTodo,
+  BarChart3, UserCheck, ListChecks, Settings, ChevronDown, ListTodo, FileText, Gauge,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
@@ -66,6 +66,12 @@ export default function Sidebar({ slug }: SidebarProps) {
           items: [
             { label: 'Task Lists', path: `/projects/${slug}/tasks`, Icon: ListChecks },
             { label: 'Task Dashboard', path: `/projects/${slug}/tasks/dashboard`, Icon: BarChart3 },
+          ],
+        },
+        {
+          label: 'Wiki',
+          items: [
+            { label: 'Wiki', path: `/projects/${slug}/wiki`, Icon: FileText },
           ],
         },
         ...(canAccessSettings
@@ -174,6 +180,12 @@ export default function Sidebar({ slug }: SidebarProps) {
           <span className="nav-icon"><ListTodo size={16} /></span>
           Personal Tasks
         </Link>
+        {(currentUser?.globalRole === 'SUPER_ADMIN' || currentUser?.globalRole === 'ADMIN' || currentUser?.globalRole === 'SUPER_USER') && (
+          <Link to="/portfolio" className={`nav-item${location.pathname === '/portfolio' ? ' active' : ''}`}>
+            <span className="nav-icon"><Gauge size={16} /></span>
+            Portfolio
+          </Link>
+        )}
         {currentUser?.globalRole === 'SUPER_ADMIN' && (
           <Link to="/admin/users" className={`nav-item${location.pathname === '/admin/users' ? ' active' : ''}`}>
             <span className="nav-icon"><ShieldCheck size={16} /></span>

@@ -1,9 +1,134 @@
-import { useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useTaskLists, useDeleteTaskList } from '../../hooks/useTaskLists';
+import toast from 'react-hot-toast';
+import { useTaskLists, useDeleteTaskList, useUpdateTaskList } from '../../hooks/useTaskLists';
 import { useRBAC } from '../../hooks/useRBAC';
+import { useClickOutside } from '../../hooks/useClickOutside';
+import { FloatingPortal } from '../ui/FloatingPortal';
 import { CreateTaskListModal } from './CreateTaskListModal';
 import type { TaskList } from '../../types';
+
+// Persisted across the whole app (not per-project) — a lead who widens this
+// once to read long list names shouldn't have to redo it on every project.
+const WIDTH_KEY = 'tm-task-list-sidebar-width';
+const MIN_WIDTH = 180;
+const MAX_WIDTH = 420;
+const DEFAULT_WIDTH = 216;
+
+function getStoredWidth(): number {
+  const raw = localStorage.getItem(WIDTH_KEY);
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, n)) : DEFAULT_WIDTH;
+}
+
+const menuItemStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  width: '100%',
+  padding: '7px 12px',
+  background: 'none',
+  border: 'none',
+  color: 'var(--text)',
+  fontSize: 12,
+  cursor: 'pointer',
+  textAlign: 'left',
+};
+
+// ── One task-list row — its own hover/menu state, since only its own kebab
+// button and dropdown care about it. Rename/delete are hidden behind that
+// kebab (revealed on hover) rather than always-visible icons, so the list
+// name gets almost the full row width to itself instead of permanently
+// giving up ~40-50px to two rarely-used buttons. ───────────────────────────
+function TaskListRow({ list, slug, active, canWrite, canDelete, isRenaming, renameValue, onRenameChange, onStartRename, onCommitRename, onCancelRename, onRequestDelete }: {
+  list: TaskList;
+  slug: string;
+  active: boolean;
+  canWrite: boolean;
+  canDelete: boolean;
+  isRenaming: boolean;
+  renameValue: string;
+  onRenameChange: (value: string) => void;
+  onStartRename: () => void;
+  onCommitRename: () => void;
+  onCancelRename: () => void;
+  onRequestDelete: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const rowRef = useRef<HTMLAnchorElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useClickOutside([rowRef, menuRef], () => setMenuOpen(false), menuOpen);
+
+  const count = list._count?.tasks ?? 0;
+  const showKebab = (canWrite || canDelete) && !isRenaming;
+
+  return (
+    <Link
+      ref={rowRef}
+      to={`/projects/${slug}/tasks/${list.id}`}
+      className={`nav-item${active ? ' active' : ''}`}
+      style={{ position: 'relative', fontSize: 12.5 }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={(e) => { if (isRenaming) e.preventDefault(); }}
+    >
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: list.color, flexShrink: 0 }} />
+      {isRenaming ? (
+        <input
+          autoFocus
+          value={renameValue}
+          onChange={(e) => onRenameChange(e.target.value)}
+          onClick={(e) => e.preventDefault()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); onCommitRename(); }
+            if (e.key === 'Escape') { e.preventDefault(); onCancelRename(); }
+          }}
+          onBlur={() => onCommitRename()}
+          style={{ flex: 1, minWidth: 0, background: 'var(--surface)', border: '1px solid var(--cyan)', borderRadius: 4, padding: '1px 4px', fontSize: 'inherit', color: 'inherit', fontFamily: 'inherit' }}
+        />
+      ) : (
+        <span title={list.name} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{list.name}</span>
+      )}
+      <span className="nav-badge blue">{count}</span>
+
+      {showKebab && (
+        <button
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen((v) => !v); }}
+          title="List actions"
+          style={{
+            opacity: hovered || menuOpen ? 1 : 0, transition: 'opacity 0.12s',
+            background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer',
+            fontSize: 13, lineHeight: 1, padding: '2px 0 2px 4px',
+          }}
+        >
+          ⋮
+        </button>
+      )}
+
+      <FloatingPortal anchorRef={rowRef} open={menuOpen} align="end" portalRef={menuRef} width={140}>
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-card)', overflow: 'hidden' }}>
+          {canWrite && (
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); onStartRename(); }}
+              style={menuItemStyle}
+            >
+              ✎ Rename
+            </button>
+          )}
+          {canDelete && (
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); onRequestDelete(); }}
+              style={{ ...menuItemStyle, color: 'var(--fail)' }}
+            >
+              🗑 Delete
+            </button>
+          )}
+        </div>
+      </FloatingPortal>
+    </Link>
+  );
+}
 
 // ── In-page navigation panel for Task Management — every task list, always
 // visible while working a board/list, so switching lists doesn't mean going
@@ -18,8 +143,54 @@ export function TaskListsSidebar({ projectId, slug, activeListId }: {
   const canDeleteList = isAdmin || isSuperUser;
   const { data: lists = [], isLoading } = useTaskLists(projectId);
   const deleteList = useDeleteTaskList(projectId ?? '');
+  const updateList = useUpdateTaskList(projectId ?? '');
   const [showCreate, setShowCreate] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<TaskList | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+
+  // ── Resizable panel — drag the right-edge divider, same mechanics as
+  // Scripts.tsx's file-tree/editor split: mutate the DOM directly during the
+  // drag for smoothness, commit to React state (and localStorage) on mouseup.
+  const [width, setWidth] = useState(getStoredWidth);
+  const widthRef = useRef(width);
+  const isDraggingRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const dragStartWidthRef = useRef(0);
+  const asideRef = useRef<HTMLElement>(null);
+
+  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    dragStartXRef.current = e.clientX;
+    dragStartWidthRef.current = widthRef.current;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  useLayoutEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDraggingRef.current) return;
+      const delta = e.clientX - dragStartXRef.current;
+      const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, dragStartWidthRef.current + delta));
+      widthRef.current = next;
+      if (asideRef.current) asideRef.current.style.width = `${next}px`;
+    };
+    const onMouseUp = () => {
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setWidth(widthRef.current);
+      localStorage.setItem(WIDTH_KEY, String(widthRef.current));
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
 
   async function handleDelete() {
     if (!confirmDelete) return;
@@ -31,9 +202,29 @@ export function TaskListsSidebar({ projectId, slug, activeListId }: {
     }
   }
 
+  function startRename(list: TaskList) {
+    setRenamingId(list.id);
+    setRenameValue(list.name);
+  }
+
+  async function commitRename() {
+    const id = renamingId;
+    const trimmed = renameValue.trim();
+    setRenamingId(null);
+    if (!id) return;
+    const list = lists.find((l) => l.id === id);
+    if (!trimmed || (list && trimmed === list.name)) return;
+    try {
+      await updateList.mutateAsync({ id, name: trimmed });
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Failed to rename list';
+      toast.error(msg);
+    }
+  }
+
   return (
     <>
-      <aside style={{ width: 216, flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      <aside ref={asideRef} style={{ width, flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 14px 10px' }}>
           <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-dim)' }}>Task Lists</span>
           {canWrite && (
@@ -47,40 +238,40 @@ export function TaskListsSidebar({ projectId, slug, activeListId }: {
           )}
         </div>
 
-        <nav style={{ flex: 1, overflowY: 'auto', padding: '0 8px 8px' }}>
+        <nav style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 8px 8px' }}>
           {isLoading && (
             <div style={{ padding: '8px 6px', color: 'var(--text-dim)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>Loading…</div>
           )}
           {!isLoading && lists.length === 0 && (
             <div style={{ padding: '8px 6px', color: 'var(--text-dim)', fontSize: 11 }}>No lists yet.</div>
           )}
-          {lists.map((list) => {
-            const active = list.id === activeListId;
-            const count = list._count?.tasks ?? 0;
-            return (
-              <Link
-                key={list.id}
-                to={`/projects/${slug}/tasks/${list.id}`}
-                className={`nav-item${active ? ' active' : ''}`}
-                style={{ position: 'relative' }}
-              >
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: list.color, flexShrink: 0 }} />
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{list.name}</span>
-                <span className="nav-badge blue">{count}</span>
-                {canDeleteList && (
-                  <button
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDelete(list); }}
-                    title="Delete list"
-                    style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 11, padding: '0 0 0 4px' }}
-                  >
-                    🗑
-                  </button>
-                )}
-              </Link>
-            );
-          })}
+          {lists.map((list) => (
+            <TaskListRow
+              key={list.id}
+              list={list}
+              slug={slug}
+              active={list.id === activeListId}
+              canWrite={canWrite}
+              canDelete={canDeleteList}
+              isRenaming={renamingId === list.id}
+              renameValue={renameValue}
+              onRenameChange={setRenameValue}
+              onStartRename={() => startRename(list)}
+              onCommitRename={() => void commitRename()}
+              onCancelRename={() => setRenamingId(null)}
+              onRequestDelete={() => setConfirmDelete(list)}
+            />
+          ))}
         </nav>
       </aside>
+
+      {/* ── Drag divider — resizes the sidebar; width persists in localStorage ── */}
+      <div
+        onMouseDown={handleDividerMouseDown}
+        style={{ width: 4, flexShrink: 0, cursor: 'col-resize', background: 'var(--border)', transition: 'background 0.15s' }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'var(--6d-orange)'; }}
+        onMouseLeave={(e) => { if (!isDraggingRef.current) (e.currentTarget as HTMLDivElement).style.background = 'var(--border)'; }}
+      />
 
       {showCreate && projectId && (
         <CreateTaskListModal

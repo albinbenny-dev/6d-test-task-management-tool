@@ -6,6 +6,7 @@ import Topbar, { TbBtn } from '../components/layout/Topbar';
 import { useProjects, useCreateProject, useCloneProject } from '../hooks/useProjects';
 import { useProjectStore } from '../stores/projectStore';
 import { formatRelativeTime, slugify, PROJECT_GRADIENTS } from '../lib/utils';
+import { landingPath } from '../lib/projectLanding';
 import type { Project } from '../types';
 
 // ── Stat tile ──────────────────────────────────────────────────────────────
@@ -556,19 +557,6 @@ export default function GlobalProjects() {
     // navigation is handled by the <Link> wrapper on each card
   }
 
-  // TEST_USER lands on My Assignments (their actionable work); everyone else
-  // lands on Test Cycles, the project's main surface now that there's no
-  // automation dashboard. Reads myRole off the project itself (from GET
-  // /projects), not the active-project store, since no project is "active"
-  // yet at this list.
-  function landingPath(project: Project): string {
-    const isGloballyElevated = currentUser?.globalRole === 'SUPER_ADMIN' || currentUser?.globalRole === 'ADMIN';
-    const isTestUser = !isGloballyElevated && project.myRole === 'TEST_USER';
-    return isTestUser
-      ? `/projects/${project.slug}/test-cycles/assignments`
-      : `/projects/${project.slug}/test-cycles`;
-  }
-
   const totalProjects = projects.length;
   const totalTestCases = projects.reduce((sum, p) => sum + (p._count?.tcItems ?? 0), 0);
   const totalMembers   = projects.reduce((sum, p) => sum + (p._count?.members ?? 0), 0);
@@ -654,7 +642,7 @@ export default function GlobalProjects() {
             {projects.map((p) => (
               <Link
                 key={p.id}
-                to={landingPath(p)}
+                to={landingPath(p, currentUser?.globalRole)}
                 style={{ textDecoration: 'none', display: 'block' }}
               >
                 <ProjectCard project={p} onOpen={() => openProject(p)} />

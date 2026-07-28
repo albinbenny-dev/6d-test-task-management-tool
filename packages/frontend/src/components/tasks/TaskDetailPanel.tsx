@@ -6,7 +6,7 @@ import {
 } from '../../hooks/useTasks';
 import { useProjectStore } from '../../stores/projectStore';
 import { formatRelativeTime } from '../../lib/utils';
-import { parseTags } from '../../lib/taskMeta';
+import { parseTags, formatDueDate, isTaskOverdue } from '../../lib/taskMeta';
 import { TaskStatusPicker } from './TaskStatusPicker';
 import { PriorityPicker } from './PriorityPicker';
 import { AssigneePicker } from './AssigneePicker';
@@ -18,11 +18,18 @@ function toDateInputValue(iso: string | null | undefined): string {
   return iso.slice(0, 10);
 }
 
-function SubtaskRow({ projectId, subtask, onOpen }: { projectId: string; subtask: Task; onOpen: () => void }) {
+function SubtaskRow({ projectId, subtask, onOpen, isLast }: {
+  projectId: string; subtask: Task; onOpen: () => void; isLast: boolean;
+}) {
   const updateStatus = useUpdateTaskStatus(projectId);
+  const assignSubtask = useAssignTask(projectId);
   const done = subtask.status === 'DONE';
+  const overdue = isTaskOverdue(subtask);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0' }}>
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0',
+      borderBottom: isLast ? 'none' : '1px solid var(--border)',
+    }}>
       <input
         type="checkbox"
         checked={done}
@@ -39,7 +46,22 @@ function SubtaskRow({ projectId, subtask, onOpen }: { projectId: string; subtask
       >
         {subtask.title}
       </span>
-      {subtask.assignee && <TaskAvatar name={subtask.assignee.user.name} userId={subtask.assignee.user.id} size={18} />}
+      {subtask.dueDate && (
+        <div className={`tm-due-chip${overdue && !done ? ' overdue' : ''}`}>
+          {overdue && !done ? '⏰' : '📅'} {formatDueDate(subtask.dueDate)}
+        </div>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: 110, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+        <AssigneePicker
+          projectId={projectId}
+          value={subtask.assignee}
+          size={18}
+          onChange={(userId) => assignSubtask.mutate({ id: subtask.id, assigneeUserId: userId })}
+        />
+        <span style={{ fontSize: 11, color: subtask.assignee ? 'var(--text-mid)' : 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {subtask.assignee?.user.name ?? 'Unassigned'}
+        </span>
+      </div>
     </div>
   );
 }
@@ -155,14 +177,22 @@ export function TaskDetailPanel({ projectId, taskId, onClose, onNavigateToTask }
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '18px 24px' }}>
-          {/* Title */}
+          {/* Title — a plain-looking textarea reads as static text with no
+              affordance that it's editable, so it gets a visible border +
+              hover/focus highlight (matching other inline-editable fields in
+              the app) instead of blending in. Enter commits the edit rather
+              than inserting a newline, since a task title is conceptually
+              single-line even though the field can wrap long ones. */}
           <textarea
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onBlur={saveTitle}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
             rows={1}
+            title="Click to edit title"
+            className="tm-title-input"
             style={{
-              width: '100%', border: 'none', outline: 'none', resize: 'none', background: 'transparent',
+              width: '100%', resize: 'none', background: 'transparent',
               fontSize: 19, fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--font-ui)', marginBottom: 16,
             }}
           />
@@ -230,8 +260,14 @@ export function TaskDetailPanel({ projectId, taskId, onClose, onNavigateToTask }
             Subtasks {task.subtasks && task.subtasks.length > 0 ? `(${task.subtasks.filter((s) => s.status === 'DONE').length}/${task.subtasks.length})` : ''}
           </div>
           <div style={{ borderTop: '1px solid var(--border)', marginBottom: 8 }}>
-            {(task.subtasks ?? []).map((sub) => (
-              <SubtaskRow key={sub.id} projectId={projectId} subtask={sub} onOpen={() => onNavigateToTask(sub.id)} />
+            {(task.subtasks ?? []).map((sub, i) => (
+              <SubtaskRow
+                key={sub.id}
+                projectId={projectId}
+                subtask={sub}
+                onOpen={() => onNavigateToTask(sub.id)}
+                isLast={i === (task.subtasks?.length ?? 0) - 1}
+              />
             ))}
           </div>
           <div style={{ display: 'flex', gap: 6, marginBottom: 24 }}>

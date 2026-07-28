@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import Topbar, { TbBtn } from '../components/layout/Topbar';
 import { useProject } from '../hooks/useProjects';
@@ -171,16 +171,19 @@ function cycleAccentColor(counts: Record<ManualResultStatus, number>, total: num
   return STATUS_COLOR.NOT_RUN;
 }
 
-function CycleSummaryCard({ summary, index }: { summary: TestCycleSummary; index: number }) {
-  const { cycle, counts, total, bugs } = summary;
+function CycleSummaryCard({ summary, index, onOpen }: { summary: TestCycleSummary; index: number; onOpen: () => void }) {
+  const { cycle, counts, total, bugs, labels } = summary;
   const passRate = total > 0 ? Math.round((counts.PASS / total) * 100) : 0;
   const accent = cycleAccentColor(counts, total);
+  const shownLabels = labels.slice(0, 3);
+  const extraLabels = labels.length - shownLabels.length;
 
   return (
     <div
       className="card cycle-card"
+      onClick={onOpen}
       style={{
-        padding: '16px', height: '100%', display: 'flex', flexDirection: 'column', gap: '10px',
+        padding: '16px', height: '100%', display: 'flex', flexDirection: 'column', gap: '10px', cursor: 'pointer',
         '--accent': accent, animationDelay: `${Math.min(index, 10) * 40}ms`,
       } as CSSProperties}
     >
@@ -191,6 +194,25 @@ function CycleSummaryCard({ summary, index }: { summary: TestCycleSummary; index
 
       {cycle.description && (
         <div style={{ fontSize: '12px', color: 'var(--text-mid)' }}>{cycle.description}</div>
+      )}
+
+      {(labels.length > 0 || cycle.driveFolderUrl) && (
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+          {shownLabels.map((l) => <span key={l} className="tag" style={{ fontSize: '9px' }}>{l}</span>)}
+          {extraLabels > 0 && <span className="tag" style={{ fontSize: '9px' }}>+{extraLabels}</span>}
+          {cycle.driveFolderUrl && (
+            <a
+              href={cycle.driveFolderUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open Drive folder"
+              onClick={(e) => e.stopPropagation()}
+              style={{ marginLeft: 'auto', fontSize: '13px', textDecoration: 'none', lineHeight: 1 }}
+            >
+              📁
+            </a>
+          )}
+        </div>
       )}
 
       <div>
@@ -230,7 +252,13 @@ export default function TestCycles() {
   const createCycle = useCreateTestCycle(projectId ?? '');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [statusFilter, setStatusFilter] = useState<TestCycle['status'] | 'ALL'>('ALL');
-  const filteredSummaries = statusFilter === 'ALL' ? summaries : summaries.filter((s) => s.cycle.status === statusFilter);
+  // Closed cycles are done-and-dusted — they'd otherwise pile up in the
+  // default grid forever. Hidden unless explicitly requested via the status
+  // filter or this toggle, never a hard delete/archive.
+  const [showClosed, setShowClosed] = useState(false);
+  const filteredSummaries = summaries
+    .filter((s) => (statusFilter === 'ALL' ? true : s.cycle.status === statusFilter))
+    .filter((s) => (showClosed || statusFilter === 'CLOSED' ? true : s.cycle.status !== 'CLOSED'));
 
   async function handleCreate(data: { name: string; description?: string; testCaseIds: string[]; jiraLabels?: string[]; jiraJql?: string; driveFolderUrl?: string; dueDate?: string | null }) {
     try {
@@ -283,6 +311,13 @@ export default function TestCycles() {
             <option value="ACTIVE">Active</option>
             <option value="CLOSED">Closed</option>
           </select>
+
+          {statusFilter !== 'CLOSED' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: 'var(--text-mid)', cursor: 'pointer', marginLeft: '4px' }}>
+              <input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} />
+              Show closed
+            </label>
+          )}
         </div>
 
         <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '14px' }}>
@@ -293,13 +328,18 @@ export default function TestCycles() {
             <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '48px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
               {summaries.length === 0
                 ? `No test cycles yet.${canManageTestCycles ? ' Create one to start a manual regression pass.' : ''}`
-                : 'No cycles match this filter.'}
+                : !showClosed && statusFilter !== 'CLOSED' && summaries.every((s) => s.cycle.status === 'CLOSED')
+                  ? 'All cycles are closed. Check "Show closed" to see them.'
+                  : 'No cycles match this filter.'}
             </div>
           )}
           {filteredSummaries.map((summary, i) => (
-            <Link key={summary.cycle.id} to={`/projects/${slug}/test-cycles/${summary.cycle.id}`} style={{ textDecoration: 'none' }}>
-              <CycleSummaryCard summary={summary} index={i} />
-            </Link>
+            <CycleSummaryCard
+              key={summary.cycle.id}
+              summary={summary}
+              index={i}
+              onOpen={() => navigate(`/projects/${slug}/test-cycles/${summary.cycle.id}`)}
+            />
           ))}
         </div>
 

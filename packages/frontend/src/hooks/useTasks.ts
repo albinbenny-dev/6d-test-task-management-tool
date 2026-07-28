@@ -2,6 +2,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import type { Task, TaskStatus, TaskPriority, TaskDashboardSummary, TaskCommentEntry } from '../types';
 
+export interface ImportTasksResult {
+  imported: number;
+  updated: number;
+  skippedEmpty: number;
+  duplicateRows: string[];
+  unmatchedAssignees: string[];
+  unresolvedParents: string[];
+  totalRows: number;
+}
+
 // Invalidate every query keyed off tasks for this project — used after any
 // mutation that can shift counts/summaries shown elsewhere (dashboard, list
 // badges, My Tasks) so those views never go stale after a board/table edit.
@@ -133,6 +143,22 @@ export function useReorderTasks(projectId: string) {
   return useMutation({
     mutationFn: async (data: { taskListId: string; orderedIds: string[] }) => {
       await api.patch(`/projects/${projectId}/tasks/reorder`, data);
+    },
+    onSuccess: () => invalidateAll(qc, projectId),
+  });
+}
+
+export function useImportTasks(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { file: File; taskListId: string }) => {
+      const form = new FormData();
+      form.append('file', data.file);
+      form.append('taskListId', data.taskListId);
+      const res = await api.post<ImportTasksResult>(`/projects/${projectId}/tasks/import`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return res.data;
     },
     onSuccess: () => invalidateAll(qc, projectId),
   });

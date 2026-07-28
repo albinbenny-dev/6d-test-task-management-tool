@@ -5,7 +5,7 @@ import Topbar, { TbBtn } from '../components/layout/Topbar';
 import { useProject, useProjectMembers } from '../hooks/useProjects';
 import { useProjectStore } from '../stores/projectStore';
 import { useRBAC } from '../hooks/useRBAC';
-import { useTcItems, type TcItem } from '../hooks/useTcItems';
+import { useTcItems, parseTcItemLabels, type TcItem } from '../hooks/useTcItems';
 import {
   useTestCycle,
   useSetTestCycleStatus,
@@ -404,8 +404,9 @@ function FeatureItemRow({ item, canEdit, lockedReason, canManage, selected, onTo
 }) {
   const [expanded, setExpanded] = useState(false);
   const tc = item.testCase;
+  const itemLabels = parseTcItemLabels(tc?.labels ?? '[]');
   const hasHistory = useHasHistory(item.projectId, item.testCycleId, item.id);
-  const hasDetail = !!(tc?.description || tc?.steps || tc?.expectedResult) || hasHistory;
+  const hasDetail = !!(tc?.description || tc?.steps || tc?.expectedResult) || itemLabels.length > 0 || hasHistory;
 
   return (
     <div style={{ borderBottom: '1px solid var(--border)', background: selected ? 'var(--cyan-dim)' : undefined }}>
@@ -478,6 +479,14 @@ function FeatureItemRow({ item, canEdit, lockedReason, canManage, selected, onTo
             <div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '3px' }}>Expected Result</div>
               <div style={{ fontSize: '11px', color: 'var(--emerald)', lineHeight: 1.5 }}>{tc.expectedResult}</div>
+            </div>
+          )}
+          {itemLabels.length > 0 && (
+            <div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '3px' }}>Labels</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                {itemLabels.map((l) => <span key={l} className="tag">{l}</span>)}
+              </div>
             </div>
           )}
           {item.reason && (
@@ -942,6 +951,11 @@ export default function TestCycleDetail() {
     return <div style={{ padding: '24px', color: 'var(--text-dim)', fontSize: '12px' }}>Loading cycle…</div>;
   }
   const { cycle, items } = data;
+  // The cycle's own configured jiraLabels (used for Jira bug auto-discovery),
+  // not an aggregate of TC Library tags — see TestCycle.jiraLabels.
+  const cycleLabels = (() => {
+    try { return JSON.parse(cycle.jiraLabels) as string[]; } catch { return []; }
+  })();
   const assigneeOptions = [...new Set(items.map((i) => i.assignee?.user.name ?? 'Unassigned'))].sort();
   const featureOptions = [...new Set(items.map((i) => i.testCase?.feature ?? i.testCase?.module ?? 'Uncategorised'))].sort();
   const filteredItems = items.filter((i) => {
@@ -1151,6 +1165,12 @@ export default function TestCycleDetail() {
             >
               📁 Upload artifacts to Drive folder ↗
             </a>
+          )}
+          {cycleLabels.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '5px', marginTop: '8px' }}>
+              <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-dim)' }}>Labels</span>
+              {cycleLabels.map((l) => <span key={l} className="tag">{l}</span>)}
+            </div>
           )}
         </div>
 

@@ -3,7 +3,7 @@
 // TestCyclesDashboard.tsx) but the `StatCard` component itself is generic —
 // also reused by TestCaseLibrary.tsx's TC Library stat row.
 
-import { ClipboardList, CheckCircle2, XCircle, Clock, Ban, CircleDashed, Bug, TrendingUp, Target, Unlink } from 'lucide-react';
+import { ClipboardList, CheckCircle2, XCircle, Clock, Ban, CircleDashed, Bug, TrendingUp, Target, Unlink, Eye } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -23,6 +23,8 @@ const THEME = {
   jira:     { from: '#9a3412', to: '#ea580c', accent: 'var(--6d-orange)', Icon: Bug },
   inScope:  { from: '#0e7490', to: '#22d3ee', accent: 'var(--cyan)',     Icon: Target },
   unlinked: { from: '#b45309', to: '#f59e0b', accent: 'var(--amber)',    Icon: Unlink },
+  // Matches the #8b5cf6 dot already used for Task.status IN_REVIEW in lib/taskMeta.ts.
+  review:   { from: '#4c1d95', to: '#8b5cf6', accent: '#8b5cf6',         Icon: Eye },
 } satisfies Record<string, { from: string; to: string; accent: string; Icon: LucideIcon }>;
 
 export type StatTheme = keyof typeof THEME;

@@ -164,7 +164,7 @@ router.get('/dashboard/summary', (async (req, res) => {
     const bugsTotal = keySet.size;
     const bugsResolved = [...keySet].filter((k) => issueByKey.get(k)?.statusCategory === 'done').length;
 
-    return { cycle, counts, total, bugs: { resolved: bugsResolved, total: bugsTotal } };
+    return { cycle, counts, total, bugs: { resolved: bugsResolved, total: bugsTotal }, labels: cycleLabels };
   });
 
   const jira = await getJiraResolutionSummary(projectId);
@@ -393,7 +393,13 @@ router.post('/', requireAdvancedFeatures as RequestHandler, (async (req, res) =>
       })),
     });
     return c;
-  });
+    // Prisma's default interactive-transaction timeout is 5s — fine for a
+    // handful of items, but a cycle seeded with hundreds of TC Library items
+    // (a lead bulk-adding a whole library's worth of cases, e.g. 626) can
+    // legitimately take longer than that, aborting the whole transaction
+    // with an opaque "Failed to create cycle" error. Same fix already
+    // applied to the project-clone transaction in projects.ts.
+  }, { timeout: 120_000 });
 
   res.status(201).json({ cycle });
 }) as RequestHandler);
@@ -477,7 +483,7 @@ router.get('/:cycleId', (async (req, res) => {
   const items = await prisma.testCycleItem.findMany({
     where: { testCycleId: cycleId },
     include: {
-      testCase: { select: { id: true, srNo: true, module: true, feature: true, title: true, description: true, steps: true, expectedResult: true } },
+      testCase: { select: { id: true, srNo: true, module: true, feature: true, title: true, description: true, steps: true, expectedResult: true, labels: true } },
       assignee: { include: { user: { select: { id: true, name: true, email: true } } } },
     },
     orderBy: { sortOrder: 'asc' },

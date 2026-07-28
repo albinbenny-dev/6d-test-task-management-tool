@@ -403,6 +403,12 @@
     gap: 16px;
     background: var(--surface);
     flex-shrink: 0;
+    /* Pinned to the top of whichever ancestor actually scrolls (AppShell's
+       <main>, or a page's own content pane) so breadcrumbs/actions stay
+       reachable no matter how tall the page content underneath gets. */
+    position: sticky;
+    top: 0;
+    z-index: 50;
   }
   .topbar-breadcrumb {
     display: flex;
@@ -718,6 +724,23 @@
     box-shadow: 0 1px 4px rgba(0,0,0,0.08);
   }
 
+  /* ── Inline-editable task title (looks like plain text until you notice
+     the hover border) ── */
+  .tm-title-input {
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 3px 6px;
+    margin: -3px -6px;
+    cursor: text;
+    transition: border-color 0.12s, background 0.12s;
+  }
+  .tm-title-input:hover { border-color: var(--border); background: var(--surface2); }
+  .tm-title-input:focus {
+    border-color: var(--cyan);
+    background: var(--surface);
+    outline: none;
+  }
+
   /* ── Kanban board ── */
   .tm-board {
     display: flex;
@@ -974,4 +997,35 @@
     transition: all 0.12s;
   }
   .tm-quick-add:hover { background: var(--surface2); color: var(--cyan); }
+
+  /* ── Wiki — rendered markdown typography (read view + editor preview) ── */
+  .wiki-markdown { font-size: 13.5px; line-height: 1.65; color: var(--text); }
+  .wiki-markdown > *:first-child { margin-top: 0; }
+  .wiki-markdown h1, .wiki-markdown h2, .wiki-markdown h3 {
+    font-weight: 700; color: var(--text); margin: 20px 0 8px;
+  }
+  .wiki-markdown h1 { font-size: 19px; }
+  .wiki-markdown h2 { font-size: 16px; }
+  .wiki-markdown h3 { font-size: 14px; }
+  .wiki-markdown p { margin: 0 0 12px; }
+  .wiki-markdown ul, .wiki-markdown ol { margin: 0 0 12px; padding-left: 22px; }
+  .wiki-markdown li { margin: 3px 0; }
+  .wiki-markdown a { color: var(--cyan); text-decoration: underline; text-underline-offset: 2px; }
+  .wiki-markdown code {
+    font-family: var(--font-mono); font-size: 12px; background: var(--surface2);
+    padding: 1px 5px; border-radius: 4px;
+  }
+  .wiki-markdown pre {
+    background: var(--surface2); border-radius: var(--radius); padding: 12px;
+    overflow-x: auto; margin: 0 0 12px;
+  }
+  .wiki-markdown pre code { background: none; padding: 0; }
+  .wiki-markdown blockquote {
+    border-left: 3px solid var(--border2); margin: 0 0 12px; padding: 2px 12px;
+    color: var(--text-mid);
+  }
+  .wiki-markdown table { border-collapse: collapse; margin: 0 0 12px; font-size: 12.5px; }
+  .wiki-markdown th, .wiki-markdown td { border: 1px solid var(--border); padding: 5px 10px; }
+  .wiki-markdown th { background: var(--surface2); font-weight: 700; }
+  .wiki-markdown hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 }

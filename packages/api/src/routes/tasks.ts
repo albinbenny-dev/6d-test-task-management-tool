@@ -1,5 +1,7 @@
 import { Router, RequestHandler } from 'express';
 import { z } from 'zod';
+import multer from 'multer';
+import * as xlsx from 'xlsx';
 import { prisma } from '../lib/prisma.js';
 import { verifyToken } from '../middleware/auth.js';
 import { requireProjectAccess } from '../middleware/projectAccess.js';
@@ -70,6 +72,7 @@ const ListQuerySchema = z.object({
 });
 
 const router = Router({ mergeParams: true });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 router.use(verifyToken as RequestHandler);
 router.use(requireProjectAccess as unknown as RequestHandler);
 
@@ -83,6 +86,16 @@ async function resolveAssigneeId(
   const member = await prisma.projectMember.findFirst({ where: { projectId, userId: assigneeUserId } });
   if (!member) return { ok: false };
   return { ok: true, assigneeId: member.id };
+}
+
+// Excel import resolves assignees by email (a spreadsheet has emails, not
+// internal ProjectMember IDs) — case-insensitive, matching this codebase's
+// existing search-filter convention.
+async function resolveAssigneeByEmail(projectId: string, email: string): Promise<string | null> {
+  const member = await prisma.projectMember.findFirst({
+    where: { projectId, user: { email: { equals: email.trim(), mode: 'insensitive' } } },
+  });
+  return member?.id ?? null;
 }
 
 // ── GET / — list tasks (optionally filtered by list/status/assignee) ──────
@@ -146,61 +159,145 @@ router.get('/my', (async (req, res) => {
   res.json({ userId: targetUserId, tasks });
 }) as RequestHandler);
 
-// ── GET /dashboard/summary — status/assignee counts, overdue, this week ───
+// ── GET /dashboard/summary — a PM-style tracking view: status/assignee/list
+// breakdowns, overdue/this-week/next-week workload, and delivery-quality KPIs
+// (completion rate, on-time rate, avg cycle time). Everything is computed
+// in-memory from one lean findMany + one taskList findMany — cheaper than
+// the previous version's 4-query shape despite returning much more. ───────
 
 router.get('/dashboard/summary', (async (req, res) => {
   const projectId = req.project.id;
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
 
-  const [statusGroups, allOpenTasks, completedThisWeek, overdueTasks] = await Promise.all([
-    prisma.task.groupBy({ by: ['status'], where: { projectId }, _count: { _all: true } }),
+  // Calendar week (Mon–Sun) boundaries — "this week"/"next week" are always
+  // forward-looking, so a task due yesterday counts as overdue, not "this
+  // week," and nothing is ever double-counted across the three buckets.
+  const dow = now.getDay(); // 0=Sun..6=Sat
+  const mondayOffset = dow === 0 ? -6 : 1 - dow;
+  const startOfThisWeek = new Date(now);
+  startOfThisWeek.setHours(0, 0, 0, 0);
+  startOfThisWeek.setDate(startOfThisWeek.getDate() + mondayOffset);
+  const endOfThisWeek = new Date(startOfThisWeek);
+  endOfThisWeek.setDate(startOfThisWeek.getDate() + 7); // exclusive, next Monday 00:00
+  const endOfNextWeek = new Date(endOfThisWeek);
+  endOfNextWeek.setDate(endOfThisWeek.getDate() + 7); // exclusive
+
+  const [allTasks, allLists] = await Promise.all([
     prisma.task.findMany({
-      where: { projectId, status: { not: 'DONE' } },
-      select: { id: true, assigneeId: true, dueDate: true },
+      where: { projectId },
+      select: {
+        id: true, status: true, priority: true, assigneeId: true, taskListId: true,
+        startDate: true, dueDate: true, createdAt: true, completedAt: true,
+      },
     }),
-    prisma.task.count({ where: { projectId, status: 'DONE', completedAt: { gte: weekAgo } } }),
-    prisma.task.findMany({
-      where: { projectId, status: { not: 'DONE' }, dueDate: { lt: now } },
-      include: TASK_INCLUDE,
-      orderBy: { dueDate: 'asc' },
-      take: 25,
-    }),
+    prisma.taskList.findMany({ where: { projectId }, select: { id: true, name: true, color: true } }),
   ]);
 
   const counts = { TO_DO: 0, IN_PROGRESS: 0, IN_REVIEW: 0, DONE: 0 } as Record<string, number>;
-  for (const g of statusGroups) counts[g.status] = g._count._all;
-  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const priorityBreakdown = { LOW: 0, NORMAL: 0, HIGH: 0, URGENT: 0 } as Record<string, number>;
+  let completedThisWeek = 0;
+  let overdueCount = 0;
+  let dueThisWeek = 0;
+  let dueNextWeek = 0;
+  let unassignedOpenCount = 0;
 
-  const assigneeIds = [...new Set(allOpenTasks.map((t) => t.assigneeId).filter((id): id is string => !!id))];
-  const members = assigneeIds.length
-    ? await prisma.projectMember.findMany({ where: { id: { in: assigneeIds } }, include: { user: { select: { name: true } } } })
-    : [];
-  const nameById = new Map(members.map((m) => [m.id, m.user.name]));
+  const byAssigneeMap = new Map<string, { assigneeId: string | null; assigneeUserId: string | null; assigneeName: string; total: number; overdue: number }>();
+  const listMap = new Map(allLists.map((l) => [l.id, { taskListId: l.id, name: l.name, color: l.color, total: 0, done: 0, overdue: 0 }]));
 
-  const byAssigneeMap = new Map<string, { assigneeId: string | null; assigneeName: string; total: number; overdue: number }>();
-  for (const t of allOpenTasks) {
-    const key = t.assigneeId ?? 'unassigned';
-    if (!byAssigneeMap.has(key)) {
-      byAssigneeMap.set(key, {
-        assigneeId: t.assigneeId,
-        assigneeName: t.assigneeId ? (nameById.get(t.assigneeId) ?? 'Unknown') : 'Unassigned',
-        total: 0,
-        overdue: 0,
-      });
+  let onTimeDoneWithDue = 0;
+  let doneWithDue = 0;
+  let cycleTimeDaysSum = 0;
+  let doneWithCompletedAt = 0;
+
+  for (const t of allTasks) {
+    counts[t.status] = (counts[t.status] ?? 0) + 1;
+    const isOpen = t.status !== 'DONE';
+
+    if (isOpen) {
+      priorityBreakdown[t.priority] = (priorityBreakdown[t.priority] ?? 0) + 1;
+      if (!t.assigneeId) unassignedOpenCount++;
+
+      if (t.dueDate) {
+        if (t.dueDate < now) overdueCount++;
+        else if (t.dueDate < endOfThisWeek) dueThisWeek++;
+        else if (t.dueDate < endOfNextWeek) dueNextWeek++;
+      }
+
+      const key = t.assigneeId ?? 'unassigned';
+      if (!byAssigneeMap.has(key)) {
+        byAssigneeMap.set(key, { assigneeId: t.assigneeId, assigneeUserId: null, assigneeName: t.assigneeId ?? 'Unassigned', total: 0, overdue: 0 });
+      }
+      const row = byAssigneeMap.get(key)!;
+      row.total += 1;
+      if (t.dueDate && t.dueDate < now) row.overdue += 1;
+    } else {
+      if (t.completedAt && t.completedAt >= weekAgo) completedThisWeek++;
+      if (t.completedAt) {
+        doneWithCompletedAt++;
+        const from = (t.startDate ?? t.createdAt).getTime();
+        cycleTimeDaysSum += (t.completedAt.getTime() - from) / 86_400_000;
+        if (t.dueDate) {
+          doneWithDue++;
+          if (t.completedAt.getTime() <= t.dueDate.getTime()) onTimeDoneWithDue++;
+        }
+      }
     }
-    const row = byAssigneeMap.get(key)!;
-    row.total += 1;
-    if (t.dueDate && t.dueDate < now) row.overdue += 1;
+
+    const listRow = listMap.get(t.taskListId);
+    if (listRow) {
+      listRow.total++;
+      if (t.status === 'DONE') listRow.done++;
+      else if (t.dueDate && t.dueDate < now) listRow.overdue++;
+    }
   }
+
+  const total = allTasks.length;
+
+  const assigneeIds = [...byAssigneeMap.keys()].filter((k) => k !== 'unassigned');
+  const members = assigneeIds.length
+    ? await prisma.projectMember.findMany({ where: { id: { in: assigneeIds } }, include: { user: { select: { id: true, name: true } } } })
+    : [];
+  // ProjectMember.id is project-scoped (a different row per project for the
+  // same human) — user.id is the one stable identity a caller aggregating
+  // across projects (e.g. a portfolio dashboard) can actually merge on.
+  const memberById = new Map(members.map((m) => [m.id, m.user]));
+  for (const [key, row] of byAssigneeMap) {
+    if (key !== 'unassigned') {
+      const user = memberById.get(key);
+      row.assigneeName = user?.name ?? 'Unknown';
+      row.assigneeUserId = user?.id ?? null;
+    }
+  }
+
+  const overdueIdsSorted = allTasks
+    .filter((t) => t.status !== 'DONE' && t.dueDate && t.dueDate < now)
+    .sort((a, b) => a.dueDate!.getTime() - b.dueDate!.getTime())
+    .slice(0, 25)
+    .map((t) => t.id);
+  const overdueTasks = overdueIdsSorted.length
+    ? await prisma.task.findMany({ where: { id: { in: overdueIdsSorted } }, include: TASK_INCLUDE, orderBy: { dueDate: 'asc' } })
+    : [];
+
+  const byTaskList = [...listMap.values()]
+    .map((r) => ({ ...r, completionRate: r.total > 0 ? Math.round((r.done / r.total) * 100) : 0 }))
+    .sort((a, b) => b.overdue - a.overdue || a.name.localeCompare(b.name));
 
   res.json({
     counts,
     total,
     completedThisWeek,
-    overdueCount: overdueTasks.length,
+    overdueCount,
     overdueTasks,
+    dueThisWeek,
+    dueNextWeek,
+    completionRate: total > 0 ? Math.round((counts.DONE / total) * 100) : 0,
+    onTimeRate: doneWithDue > 0 ? Math.round((onTimeDoneWithDue / doneWithDue) * 100) : null,
+    avgCycleTimeDays: doneWithCompletedAt > 0 ? Math.round((cycleTimeDaysSum / doneWithCompletedAt) * 10) / 10 : null,
+    unassignedOpenCount,
+    priorityBreakdown,
     byAssignee: [...byAssigneeMap.values()].sort((a, b) => b.total - a.total),
+    byTaskList,
   });
 }) as RequestHandler);
 
@@ -224,6 +321,282 @@ router.patch('/reorder', requireWrite as RequestHandler, (async (req, res) => {
       .map((id, i) => prisma.task.update({ where: { id }, data: { sortOrder: i } })),
   );
   res.json({ message: 'Reordered' });
+}) as RequestHandler);
+
+// ── GET /template — download a standard project-plan Excel template ───────
+
+router.get('/template', (_req, res) => {
+  const headers = ['Task Title', 'Description', 'Assignee Email', 'Priority', 'Status', 'Start Date', 'Due Date', 'Tags', 'Parent Task Title'];
+  const today = new Date();
+  const inAWeek = new Date(today.getTime() + 7 * 86_400_000);
+  const samples = [
+    {
+      'Task Title': 'Requirement Gathering',
+      'Description': 'Collect and finalize requirements from stakeholders',
+      'Assignee Email': 'lead@example.com',
+      'Priority': 'High',
+      'Status': 'In Progress',
+      'Start Date': today,
+      'Due Date': inAWeek,
+      'Tags': 'planning, kickoff',
+      'Parent Task Title': '',
+    },
+    {
+      'Task Title': 'Stakeholder Interviews',
+      'Description': 'Interview key stakeholders to validate scope',
+      'Assignee Email': 'tester@example.com',
+      'Priority': 'Normal',
+      'Status': 'To Do',
+      'Start Date': today,
+      'Due Date': inAWeek,
+      'Tags': '',
+      'Parent Task Title': 'Requirement Gathering',
+    },
+  ];
+
+  const ws = xlsx.utils.json_to_sheet(samples, { header: headers });
+  ws['!cols'] = [28, 45, 24, 12, 14, 14, 14, 20, 24].map((w) => ({ wch: w }));
+  const wb = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(wb, ws, 'Task Plan');
+  const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="task-import-template.xlsx"');
+  res.send(buf);
+});
+
+// ── POST /import — parse Excel and bulk-create/update Tasks in one target
+// list. Open to every project role (requireWrite), same tier as every other
+// Task mutation — the Excel path creates nothing a lead couldn't already
+// create one row at a time through the UI, and (unlike TC Library's import)
+// it never deletes, so it doesn't carry the "accidental bulk wipe" risk that
+// gates taskLists.ts's DELETE /:listId to ADMIN/SUPER_USER. ────────────────
+
+const PRIORITY_VALUES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
+const STATUS_VALUES = ['TO_DO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE'];
+
+function normalizeEnumValue(raw: string, values: string[]): string | null {
+  if (!raw) return null;
+  const norm = raw.trim().toUpperCase().replace(/[\s-]+/g, '_');
+  return values.includes(norm) ? norm : null;
+}
+
+// cellDates:true (below) turns real Excel date cells into JS Dates directly.
+// A lead may instead paste a date as plain text, which cellDates won't
+// touch — this fallback tries to parse that text, and treats anything
+// unparseable as "no date given" rather than failing the row.
+function parseDateCell(raw: unknown): Date | null {
+  if (raw instanceof Date && !isNaN(raw.getTime())) return raw;
+  if (typeof raw === 'string' && raw.trim()) {
+    const d = new Date(raw.trim());
+    if (!isNaN(d.getTime())) return d;
+  }
+  return null;
+}
+
+router.post('/import', requireWrite as RequestHandler, upload.single('file'), (async (req, res) => {
+  const projectId = req.project.id;
+  const taskListId = (req.body?.taskListId as string | undefined)?.trim();
+  if (!taskListId) return res.status(400).json({ error: 'taskListId is required' });
+  if (!req.file) return res.status(400).json({ error: 'Excel file required (field: file)' });
+
+  const list = await prisma.taskList.findFirst({ where: { id: taskListId, projectId } });
+  if (!list) return res.status(400).json({ error: 'That task list does not belong to this project' });
+
+  const wb = xlsx.read(req.file.buffer, { type: 'buffer', cellDates: true });
+
+  const findRaw = (row: Record<string, unknown>, keys: string[]): unknown => {
+    const norm: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(row)) norm[k.toLowerCase().trim()] = v;
+    for (const k of keys) {
+      const v = norm[k.toLowerCase().trim()];
+      if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+    }
+    return undefined;
+  };
+  const findVal = (row: Record<string, unknown>, keys: string[]): string => {
+    const v = findRaw(row, keys);
+    return v !== undefined ? String(v).trim() : '';
+  };
+
+  const titleKeys    = ['task title', 'title', 'task name', 'name'];
+  const descKeys     = ['description', 'notes', 'desc'];
+  const assigneeKeys = ['assignee email', 'assignee', 'email', 'assigned to'];
+  const priorityKeys = ['priority'];
+  const statusKeys   = ['status'];
+  const startKeys    = ['start date', 'start'];
+  const dueKeys      = ['due date', 'due', 'end date', 'finish date', 'finish'];
+  const tagsKeys     = ['tags', 'labels'];
+  const parentKeys   = ['parent task title', 'parent task', 'parent'];
+
+  const allRows: Record<string, unknown>[] = [];
+  for (const sheetName of wb.SheetNames) {
+    const ws = wb.Sheets[sheetName];
+    allRows.push(...xlsx.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' }));
+  }
+
+  type MappedRow = {
+    title: string;
+    description: string | null;
+    assigneeEmail: string;
+    priorityRaw: string;
+    statusRaw: string;
+    startDate: Date | null;
+    hasStartDateCell: boolean;
+    dueDate: Date | null;
+    hasDueDateCell: boolean;
+    tagsRaw: string;
+    hasTagsCell: boolean;
+    parentTitleRaw: string;
+  };
+
+  let skippedEmpty = 0;
+  const mapped: MappedRow[] = [];
+  for (const row of allRows) {
+    const title = findVal(row, titleKeys);
+    if (!title) { skippedEmpty++; continue; }
+    const startRaw = findRaw(row, startKeys);
+    const dueRaw = findRaw(row, dueKeys);
+    const tagsRaw = findVal(row, tagsKeys);
+    mapped.push({
+      title,
+      description: findVal(row, descKeys) || null,
+      assigneeEmail: findVal(row, assigneeKeys),
+      priorityRaw: findVal(row, priorityKeys),
+      statusRaw: findVal(row, statusKeys),
+      startDate: startRaw !== undefined ? parseDateCell(startRaw) : null,
+      hasStartDateCell: startRaw !== undefined,
+      dueDate: dueRaw !== undefined ? parseDateCell(dueRaw) : null,
+      hasDueDateCell: dueRaw !== undefined,
+      tagsRaw,
+      hasTagsCell: tagsRaw !== '',
+      parentTitleRaw: findVal(row, parentKeys),
+    });
+  }
+
+  // Dedup by title — scoped to this one taskListId (the whole import targets
+  // a single list), so two different lists reusing a title never collide.
+  const seen = new Set<string>();
+  const duplicateRows: string[] = [];
+  const deduped: MappedRow[] = [];
+  for (const r of mapped) {
+    if (seen.has(r.title)) { duplicateRows.push(r.title); continue; }
+    seen.add(r.title);
+    deduped.push(r);
+  }
+
+  if (deduped.length === 0) {
+    return res.status(400).json({ error: 'No valid rows found. Check that "Task Title" column is present.' });
+  }
+
+  const existingTasks = await prisma.task.findMany({
+    where: { projectId, taskListId },
+    select: { id: true, title: true, parentTaskId: true, status: true },
+  });
+  const existingByTitle = new Map(existingTasks.map((t) => [t.title, t.id]));
+  const existingParentById = new Map(existingTasks.map((t) => [t.id, t.parentTaskId]));
+  const existingStatusById = new Map(existingTasks.map((t) => [t.id, t.status]));
+
+  const last = await prisma.task.findFirst({ where: { projectId, taskListId }, orderBy: { sortOrder: 'desc' } });
+  let nextSortOrder = (last?.sortOrder ?? -1) + 1;
+
+  const unmatchedAssigneesSet = new Set<string>();
+  const resolved = await Promise.all(deduped.map(async (r) => {
+    let assigneeId: string | null = null;
+    if (r.assigneeEmail) {
+      assigneeId = await resolveAssigneeByEmail(projectId, r.assigneeEmail);
+      if (!assigneeId) unmatchedAssigneesSet.add(r.assigneeEmail);
+    }
+    return {
+      ...r,
+      assigneeId,
+      priority: normalizeEnumValue(r.priorityRaw, PRIORITY_VALUES),
+      status: normalizeEnumValue(r.statusRaw, STATUS_VALUES),
+    };
+  }));
+
+  const toInsert = resolved.filter((r) => !existingByTitle.has(r.title));
+  const toUpdate = resolved
+    .filter((r) => existingByTitle.has(r.title))
+    .map((r) => ({ ...r, _existingId: existingByTitle.get(r.title)! }));
+
+  const titleToId = new Map<string, string>();
+
+  if (toInsert.length > 0) {
+    const created = await prisma.$transaction(
+      toInsert.map((r) => prisma.task.create({
+        data: {
+          projectId,
+          taskListId,
+          title: r.title,
+          description: r.description ?? undefined,
+          priority: r.priority ?? 'NORMAL',
+          status: r.status ?? 'TO_DO',
+          assigneeId: r.assigneeId,
+          startDate: r.startDate,
+          dueDate: r.dueDate,
+          tags: JSON.stringify(r.tagsRaw ? r.tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : []),
+          sortOrder: nextSortOrder++,
+          createdByUserId: req.user.id,
+          completedAt: r.status === 'DONE' ? new Date() : null,
+        },
+      })),
+    );
+    created.forEach((t, i) => titleToId.set(toInsert[i].title, t.id));
+  }
+
+  // On UPDATE, a blank cell means "no change," not "clear the field" — a
+  // re-import with a blank Due Date column must not wipe an existing due
+  // date, and a blank Status cell must not reset a DONE task back to TO_DO.
+  if (toUpdate.length > 0) {
+    await prisma.$transaction(toUpdate.map((r) => {
+      const data: Record<string, unknown> = {};
+      if (r.description !== null) data.description = r.description;
+      if (r.assigneeEmail) data.assigneeId = r.assigneeId;
+      if (r.priority) data.priority = r.priority;
+      if (r.status) {
+        data.status = r.status;
+        const prevStatus = existingStatusById.get(r._existingId);
+        data.completedAt = r.status === 'DONE' ? (prevStatus === 'DONE' ? undefined : new Date()) : null;
+      }
+      if (r.hasStartDateCell) data.startDate = r.startDate;
+      if (r.hasDueDateCell) data.dueDate = r.dueDate;
+      if (r.hasTagsCell) data.tags = JSON.stringify(r.tagsRaw.split(',').map((t) => t.trim()).filter(Boolean));
+      return prisma.task.update({ where: { id: r._existingId }, data });
+    }));
+    toUpdate.forEach((r) => titleToId.set(r.title, r._existingId));
+  }
+
+  // Parent linking — one level only, matching only within this same import
+  // batch + target list (a row's declared parent must itself be a row in
+  // this sheet, whether it was created or updated) so a lead can't
+  // accidentally reparent a batch under an unrelated older task.
+  const unresolvedParents: string[] = [];
+  const parentUpdates: Array<{ id: string; parentTaskId: string }> = [];
+  for (const r of resolved) {
+    if (!r.parentTitleRaw) continue;
+    const childId = titleToId.get(r.title);
+    if (!childId || r.parentTitleRaw === r.title) { unresolvedParents.push(r.title); continue; }
+    const parentId = titleToId.get(r.parentTitleRaw);
+    if (!parentId) { unresolvedParents.push(r.title); continue; }
+    const parentDeclaresParentInBatch = resolved.find((x) => x.title === r.parentTitleRaw)?.parentTitleRaw;
+    const parentAlreadyHasParent = existingParentById.get(parentId);
+    if (parentDeclaresParentInBatch || parentAlreadyHasParent) { unresolvedParents.push(r.title); continue; }
+    parentUpdates.push({ id: childId, parentTaskId: parentId });
+  }
+  if (parentUpdates.length > 0) {
+    await prisma.$transaction(parentUpdates.map((p) => prisma.task.update({ where: { id: p.id }, data: { parentTaskId: p.parentTaskId } })));
+  }
+
+  res.status(201).json({
+    imported: toInsert.length,
+    updated: toUpdate.length,
+    skippedEmpty,
+    duplicateRows,
+    unmatchedAssignees: [...unmatchedAssigneesSet],
+    unresolvedParents,
+    totalRows: allRows.length,
+  });
 }) as RequestHandler);
 
 // ── GET /:taskId — task detail with subtasks + comments ────────────────────

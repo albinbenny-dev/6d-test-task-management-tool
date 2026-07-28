@@ -9,6 +9,7 @@ import jiraRouter from './jira.js';
 import taskListsRouter from './taskLists.js';
 import tasksRouter from './tasks.js';
 import personalTasksRouter from './personalTasks.js';
+import wikiRouter from './wiki.js';
 import { verifyToken } from '../middleware/auth.js';
 
 // Automation routers (scripts/runs/suites/reports/resources) are unmounted
@@ -59,6 +60,9 @@ router.use('/projects/:projectId/jira', jiraRouter);
 // ── Task Management — ClickUp-style project task tracking ─────────────────
 router.use('/projects/:projectId/task-lists', taskListsRouter);
 router.use('/projects/:projectId/tasks', tasksRouter);
+
+// ── Wiki — per-project living documentation ────────────────────────────────
+router.use('/projects/:projectId/wiki', wikiRouter);
 
 // ── Personal Tasks — private per-user to-do tracker, not project-scoped ───
 router.use('/personal-tasks', personalTasksRouter);

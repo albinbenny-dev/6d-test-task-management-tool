@@ -62,6 +62,7 @@ model Project {
   testCycleItemHistory TestCycleItemHistory[]
   taskLists            TaskList[]
   tasks                Task[]
+  wikiPages            WikiPage[]
 
   @@index([createdBy])
 }
@@ -77,6 +78,8 @@ model ProjectMember {
   assignedItems        TestCycleItem[]
   testCycleItemHistory TestCycleItemHistory[]
   assignedTasks        Task[]
+  wikiPagesCreated     WikiPage[]             @relation("WikiPageCreatedBy")
+  wikiPagesUpdated     WikiPage[]             @relation("WikiPageUpdatedBy")
 
   @@unique([projectId, userId])
   @@index([userId])
@@ -478,6 +481,43 @@ model TaskComment {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
+}
+
+// ── Wiki — per-project living documentation ─────────────────────────────────
+// Confluence-style but deliberately minimal: pages are markdown text with
+// plain markdown links out to Drive/SharePoint/etc (same "link, don't host"
+// convention as TestCycle.driveFolderUrl) — no file uploads, no WYSIWYG. No
+// separate space/container model: a Project already scopes the whole wiki,
+// so pages attach directly to it. One level of nesting only, via
+// parentPageId — mirrors Task.parentTaskId/subtasks; a page that already has
+// a parent cannot itself be given children (enforced at the route layer).
+
+model WikiPage {
+  id              String   @id @default(cuid())
+  projectId       String
+  parentPageId    String? // set for a child page — see parentPage/childPages below
+  title           String
+  content         String   @default("") // markdown source
+  tags            String   @default("[]") // JSON: string[] — same convention as Task.tags
+  sortOrder       Int      @default(0) // manual order among siblings sharing the same parentPageId (incl. null)
+  createdByUserId String? // FK -> ProjectMember.id
+  updatedByUserId String? // FK -> ProjectMember.id — set on every edit after creation
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  project    Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // SetNull, not Cascade — mirrors Project.creator: an author leaving the
+  // project must not take their pages down with them (see commit that fixed
+  // the same mistake for Project.createdBy — deleting a user who "owns" a
+  // row by audit-metadata FK alone must never cascade-delete the row).
+  parentPage WikiPage?      @relation("WikiPageParent", fields: [parentPageId], references: [id], onDelete: Cascade)
+  childPages WikiPage[]     @relation("WikiPageParent")
+  createdBy  ProjectMember? @relation("WikiPageCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy  ProjectMember? @relation("WikiPageUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([parentPageId])
+  @@index([projectId, sortOrder])
 }
 
 // A private, per-user to-do tracker — deliberately NOT project-scoped. Only

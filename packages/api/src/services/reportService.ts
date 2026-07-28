@@ -344,41 +344,48 @@ export interface TopSuiteEntry {
   lastRunStatuses: string[];
   successRate: number;
   lastRunAt: Date;
+  triggerType: string;
 }
 
-/** All suite-triggered run groups (by run.name — suite runs have no separate suiteId FK). */
+/**
+ * All suite-triggered and scheduled run groups (by run.name — neither suite
+ * nor scheduled runs have a separate suiteId FK, so grouping is name-based).
+ * Scheduled runs are included alongside manual "Quick Run" suite runs so
+ * nightly/cron schedules show up in the Test Suites browser too, not just
+ * in the Recent Runs feed.
+ */
 export async function getSuiteGroups(projectId: string): Promise<TopSuiteEntry[]> {
   const runs = await prisma.run.findMany({
     where: {
       projectId,
-      triggerType: 'SUITE',
+      triggerType: { in: ['SUITE', 'SCHEDULED'] },
       status: { in: ['PASSED', 'FAILED', 'CANCELLED'] },
     },
     orderBy: { createdAt: 'desc' },
-    select: { name: true, status: true, createdAt: true },
+    select: { name: true, status: true, createdAt: true, triggerType: true },
     take: 500,
   });
 
-  const byName = new Map<string, { statuses: string[]; count: number; lastRunAt: Date }>();
+  const byName = new Map<string, { statuses: string[]; count: number; lastRunAt: Date; triggerType: string }>();
   for (const run of runs) {
     const existing = byName.get(run.name);
     if (existing) {
       existing.count++;
       if (existing.statuses.length < 5) existing.statuses.push(run.status);
     } else {
-      byName.set(run.name, { statuses: [run.status], count: 1, lastRunAt: run.createdAt });
+      byName.set(run.name, { statuses: [run.status], count: 1, lastRunAt: run.createdAt, triggerType: run.triggerType });
     }
   }
 
   return [...byName.entries()]
     .sort((a, b) => b[1].count - a[1].count)
-    .map(([name, { statuses, count, lastRunAt }]) => {
+    .map(([name, { statuses, count, lastRunAt, triggerType }]) => {
       const terminal = statuses.filter((s) => s === 'PASSED' || s === 'FAILED');
       const successRate =
         terminal.length > 0
           ? Math.round((terminal.filter((s) => s === 'PASSED').length / terminal.length) * 100)
           : 0;
-      return { name, runCount: count, lastRunStatuses: statuses, successRate, lastRunAt };
+      return { name, runCount: count, lastRunStatuses: statuses, successRate, lastRunAt, triggerType };
     });
 }
 
