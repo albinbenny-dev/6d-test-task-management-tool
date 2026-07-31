@@ -32,6 +32,11 @@ export interface Project {
     members: number;
     runs?: number;
   };
+  /** Cross-project summary counts (injected by GET /projects) — powers the All Projects card insights */
+  insights?: {
+    overdueTasks: number;
+    openBugs: number;
+  };
   members?: ProjectMember[];
   envConfigs?: EnvConfig[];
 }

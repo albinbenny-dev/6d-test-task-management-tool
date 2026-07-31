@@ -2,17 +2,17 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
-  BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, LabelList,
 } from 'recharts';
 import Topbar, { TbBtn } from '../components/layout/Topbar';
 import { StatCard } from '../components/testCycles/StatCards';
-import { FilterSelect } from '../components/testCycles/FilterBar';
+import { MultiSelectFilter } from '../components/testCycles/FilterBar';
 import { useProject } from '../hooks/useProjects';
 import { useProjectDefects } from '../hooks/useDefects';
 import { useJiraConfig, useUpdateJiraConfig, useSyncJiraNow, useJiraHost } from '../hooks/useJira';
 import { useRBAC } from '../hooks/useRBAC';
 import { isBugClosed, isBugOverdue } from '../lib/jiraBugStatus';
-import type { ProjectDefect } from '../types';
+import type { ProjectDefect, ProjectDefectIssue } from '../types';
 
 // ── Due-date aging bucket — same 4-bucket shape as AllBugsSection's board,
 // so "overdue" reads identically everywhere in the app. ─────────────────────
@@ -28,6 +28,42 @@ function dueBucket(defect: ProjectDefect): DueBucket {
   const in7Days = new Date(Date.now() + 7 * 86_400_000);
   if (due <= in7Days) return 'Due this week';
   return 'Later';
+}
+
+// ── Aging bucket — how long a still-open defect has been outstanding, from
+// Jira's own "created" date. Only meaningful for defects not yet closed. ────
+
+const AGING_BUCKETS = ['0-3d', '4-7d', '8-14d', '15-30d', '30d+', 'Unknown'] as const;
+type AgingBucket = typeof AGING_BUCKETS[number];
+
+function agingBucket(defect: ProjectDefect): AgingBucket {
+  const created = defect.issue?.jiraCreatedAt;
+  if (!created) return 'Unknown';
+  const days = Math.floor((Date.now() - new Date(created).getTime()) / 86_400_000);
+  if (days <= 3) return '0-3d';
+  if (days <= 7) return '4-7d';
+  if (days <= 14) return '8-14d';
+  if (days <= 30) return '15-30d';
+  return '30d+';
+}
+
+const AGING_COLOR: Record<AgingBucket, string> = {
+  '0-3d':   'var(--pass)',
+  '4-7d':   'var(--run)',
+  '8-14d':  'var(--amber)',
+  '15-30d': '#ea580c',
+  '30d+':   'var(--fail)',
+  Unknown:  'var(--text-dim)',
+};
+
+// ── "Retest" — a company-specific status meaning: fixed and back with the
+// testing team to re-verify, NOT still open with dev. Kept separate from the
+// generic "Open" bucket everywhere it's counted. Matched on the literal Jira
+// status name (like isBugClosed does) rather than statusCategory, since a
+// custom workflow's category mapping for "Retest" isn't guaranteed. ────────
+
+function isRetestStatus(issue: ProjectDefectIssue | null | undefined): boolean {
+  return (issue?.status ?? '').trim().toLowerCase() === 'retest';
 }
 
 const STATUS_CATEGORY_COLOR: Record<string, string> = {
@@ -49,6 +85,7 @@ const LABEL_STYLE: CSSProperties = {
   display: 'block', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase',
   letterSpacing: '1px', color: 'var(--text-mid)', marginBottom: '4px',
 };
+const CHART_LABEL_STYLE = { fill: 'var(--text)', fontSize: 10, fontWeight: 700 };
 
 // ── Chart tooltip ────────────────────────────────────────────────────────
 
@@ -80,6 +117,51 @@ function topNWithOther(rows: Array<{ key: string; count: number }>): Array<{ key
   const top = rows.slice(0, TOP_N);
   const otherCount = rows.slice(TOP_N).reduce((sum, r) => sum + r.count, 0);
   return [...top, { key: 'Other', count: otherCount }];
+}
+
+// ── Multi-select filter matching — empty selection means "no filter" (match
+// everything); a non-empty selection matches ANY of the chosen values. ─────
+
+function matchesMulti(selected: string[], value: string): boolean {
+  return selected.length === 0 || selected.includes(value);
+}
+function matchesComponent(selected: string[], components: string[]): boolean {
+  if (selected.length === 0) return true;
+  if (components.length === 0) return selected.includes('No component');
+  return components.some((c) => selected.includes(c));
+}
+function matchesLabel(selected: string[], labels: string[]): boolean {
+  if (selected.length === 0) return true;
+  return labels.some((l) => selected.includes(l));
+}
+function matchesCycle(selected: string[], cycles: Array<{ name: string }>): boolean {
+  if (selected.length === 0) return true;
+  return cycles.some((c) => selected.includes(c.name));
+}
+
+interface DefectFilters {
+  status: string[];
+  severity: string[];
+  assignee: string[];
+  component: string[];
+  cycle: string[];
+  due: string[];
+  aging: string[];
+  label: string[];
+}
+
+function buildPredicate(f: DefectFilters): (d: ProjectDefect) => boolean {
+  return (d) => {
+    if (!matchesMulti(f.status, d.issue?.status ?? '')) return false;
+    if (!matchesMulti(f.severity, d.issue?.severityName ?? 'Unspecified')) return false;
+    if (!matchesMulti(f.assignee, d.issue?.assigneeName ?? 'Unassigned')) return false;
+    if (!matchesComponent(f.component, d.issue?.components ?? [])) return false;
+    if (!matchesCycle(f.cycle, d.testCycles)) return false;
+    if (!matchesMulti(f.due, dueBucket(d))) return false;
+    if (!matchesMulti(f.aging, agingBucket(d))) return false;
+    if (!matchesLabel(f.label, d.issue?.labels ?? [])) return false;
+    return true;
+  };
 }
 
 // ── Sync settings panel — project-wide label/JQL discovery config, additive
@@ -126,70 +208,76 @@ function SyncPanel({ projectId }: { projectId: string }) {
 
   const config = data?.config;
 
+  // ── Narrow vertical card — lives in the side rail, so everything stacks
+  // instead of wrapping in a horizontal row (that only worked full-width). ──
   return (
-    <div className="card" style={{ padding: '14px 16px', marginBottom: '16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', padding: 0, font: 'inherit', color: 'var(--text)' }}
-        >
-          <span style={{ fontSize: '13px', fontWeight: 700 }}>🔄 Sync Settings</span>
-          <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>{expanded ? '▲' : '▼'}</span>
-        </button>
-        {!isLoading && config && (config.labels.length > 0 || config.jql) && (
-          <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
-            {config.labels.length > 0 && `${config.labels.length} label(s)`}{config.labels.length > 0 && config.jql ? ' + ' : ''}{config.jql ? 'custom JQL' : ''}
-          </span>
+    <div className="card" style={{ padding: '12px 14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>🔄 Sync</span>
+        {canWrite && (
+          <TbBtn variant="ghost" onClick={() => void handleSync()} disabled={syncNow.isPending} style={{ fontSize: '10px', padding: '3px 8px' }}>
+            {syncNow.isPending ? '⏳' : '🔄'} {syncNow.isPending ? 'Syncing…' : 'Sync Now'}
+          </TbBtn>
         )}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
-          {config?.lastPollAt && (
-            <span style={{ fontSize: '10px', color: 'var(--text-dim)' }} title={config.lastPollStatus ?? undefined}>
-              Synced {new Date(config.lastPollAt).toLocaleString()}
-            </span>
-          )}
-          {canWrite && (
-            <TbBtn variant="ghost" onClick={() => void handleSync()} disabled={syncNow.isPending}>
-              {syncNow.isPending ? '⏳ Syncing…' : '🔄 Sync Now'}
-            </TbBtn>
-          )}
-        </div>
       </div>
 
+      <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+        {!isLoading && config && (config.labels.length > 0 || config.jql) ? (
+          <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
+            {config.labels.length > 0 && `${config.labels.length} label(s)`}{config.labels.length > 0 && config.jql ? ' + ' : ''}{config.jql ? 'custom JQL' : ''}
+          </span>
+        ) : (
+          <span style={{ fontSize: '10px', color: 'var(--text-dim)', fontStyle: 'italic' }}>No labels/JQL configured</span>
+        )}
+        {config?.lastPollAt && (
+          <span style={{ fontSize: '10px', color: 'var(--text-dim)' }} title={config.lastPollStatus ?? undefined}>
+            Synced {new Date(config.lastPollAt).toLocaleString()}
+          </span>
+        )}
+      </div>
+
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', padding: 0, marginTop: '8px', font: 'inherit', fontSize: '10px', fontWeight: 700, color: 'var(--cyan)' }}
+      >
+        {canManageJiraConfig ? 'Edit sync config' : 'View sync config'} <span style={{ fontSize: '9px' }}>{expanded ? '▲' : '▼'}</span>
+      </button>
+
       {expanded && (
-        <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid var(--border)' }}>
+        <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
           {!canManageJiraConfig ? (
-            <div style={{ fontSize: '12px', color: 'var(--text-mid)' }}>
-              <div><strong>Labels:</strong> {config?.labels.length ? config.labels.join(', ') : <span style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>none configured</span>}</div>
-              <div style={{ marginTop: '6px' }}><strong>Custom JQL:</strong> {config?.jql || <span style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>none configured</span>}</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-mid)' }}>
+              <div><strong>Labels:</strong> {config?.labels.length ? config.labels.join(', ') : <span style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>none</span>}</div>
+              <div style={{ marginTop: '6px' }}><strong>JQL:</strong> {config?.jql || <span style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>none</span>}</div>
             </div>
           ) : (
             <>
-              <label style={LABEL_STYLE}>Labels (comma-separated) — project-wide, in addition to any per-cycle labels</label>
+              <label style={LABEL_STYLE}>Labels (comma-separated)</label>
               <input
                 className="input-field"
                 value={labelsInput}
                 onChange={(e) => setLabelsInput(e.target.value)}
                 placeholder="e.g. opco-airtel, regression"
-                style={{ marginBottom: '12px' }}
+                style={{ marginBottom: '10px', fontSize: '11px' }}
               />
 
-              <label style={LABEL_STYLE}>Custom JQL (optional, additive alongside labels)</label>
+              <label style={LABEL_STYLE}>Custom JQL (optional)</label>
               <textarea
                 className="input-field"
                 value={jqlInput}
                 onChange={(e) => setJqlInput(e.target.value)}
-                placeholder='e.g. project = PROJ AND issuetype = Bug AND fixVersion = "4.2"'
-                rows={2}
-                style={{ marginBottom: '12px', fontFamily: 'var(--font-mono)', fontSize: '11px', resize: 'vertical' }}
+                placeholder="project = PROJ AND issuetype = Bug"
+                rows={3}
+                style={{ marginBottom: '10px', fontFamily: 'var(--font-mono)', fontSize: '10px', resize: 'vertical' }}
               />
 
               {config?.labels.length && !config.jiraProjectKey ? (
-                <p style={{ fontSize: '11px', color: 'var(--amber)', marginBottom: '12px' }}>
-                  ⚠ Label-based discovery needs a Jira project key — set one in Project Settings → Jira.
+                <p style={{ fontSize: '10px', color: 'var(--amber)', marginBottom: '10px' }}>
+                  ⚠ Needs a Jira project key — set one in Settings → Jira.
                 </p>
               ) : null}
 
-              <TbBtn variant="primary" onClick={() => void handleSave()} disabled={updateConfig.isPending}>
+              <TbBtn variant="primary" onClick={() => void handleSave()} disabled={updateConfig.isPending} style={{ width: '100%', justifyContent: 'center' }}>
                 {updateConfig.isPending ? 'Saving…' : 'Save'}
               </TbBtn>
             </>
@@ -209,43 +297,57 @@ export default function DefectsDashboard() {
   const { data: jiraHost } = useJiraHost(projectId);
   const { data: allDefects = [], isLoading } = useProjectDefects(projectId);
 
-  const [statusFilter, setStatusFilter] = useState('');
-  const [severityFilter, setSeverityFilter] = useState('');
-  const [assigneeFilter, setAssigneeFilter] = useState('');
-  const [componentFilter, setComponentFilter] = useState('');
-  const [cycleFilter, setCycleFilter] = useState('');
-  const [dueFilter, setDueFilter] = useState('');
-  const [labelFilter, setLabelFilter] = useState('');
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  const [severityFilters, setSeverityFilters] = useState<string[]>([]);
+  const [assigneeFilters, setAssigneeFilters] = useState<string[]>([]);
+  const [componentFilters, setComponentFilters] = useState<string[]>([]);
+  const [cycleFilters, setCycleFilters] = useState<string[]>([]);
+  const [dueFilters, setDueFilters] = useState<string[]>([]);
+  const [agingFilters, setAgingFilters] = useState<string[]>([]);
+  const [labelFilters, setLabelFilters] = useState<string[]>([]);
   const [showClosed, setShowClosed] = useState(false);
 
+  function toggleFilter(cur: string[], set: (v: string[]) => void, value: string) {
+    set(cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value]);
+  }
+
   // Base working set (post "show closed" toggle) — charts show the overview
-  // across this set; the table below applies the dropdown filters on top.
+  // across this set; the table and stat cards below apply the dropdown
+  // filters on top of it.
   const visibleDefects = useMemo(
     () => allDefects.filter((d) => showClosed || !isBugClosed(d.issue)),
     [allDefects, showClosed],
   );
 
-  const filteredDefects = useMemo(() => visibleDefects.filter((d) => {
-    if (statusFilter && d.issue?.status !== statusFilter) return false;
-    if (severityFilter && (d.issue?.severityName ?? 'Unspecified') !== severityFilter) return false;
-    if (assigneeFilter && (d.issue?.assigneeName ?? 'Unassigned') !== assigneeFilter) return false;
-    if (componentFilter && !(d.issue?.components.length ? d.issue.components.includes(componentFilter) : componentFilter === 'No component')) return false;
-    if (cycleFilter && !d.testCycles.some((c) => c.name === cycleFilter)) return false;
-    if (dueFilter && dueBucket(d) !== dueFilter) return false;
-    if (labelFilter && !(d.issue?.labels ?? []).includes(labelFilter)) return false;
-    return true;
-  }), [visibleDefects, statusFilter, severityFilter, assigneeFilter, componentFilter, cycleFilter, dueFilter, labelFilter]);
+  const predicate = useMemo(
+    () => buildPredicate({
+      status: statusFilters, severity: severityFilters, assignee: assigneeFilters,
+      component: componentFilters, cycle: cycleFilters, due: dueFilters, aging: agingFilters, label: labelFilters,
+    }),
+    [statusFilters, severityFilters, assigneeFilters, componentFilters, cycleFilters, dueFilters, agingFilters, labelFilters],
+  );
+
+  const filteredDefects = useMemo(() => visibleDefects.filter(predicate), [visibleDefects, predicate]);
+
+  // Resolved(7d) is computed from allDefects (not visibleDefects) — a "Show
+  // Closed" toggle that's off by default would otherwise always show 0 here,
+  // since a resolved bug IS a closed one. It still respects every other
+  // active filter, same as the rest of the stat row.
+  const resolvedBase = useMemo(() => allDefects.filter(predicate), [allDefects, predicate]);
 
   const closedCount = allDefects.filter((d) => isBugClosed(d.issue)).length;
-  const overdueCount = visibleDefects.filter((d) => isBugOverdue(d.issue)).length;
-  const unassignedCount = visibleDefects.filter((d) => !d.issue?.assigneeName).length;
-  const openCount = visibleDefects.filter((d) => d.issue?.statusCategory !== 'done').length;
-  const resolvedLast7dCount = visibleDefects.filter((d) => {
+  const overdueCount = filteredDefects.filter((d) => isBugOverdue(d.issue)).length;
+  const unassignedCount = filteredDefects.filter((d) => !d.issue?.assigneeName).length;
+  const retestCount = filteredDefects.filter((d) => isRetestStatus(d.issue)).length;
+  const openCount = filteredDefects.filter((d) => !isBugClosed(d.issue) && !isRetestStatus(d.issue)).length;
+  const resolvedLast7dCount = resolvedBase.filter((d) => {
     if (d.issue?.statusCategory !== 'done' || !d.issue.jiraUpdatedAt) return false;
     return new Date(d.issue.jiraUpdatedAt) >= new Date(Date.now() - 7 * 86_400_000);
   }).length;
 
-  // ── Chart data ───────────────────────────────────────────────────────────
+  // ── Chart data (stable overview — post "show closed" toggle only, not
+  // re-filtered by the dropdowns, so charts stay a consistent drill-down
+  // entry point regardless of what's currently selected) ───────────────────
 
   const statusRows = useMemo(() => {
     const withStatus = visibleDefects.filter((d) => d.issue?.status);
@@ -285,6 +387,13 @@ export default function DefectsDashboard() {
     [visibleDefects],
   );
 
+  // Aging only makes sense for defects not yet closed, regardless of whether
+  // "Show Closed" happens to be toggled on for the table right now.
+  const agingRows = useMemo(() => {
+    const open = visibleDefects.filter((d) => !isBugClosed(d.issue));
+    return AGING_BUCKETS.map((bucket) => ({ key: bucket, count: open.filter((d) => agingBucket(d) === bucket).length })).filter((r) => r.count > 0 || r.key !== 'Unknown');
+  }, [visibleDefects]);
+
   // ── Filter dropdown options ───────────────────────────────────────────────
 
   const statusOptions = [...new Set(visibleDefects.map((d) => d.issue?.status).filter((s): s is string => !!s))].sort();
@@ -295,10 +404,11 @@ export default function DefectsDashboard() {
   const labelOptions = [...new Set(visibleDefects.flatMap((d) => d.issue?.labels ?? []))].sort();
 
   function clearAllFilters() {
-    setStatusFilter(''); setSeverityFilter(''); setAssigneeFilter(''); setComponentFilter('');
-    setCycleFilter(''); setDueFilter(''); setLabelFilter('');
+    setStatusFilters([]); setSeverityFilters([]); setAssigneeFilters([]); setComponentFilters([]);
+    setCycleFilters([]); setDueFilters([]); setAgingFilters([]); setLabelFilters([]);
   }
-  const activeFilterCount = [statusFilter, severityFilter, assigneeFilter, componentFilter, cycleFilter, dueFilter, labelFilter].filter(Boolean).length;
+  const activeFilterCount = [statusFilters, severityFilters, assigneeFilters, componentFilters, cycleFilters, dueFilters, agingFilters, labelFilters]
+    .reduce((sum, f) => sum + f.length, 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -309,32 +419,39 @@ export default function DefectsDashboard() {
         ]}
       />
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
-        <div>
-          <div className="page-eyebrow">Bug tracking</div>
-          <h1 className="page-title">Defects</h1>
-          <p className="page-sub">Every Jira bug synced for this project — by configured label/JQL or linked from a test cycle — in one dashboard.</p>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 24px 24px' }}>
+        {/* Compact header — a title line, not a full page-header block, so
+            the stat cards below start almost immediately */}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '12px' }}>
+          <h1 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text)', margin: 0 }}>🐞 Defects</h1>
+          <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Every Jira bug synced for this project</span>
         </div>
 
-        {projectId && <div style={{ marginTop: '16px' }}><SyncPanel projectId={projectId} /></div>}
-
+        {/* Main dashboard column + a narrow side rail for sync settings, so
+            the charts/table get full width instead of being pushed down by
+            a full-width settings card */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 240px', gap: '16px', alignItems: 'start' }}>
+          <div style={{ minWidth: 0 }}>
         {isLoading ? (
           <div style={{ color: 'var(--text-dim)', fontSize: '12px', fontFamily: 'var(--font-mono)', padding: '24px' }}>Loading defects…</div>
         ) : allDefects.length === 0 ? (
           <div style={{ color: 'var(--text-dim)', fontSize: '12px', fontFamily: 'var(--font-mono)', padding: '48px', textAlign: 'center' }}>
-            No defects synced yet. Configure labels or a custom JQL above and click Sync Now — or link a Jira key from a test cycle's Bugs tab.
+            No defects synced yet. Configure labels or a custom JQL in the side panel and click Sync Now — or link a Jira key from a test cycle's Bugs tab.
           </div>
         ) : (
           <>
-            {/* Stat cards */}
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px' }}>
+            {/* Stat cards — reflect all currently active filters (except
+                Resolved, which always counts regardless of "Show Closed") */}
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
               <StatCard label="Open" value={openCount} theme="fail" />
+              <StatCard label="Retest" value={retestCount} theme="progress" sub="with testing team" />
               <StatCard label="Overdue" value={overdueCount} theme="blocked" />
               <StatCard label="Unassigned" value={unassignedCount} theme="unlinked" />
               <StatCard label="Resolved (7d)" value={resolvedLast7dCount} theme="pass" sub="based on last Jira update" />
             </div>
 
-            {/* Charts */}
+            {/* Charts — a stable overview (not re-filtered by the dropdowns
+                below); click a segment to add/remove it from that filter */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', marginTop: '20px' }}>
               <div className="card" style={{ padding: '14px' }}>
                 <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', marginBottom: '8px' }}>By Status</div>
@@ -348,14 +465,15 @@ export default function DefectsDashboard() {
                       innerRadius={40}
                       outerRadius={70}
                       paddingAngle={2}
-                      onClick={(entry: { name?: string }) => entry?.name && entry.name !== 'Not synced yet' && setStatusFilter((cur) => (cur === entry.name ? '' : entry.name!))}
+                      label={(e: { value?: number }) => e.value}
+                      onClick={(entry: { name?: string }) => entry?.name && entry.name !== 'Not synced yet' && toggleFilter(statusFilters, setStatusFilters, entry.name)}
                       style={{ cursor: 'pointer' }}
                     >
                       {statusRows.map((r) => (
                         <Cell
                           key={r.key}
                           fill={STATUS_CATEGORY_COLOR[statusCategoryByLabel.get(r.key) ?? ''] ?? OTHER_COLOR}
-                          opacity={!statusFilter || statusFilter === r.key ? 1 : 0.35}
+                          opacity={statusFilters.length === 0 || statusFilters.includes(r.key) ? 1 : 0.35}
                         />
                       ))}
                     </Pie>
@@ -366,7 +484,7 @@ export default function DefectsDashboard() {
               <div className="card" style={{ padding: '14px' }}>
                 <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', marginBottom: '8px' }}>By Severity</div>
                 <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={severityRows.map((r) => ({ name: r.key, value: r.count }))} layout="vertical" margin={{ left: 8 }}>
+                  <BarChart data={severityRows.map((r) => ({ name: r.key, value: r.count }))} layout="vertical" margin={{ left: 8, right: 20 }}>
                     <XAxis type="number" tick={{ fontSize: 10, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} allowDecimals={false} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} width={80} />
                     <Tooltip content={<CustomTooltip />} />
@@ -374,10 +492,11 @@ export default function DefectsDashboard() {
                       dataKey="value"
                       radius={[0, 4, 4, 0]}
                       cursor="pointer"
-                      onClick={(entry: { name?: string }) => entry?.name && setSeverityFilter((cur) => (cur === entry.name ? '' : entry.name!))}
+                      onClick={(entry: { name?: string }) => entry?.name && toggleFilter(severityFilters, setSeverityFilters, entry.name)}
                     >
+                      <LabelList dataKey="value" position="right" style={CHART_LABEL_STYLE} />
                       {severityRows.map((r, i) => (
-                        <Cell key={r.key} fill={CHART_PALETTE[i % CHART_PALETTE.length]} opacity={!severityFilter || severityFilter === r.key ? 1 : 0.35} />
+                        <Cell key={r.key} fill={CHART_PALETTE[i % CHART_PALETTE.length]} opacity={severityFilters.length === 0 || severityFilters.includes(r.key) ? 1 : 0.35} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -387,7 +506,7 @@ export default function DefectsDashboard() {
               <div className="card" style={{ padding: '14px' }}>
                 <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', marginBottom: '8px' }}>By Component</div>
                 <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={componentRows.map((r) => ({ name: r.key, value: r.count }))} layout="vertical" margin={{ left: 8 }}>
+                  <BarChart data={componentRows.map((r) => ({ name: r.key, value: r.count }))} layout="vertical" margin={{ left: 8, right: 20 }}>
                     <XAxis type="number" tick={{ fontSize: 10, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} allowDecimals={false} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} width={90} />
                     <Tooltip content={<CustomTooltip />} />
@@ -395,10 +514,11 @@ export default function DefectsDashboard() {
                       dataKey="value"
                       radius={[0, 4, 4, 0]}
                       cursor="pointer"
-                      onClick={(entry: { name?: string }) => entry?.name && entry.name !== 'Other' && setComponentFilter((cur) => (cur === entry.name ? '' : entry.name!))}
+                      onClick={(entry: { name?: string }) => entry?.name && entry.name !== 'Other' && toggleFilter(componentFilters, setComponentFilters, entry.name)}
                     >
+                      <LabelList dataKey="value" position="right" style={CHART_LABEL_STYLE} />
                       {componentRows.map((r, i) => (
-                        <Cell key={r.key} fill={r.key === 'Other' ? OTHER_COLOR : CHART_PALETTE[i % CHART_PALETTE.length]} opacity={!componentFilter || componentFilter === r.key ? 1 : 0.35} />
+                        <Cell key={r.key} fill={r.key === 'Other' ? OTHER_COLOR : CHART_PALETTE[i % CHART_PALETTE.length]} opacity={componentFilters.length === 0 || componentFilters.includes(r.key) ? 1 : 0.35} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -408,7 +528,7 @@ export default function DefectsDashboard() {
               <div className="card" style={{ padding: '14px' }}>
                 <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', marginBottom: '8px' }}>By Assignee</div>
                 <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={assigneeRows.map((r) => ({ name: r.key, value: r.count }))} layout="vertical" margin={{ left: 8 }}>
+                  <BarChart data={assigneeRows.map((r) => ({ name: r.key, value: r.count }))} layout="vertical" margin={{ left: 8, right: 20 }}>
                     <XAxis type="number" tick={{ fontSize: 10, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} allowDecimals={false} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} width={90} />
                     <Tooltip content={<CustomTooltip />} />
@@ -416,10 +536,11 @@ export default function DefectsDashboard() {
                       dataKey="value"
                       radius={[0, 4, 4, 0]}
                       cursor="pointer"
-                      onClick={(entry: { name?: string }) => entry?.name && entry.name !== 'Other' && setAssigneeFilter((cur) => (cur === entry.name ? '' : entry.name!))}
+                      onClick={(entry: { name?: string }) => entry?.name && entry.name !== 'Other' && toggleFilter(assigneeFilters, setAssigneeFilters, entry.name)}
                     >
+                      <LabelList dataKey="value" position="right" style={CHART_LABEL_STYLE} />
                       {assigneeRows.map((r, i) => (
-                        <Cell key={r.key} fill={r.key === 'Other' ? OTHER_COLOR : CHART_PALETTE[i % CHART_PALETTE.length]} opacity={!assigneeFilter || assigneeFilter === r.key ? 1 : 0.35} />
+                        <Cell key={r.key} fill={r.key === 'Other' ? OTHER_COLOR : CHART_PALETTE[i % CHART_PALETTE.length]} opacity={assigneeFilters.length === 0 || assigneeFilters.includes(r.key) ? 1 : 0.35} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -429,7 +550,7 @@ export default function DefectsDashboard() {
               <div className="card" style={{ padding: '14px' }}>
                 <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', marginBottom: '8px' }}>By Due Date</div>
                 <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={dueRows.map((r) => ({ name: r.key, value: r.count }))} margin={{ top: 8 }}>
+                  <BarChart data={dueRows.map((r) => ({ name: r.key, value: r.count }))} margin={{ top: 20 }}>
                     <XAxis dataKey="name" tick={{ fontSize: 9, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} allowDecimals={false} />
                     <Tooltip content={<CustomTooltip />} />
@@ -437,13 +558,40 @@ export default function DefectsDashboard() {
                       dataKey="value"
                       radius={[4, 4, 0, 0]}
                       cursor="pointer"
-                      onClick={(entry: { name?: string }) => entry?.name && setDueFilter((cur) => (cur === entry.name ? '' : entry.name!))}
+                      onClick={(entry: { name?: string }) => entry?.name && toggleFilter(dueFilters, setDueFilters, entry.name)}
                     >
+                      <LabelList dataKey="value" position="top" style={CHART_LABEL_STYLE} />
                       {dueRows.map((r) => (
                         <Cell
                           key={r.key}
                           fill={r.key === 'Overdue' ? 'var(--fail)' : r.key === 'Due this week' ? 'var(--amber)' : r.key === 'Later' ? 'var(--run)' : 'var(--text-dim)'}
-                          opacity={!dueFilter || dueFilter === r.key ? 1 : 0.35}
+                          opacity={dueFilters.length === 0 || dueFilters.includes(r.key) ? 1 : 0.35}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="card" style={{ padding: '14px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', marginBottom: '8px' }}>Aging (still open)</div>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={agingRows.map((r) => ({ name: r.key, value: r.count }))} margin={{ top: 20 }}>
+                    <XAxis dataKey="name" tick={{ fontSize: 9, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Bar
+                      dataKey="value"
+                      radius={[4, 4, 0, 0]}
+                      cursor="pointer"
+                      onClick={(entry: { name?: string }) => entry?.name && toggleFilter(agingFilters, setAgingFilters, entry.name)}
+                    >
+                      <LabelList dataKey="value" position="top" style={CHART_LABEL_STYLE} />
+                      {agingRows.map((r) => (
+                        <Cell
+                          key={r.key}
+                          fill={AGING_COLOR[r.key as AgingBucket]}
+                          opacity={agingFilters.length === 0 || agingFilters.includes(r.key) ? 1 : 0.35}
                         />
                       ))}
                     </Bar>
@@ -452,15 +600,17 @@ export default function DefectsDashboard() {
               </div>
             </div>
 
-            {/* Filter bar */}
+            {/* Filter bar — every filter is multi-select: pick any combination
+                of values within a dimension, combined across dimensions with AND */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginTop: '24px', marginBottom: '12px' }}>
-              <FilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={statusOptions} />
-              <FilterSelect label="Severity" value={severityFilter} onChange={setSeverityFilter} options={severityOptions} />
-              <FilterSelect label="Assignee" value={assigneeFilter} onChange={setAssigneeFilter} options={assigneeOptions} />
-              <FilterSelect label="Component" value={componentFilter} onChange={setComponentFilter} options={componentOptions} />
-              <FilterSelect label="Test Cycle" value={cycleFilter} onChange={setCycleFilter} options={cycleOptions} />
-              <FilterSelect label="Due Date" value={dueFilter} onChange={setDueFilter} options={[...DUE_BUCKETS]} />
-              <FilterSelect label="Label" value={labelFilter} onChange={setLabelFilter} options={labelOptions} />
+              <MultiSelectFilter label="Status" values={statusFilters} onChange={setStatusFilters} options={statusOptions} />
+              <MultiSelectFilter label="Severity" values={severityFilters} onChange={setSeverityFilters} options={severityOptions} />
+              <MultiSelectFilter label="Assignee" values={assigneeFilters} onChange={setAssigneeFilters} options={assigneeOptions} />
+              <MultiSelectFilter label="Component" values={componentFilters} onChange={setComponentFilters} options={componentOptions} />
+              <MultiSelectFilter label="Test Cycle" values={cycleFilters} onChange={setCycleFilters} options={cycleOptions} />
+              <MultiSelectFilter label="Due Date" values={dueFilters} onChange={setDueFilters} options={[...DUE_BUCKETS]} />
+              <MultiSelectFilter label="Aging" values={agingFilters} onChange={setAgingFilters} options={[...AGING_BUCKETS]} />
+              <MultiSelectFilter label="Label" values={labelFilters} onChange={setLabelFilters} options={labelOptions} />
               {activeFilterCount > 0 && (
                 <TbBtn variant="ghost" onClick={clearAllFilters}>✕ Clear filters ({activeFilterCount})</TbBtn>
               )}
@@ -539,6 +689,13 @@ export default function DefectsDashboard() {
             )}
           </>
         )}
+          </div>
+
+          {/* Side rail — sync settings, out of the way of the dashboard */}
+          <div>
+            {projectId && <SyncPanel projectId={projectId} />}
+          </div>
+        </div>
       </div>
     </div>
   );

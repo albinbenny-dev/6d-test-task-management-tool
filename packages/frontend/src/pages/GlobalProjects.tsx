@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import Topbar, { TbBtn } from '../components/layout/Topbar';
 import { useProjects, useCreateProject, useCloneProject } from '../hooks/useProjects';
 import { useProjectStore } from '../stores/projectStore';
-import { formatRelativeTime, slugify, PROJECT_GRADIENTS } from '../lib/utils';
+import { formatRelativeTime, slugify, getInitials, PROJECT_GRADIENTS } from '../lib/utils';
 import { landingPath } from '../lib/projectLanding';
 import type { Project } from '../types';
 
@@ -30,7 +30,30 @@ function StatTile({
   );
 }
 
-// ── Project card ───────────────────────────────────────────────────────────
+// ── Insight chip — compact icon+count pill for a project card's key metrics.
+// Neutral by default; lights up red when it's flagging something that needs
+// attention (overdue tasks, open bugs) and the count is actually nonzero. ──
+function InsightChip({ icon, value, label, alert }: { icon: string; value: number; label: string; alert?: boolean }) {
+  const active = !!alert && value > 0;
+  return (
+    <div
+      title={`${value} ${label}`}
+      style={{
+        display: 'flex', alignItems: 'center', gap: '4px',
+        padding: '3px 7px', borderRadius: '6px', flexShrink: 0,
+        background: active ? 'rgba(220,38,38,0.12)' : 'var(--surface2)',
+      }}
+    >
+      <span style={{ fontSize: '10px', lineHeight: 1 }}>{icon}</span>
+      <span style={{ fontSize: '11px', fontWeight: 800, color: active ? 'var(--fail)' : 'var(--text)' }}>{value}</span>
+      <span style={{ fontSize: '9px', fontWeight: 600, color: active ? 'var(--fail)' : 'var(--text-dim)' }}>{label}</span>
+    </div>
+  );
+}
+
+// ── Project card — compact, modern: small avatar, single-line description,
+// and a row of insight chips instead of a big 2-tile stat grid, so several
+// fit per row without feeling cramped or overly tall. ──────────────────────
 function ProjectCard({ project, onOpen }: { project: Project; onOpen: () => void }) {
   const [hovered, setHovered] = useState(false);
   const gradientIdx = project.id.charCodeAt(0) % PROJECT_GRADIENTS.length;
@@ -38,6 +61,8 @@ function ProjectCard({ project, onOpen }: { project: Project; onOpen: () => void
 
   const totalTestCases = project._count?.tcItems ?? 0;
   const totalMembers   = project._count?.members ?? 0;
+  const overdueTasks   = project.insights?.overdueTasks ?? 0;
+  const openBugs       = project.insights?.openBugs ?? 0;
 
   return (
     <div
@@ -50,120 +75,58 @@ function ProjectCard({ project, onOpen }: { project: Project; onOpen: () => void
         background: 'var(--surface)',
         border: `1px solid ${hovered ? 'rgba(37,99,171,0.45)' : 'var(--border)'}`,
         borderRadius: 'var(--radius-lg)',
-        padding: '24px',
+        padding: '14px 16px',
         cursor: 'pointer',
-        position: 'relative',
-        overflow: 'hidden',
-        transition: 'border-color 0.2s, box-shadow 0.2s',
+        transition: 'border-color 0.2s, box-shadow 0.2s, transform 0.15s',
         boxShadow: hovered ? '0 4px 16px rgba(15,25,50,0.08)' : 'var(--shadow-card)',
+        transform: hovered ? 'translateY(-1px)' : 'none',
       }}
     >
-      {/* Glow decoration */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          right: 0,
-          width: '160px',
-          height: '160px',
-          background: 'radial-gradient(circle at 80% 20%, rgba(37,99,171,0.06), transparent 70%)',
-          pointerEvents: 'none',
-        }}
-      />
-
       {/* Header row */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '14px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div
-            style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '9px',
-              background: projectColor,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '16px',
-              flexShrink: 0,
-              color: '#fff',
-              fontWeight: 800,
-            }}
-          >
-            {project.name.slice(0, 1).toUpperCase()}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '9px', marginBottom: '8px' }}>
+        <div
+          style={{
+            width: '30px', height: '30px', borderRadius: '8px', background: projectColor,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '11px', flexShrink: 0, color: '#fff', fontWeight: 800, letterSpacing: '0.3px',
+          }}
+        >
+          {getInitials(project.name)}
+        </div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div data-testid="project-name" style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {project.name}
           </div>
-          <div>
-            <div data-testid="project-name" style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text)' }}>
-              {project.name}
-            </div>
-            <div
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: '9px',
-                color: 'var(--text-dim)',
-                letterSpacing: '1px',
-                marginTop: '2px',
-              }}
-            >
-              {project.slug}
-            </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-dim)', letterSpacing: '0.5px' }}>
+            {project.slug}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-          <span className="badge badge-cyan">Active</span>
-        </div>
+        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--pass)', flexShrink: 0 }} title="Active" />
       </div>
 
-      {/* Description */}
+      {/* Description — single line, truncated */}
       {project.description && (
         <div
           style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: '11px',
-            color: 'var(--text-mid)',
-            marginBottom: '14px',
-            fontWeight: 300,
-            lineHeight: 1.55,
+            fontSize: '11px', color: 'var(--text-mid)', marginBottom: '10px',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}
         >
           {project.description}
         </div>
       )}
 
-      {/* Mini stats */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(2, 1fr)',
-          gap: '8px',
-          marginBottom: '14px',
-        }}
-      >
-        {[
-          { label: 'Test Cases', value: totalTestCases, color: 'var(--cyan)' },
-          { label: 'Members',    value: totalMembers,   color: 'var(--violet)' },
-        ].map((s) => (
-          <div
-            key={s.label}
-            style={{
-              textAlign: 'center',
-              background: 'var(--surface2)',
-              borderRadius: '6px',
-              padding: '8px 4px',
-            }}
-          >
-            <div style={{ fontSize: '16px', fontWeight: 800, color: s.color }}>{s.value}</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '8px', color: 'var(--text-dim)' }}>
-              {s.label}
-            </div>
-          </div>
-        ))}
+      {/* Insight chips */}
+      <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginBottom: '8px' }}>
+        <InsightChip icon="📋" value={totalTestCases} label="TCs" />
+        <InsightChip icon="👥" value={totalMembers} label="members" />
+        <InsightChip icon="⏰" value={overdueTasks} label="overdue" alert />
+        <InsightChip icon="🐞" value={openBugs} label="bugs" alert />
       </div>
 
       {/* Footer */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-dim)' }}>
-          Created {formatRelativeTime(project.createdAt)}
-        </div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-dim)', textAlign: 'right' }}>
+        {formatRelativeTime(project.createdAt)}
       </div>
     </div>
   );
@@ -560,6 +523,8 @@ export default function GlobalProjects() {
   const totalProjects = projects.length;
   const totalTestCases = projects.reduce((sum, p) => sum + (p._count?.tcItems ?? 0), 0);
   const totalMembers   = projects.reduce((sum, p) => sum + (p._count?.members ?? 0), 0);
+  const totalOverdue   = projects.reduce((sum, p) => sum + (p.insights?.overdueTasks ?? 0), 0);
+  const totalOpenBugs  = projects.reduce((sum, p) => sum + (p.insights?.openBugs ?? 0), 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -598,13 +563,15 @@ export default function GlobalProjects() {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
             gap: '12px',
           }}
         >
           <StatTile label="Total Projects"   value={totalProjects}  delta="Across all teams"        colorClass="sc-cyan"   />
           <StatTile label="Total Test Cases" value={totalTestCases} delta="In TC Library"            colorClass="sc-pass"   />
           <StatTile label="Team Members"     value={totalMembers}   delta="Across all projects"      colorClass="sc-violet" />
+          <StatTile label="Overdue Tasks"    value={totalOverdue}   delta="Across all projects"      colorClass="sc-fail"   />
+          <StatTile label="Open Bugs"        value={totalOpenBugs}  delta="Across all projects"      colorClass="sc-amber"  />
         </div>
 
         {/* Project grid */}
@@ -623,7 +590,7 @@ export default function GlobalProjects() {
             Loading projects…
           </div>
         ) : (
-          <div data-testid="projects-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+          <div data-testid="projects-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '12px' }}>
             {projects.length === 0 && (
               <div
                 data-testid="projects-empty-state"
@@ -649,21 +616,25 @@ export default function GlobalProjects() {
               </Link>
             ))}
 
-            {/* Create new project card */}
+            {/* Create new project card — matches the compact project cards'
+                footprint so it doesn't stick out as an oversized tile */}
             {canCreateProject ? (
               <div
                 onClick={() => setModalOpen(true)}
                 style={{
                   border: '2px dashed var(--border2)',
                   borderRadius: 'var(--radius-lg)',
-                  padding: '32px 24px',
+                  padding: '14px 16px',
+                  minHeight: '128px',
                   display: 'flex',
+                  flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '16px',
+                  gap: '8px',
                   cursor: 'pointer',
                   transition: 'all 0.2s',
                   background: 'transparent',
+                  textAlign: 'center',
                 }}
                 onMouseEnter={(e) => {
                   (e.currentTarget as HTMLElement).style.borderColor = 'var(--cyan)';
@@ -676,34 +647,19 @@ export default function GlobalProjects() {
               >
                 <span
                   style={{
-                    width: '40px',
-                    height: '40px',
-                    borderRadius: '10px',
+                    width: '28px', height: '28px', borderRadius: '8px',
                     background: 'linear-gradient(135deg, #F47B20, #D9601A)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '22px',
-                    color: '#fff',
-                    flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '16px', color: '#fff', flexShrink: 0,
                   }}
                 >
                   +
                 </span>
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-                    Create New Project
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '10px',
-                      color: 'var(--text-dim)',
-                      marginTop: '3px',
-                    }}
-                  >
-                    Set up a new deployment, product, or team workspace
-                  </div>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>
+                  Create New Project
+                </div>
+                <div style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
+                  New deployment or workspace
                 </div>
               </div>
             ) : (
@@ -711,30 +667,24 @@ export default function GlobalProjects() {
                 style={{
                   border: '2px dashed var(--border2)',
                   borderRadius: 'var(--radius-lg)',
-                  padding: '32px 24px',
+                  padding: '14px 16px',
+                  minHeight: '128px',
                   display: 'flex',
+                  flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '16px',
+                  gap: '8px',
                   background: 'transparent',
                   opacity: 0.6,
+                  textAlign: 'center',
                 }}
               >
-                <span style={{ fontSize: '22px', flexShrink: 0 }}>🔒</span>
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-                    Project creation restricted
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '10px',
-                      color: 'var(--text-dim)',
-                      marginTop: '3px',
-                    }}
-                  >
-                    Ask an admin to promote your role to SUPER_USER or higher
-                  </div>
+                <span style={{ fontSize: '18px', flexShrink: 0 }}>🔒</span>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>
+                  Project creation restricted
+                </div>
+                <div style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
+                  Ask an admin to promote your role
                 </div>
               </div>
             )}

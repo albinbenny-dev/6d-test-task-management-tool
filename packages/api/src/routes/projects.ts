@@ -90,32 +90,58 @@ router.get('/', verifyToken as RequestHandler, async (req: Request, res: Respons
   try {
     const isGloballyElevated = req.user.globalRole === 'SUPER_ADMIN' || req.user.globalRole === 'ADMIN';
 
-    const projects = await prisma.project.findMany({
-      where: isGloballyElevated ? undefined : { members: { some: { userId: req.user.id } } },
-      include: {
-        _count: {
-          select: {
-            testCases: true,
-            scripts: true,
-            tcItems: true,
-            members: true,
-            runs: true,
+    const [projects, overdueTaskGroups, openBugGroups] = await Promise.all([
+      prisma.project.findMany({
+        where: isGloballyElevated ? undefined : { members: { some: { userId: req.user.id } } },
+        include: {
+          _count: {
+            select: {
+              testCases: true,
+              scripts: true,
+              tcItems: true,
+              members: true,
+              runs: true,
+            },
+          },
+          envConfigs: { orderBy: { isDefault: 'desc' } },
+          members: {
+            where: { userId: req.user.id },
+            select: { role: true },
           },
         },
-        envConfigs: { orderBy: { isDefault: 'desc' } },
-        members: {
-          where: { userId: req.user.id },
-          select: { role: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+      }),
+      // Overdue tasks — same definition as the per-project Task Dashboard
+      // (tasks.ts): not DONE and past its due date. One grouped query across
+      // every project instead of N+1 per-card lookups.
+      prisma.task.groupBy({
+        by: ['projectId'],
+        where: { status: { not: 'DONE' }, dueDate: { lt: new Date() } },
+        _count: { _all: true },
+      }),
+      // Open bugs — synced Jira issues of type Bug not yet in the "done"
+      // status category. Reads the JiraIssue cache only (not the fuller
+      // cycle-link union defectService.getProjectDefects() does), which is
+      // the right tradeoff for an at-a-glance card across every project.
+      prisma.jiraIssue.groupBy({
+        by: ['projectId'],
+        where: { issueType: 'Bug', statusCategory: { not: 'done' } },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const overdueTasksByProject = new Map(overdueTaskGroups.map((g) => [g.projectId, g._count._all]));
+    const openBugsByProject = new Map(openBugGroups.map((g) => [g.projectId, g._count._all]));
 
     res.json({
       projects: projects.map((p) => ({
         ...p,
         myRole: p.members[0]?.role ?? (isGloballyElevated ? 'ADMIN' : null),
         members: undefined, // remove raw members array from response
+        insights: {
+          overdueTasks: overdueTasksByProject.get(p.id) ?? 0,
+          openBugs: openBugsByProject.get(p.id) ?? 0,
+        },
       })),
     });
   } catch (err) {
