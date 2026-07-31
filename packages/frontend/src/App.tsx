@@ -9,6 +9,7 @@ import ProjectSettings from './pages/ProjectSettings';
 import TestCaseLibrary from './pages/TestCaseLibrary';
 import TestCycles from './pages/TestCycles';
 import TestCyclesDashboard from './pages/TestCyclesDashboard';
+import DefectsDashboard from './pages/DefectsDashboard';
 import TestCycleDetail from './pages/TestCycleDetail';
 import Assignments from './pages/Assignments';
 import MyWork from './pages/MyWork';
@@ -58,6 +59,7 @@ export default function App() {
         <Route path="/projects/:slug/test-cycles/dashboard" element={<TestCyclesDashboard />} />
         <Route path="/projects/:slug/test-cycles/assignments" element={<Assignments />} />
         <Route path="/projects/:slug/test-cycles/:cycleId" element={<TestCycleDetail />} />
+        <Route path="/projects/:slug/defects" element={<DefectsDashboard />} />
         <Route path="/projects/:slug/my-work"      element={<MyWork />} />
         <Route path="/projects/:slug/tasks"        element={<TaskLists />} />
         <Route path="/projects/:slug/tasks/dashboard" element={<TaskDashboard />} />

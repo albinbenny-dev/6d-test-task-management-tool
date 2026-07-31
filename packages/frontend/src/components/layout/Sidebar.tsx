@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   LogOut, Globe, ShieldCheck, BookOpen, ClipboardList, FlaskConical,
-  BarChart3, UserCheck, ListChecks, Settings, ChevronDown, ListTodo, FileText, Gauge,
+  BarChart3, UserCheck, ListChecks, Settings, ChevronDown, ListTodo, FileText, Gauge, Bug,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
@@ -59,6 +59,7 @@ export default function Sidebar({ slug }: SidebarProps) {
             { label: 'TC Library', path: `/projects/${slug}/test-cases`, Icon: ClipboardList, badge: activeProject?._count?.tcItems ?? undefined },
             { label: 'Test Cycles', path: `/projects/${slug}/test-cycles`, Icon: FlaskConical },
             { label: 'Test Dashboard', path: `/projects/${slug}/test-cycles/dashboard`, Icon: BarChart3 },
+            { label: 'Defects', path: `/projects/${slug}/defects`, Icon: Bug },
           ],
         },
         {

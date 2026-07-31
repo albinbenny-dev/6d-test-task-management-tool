@@ -27,6 +27,7 @@ export interface JiraIssueData {
   components:     string[];
   assigneeName:   string | null;
   reporterName:   string | null;
+  severityName:   string | null; // Jira's "Severity" custom field — see getSeverityFieldId()
   jiraCreatedAt:  Date | null;
   dueDate:        Date | null;
   jiraUpdatedAt:  Date | null;
@@ -101,10 +102,24 @@ interface RawJiraIssue {
     created?: string;
     duedate?: string | null;
     updated?: string;
+    // Custom fields (e.g. "Severity") are keyed by a per-site id like
+    // "customfield_10050" — looked up by name at runtime, see getSeverityFieldId().
+    [customFieldKey: string]: unknown;
   };
 }
 
-function toIssueData(issue: RawJiraIssue): JiraIssueData {
+// Jira custom select fields return `{ value: "High" }`; a handful of setups
+// return a plain string instead — accept both, anything else is "not set".
+function extractCustomFieldValue(raw: unknown): string | null {
+  if (typeof raw === 'string') return raw;
+  if (raw && typeof raw === 'object' && 'value' in raw) {
+    const value = (raw as { value?: unknown }).value;
+    return typeof value === 'string' ? value : null;
+  }
+  return null;
+}
+
+function toIssueData(issue: RawJiraIssue, severityFieldId: string | null): JiraIssueData {
   return {
     issueKey:       issue.key,
     summary:        issue.fields.summary ?? null,
@@ -116,21 +131,48 @@ function toIssueData(issue: RawJiraIssue): JiraIssueData {
     components:     (issue.fields.components ?? []).map((c) => c.name).filter((n): n is string => !!n),
     assigneeName:   issue.fields.assignee?.displayName ?? null,
     reporterName:   issue.fields.reporter?.displayName ?? null,
+    severityName:   severityFieldId ? extractCustomFieldValue(issue.fields[severityFieldId]) : null,
     jiraCreatedAt:  issue.fields.created ? new Date(issue.fields.created) : null,
     dueDate:        issue.fields.duedate ? new Date(issue.fields.duedate) : null,
     jiraUpdatedAt:  issue.fields.updated ? new Date(issue.fields.updated) : null,
   };
 }
 
-const SEARCH_FIELDS = 'summary,status,issuetype,priority,labels,components,assignee,reporter,created,duedate,updated';
+const BASE_SEARCH_FIELDS = 'summary,status,issuetype,priority,labels,components,assignee,reporter,created,duedate,updated';
+
+// ── "Severity" custom-field discovery ───────────────────────────────────────
+// Jira Cloud has no built-in Severity field — teams add it as a custom field,
+// whose id (e.g. "customfield_10050") varies per site/project. Rather than
+// hardcode an id (fragile, differs per Jira instance), look it up once by
+// display name via the field-metadata endpoint and cache it for the process
+// lifetime. Resolves to null (severity just won't populate) if no field is
+// named "Severity" or the lookup fails — never blocks a sync.
+let severityFieldIdCache: string | null | undefined; // undefined = not yet looked up
+
+export async function getSeverityFieldId(): Promise<string | null> {
+  if (severityFieldIdCache !== undefined) return severityFieldIdCache;
+  if (!isJiraConfigured()) return null;
+  try {
+    const res = await jiraFetch('/rest/api/3/field');
+    if (!res.ok) { severityFieldIdCache = null; return null; }
+    const fields = (await res.json()) as { id: string; name?: string }[];
+    severityFieldIdCache = fields.find((f) => f.name?.trim().toLowerCase() === 'severity')?.id ?? null;
+  } catch {
+    severityFieldIdCache = null;
+  }
+  return severityFieldIdCache;
+}
 
 async function runJqlSearch(jql: string, maxIssues: number): Promise<JiraIssueData[]> {
+  const severityFieldId = await getSeverityFieldId();
+  const searchFields = severityFieldId ? `${BASE_SEARCH_FIELDS},${severityFieldId}` : BASE_SEARCH_FIELDS;
+
   const results: JiraIssueData[] = [];
   let nextPageToken: string | undefined;
 
   while (results.length < maxIssues) {
     const pageSize = Math.min(BATCH_SIZE, maxIssues - results.length);
-    let path = `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=${SEARCH_FIELDS}&maxResults=${pageSize}`;
+    let path = `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=${searchFields}&maxResults=${pageSize}`;
     if (nextPageToken) path += `&nextPageToken=${encodeURIComponent(nextPageToken)}`;
 
     const res = await jiraFetch(path);
@@ -144,7 +186,7 @@ async function runJqlSearch(jql: string, maxIssues: number): Promise<JiraIssueDa
     }
 
     const body = (await res.json()) as { issues: RawJiraIssue[]; isLast?: boolean; nextPageToken?: string };
-    for (const issue of body.issues ?? []) results.push(toIssueData(issue));
+    for (const issue of body.issues ?? []) results.push(toIssueData(issue, severityFieldId));
 
     if (body.isLast !== false || !body.nextPageToken) break; // no more pages
     nextPageToken = body.nextPageToken;
@@ -179,7 +221,7 @@ function toJqlDateTime(d: Date): string {
 export async function fetchIssuesByLabels(
   jiraProjectKey: string,
   labels: string[],
-  since: Date,
+  since: Date | null,
   until: Date | null,
 ): Promise<JiraIssueData[]> {
   if (!isJiraConfigured() || labels.length === 0 || !jiraProjectKey) return [];
@@ -192,8 +234,11 @@ export async function fetchIssuesByLabels(
     // shared across a whole release pulls in non-bug work items too.
     'issuetype = Bug',
     `labels in (${quotedLabels})`,
-    `updated >= "${toJqlDateTime(since)}"`,
   ];
+  // Cycle-level discovery bounds by the cycle's active window so a reused opco
+  // label doesn't pull in unrelated past bugs; project-level (Defects dashboard)
+  // discovery passes `since: null` — there's no cycle window to bound it by.
+  if (since) clauses.push(`updated >= "${toJqlDateTime(since)}"`);
   if (until) clauses.push(`updated <= "${toJqlDateTime(until)}"`);
   const jql = clauses.join(' AND ');
 
@@ -231,6 +276,7 @@ async function upsertIssues(projectId: string, issues: JiraIssueData[]): Promise
         components:     JSON.stringify(issue.components),
         assigneeName:   issue.assigneeName,
         reporterName:   issue.reporterName,
+        severityName:   issue.severityName,
         jiraCreatedAt:  issue.jiraCreatedAt,
         dueDate:        issue.dueDate,
         jiraUpdatedAt:  issue.jiraUpdatedAt,
@@ -293,8 +339,11 @@ export async function syncIssuesForProject(projectId: string): Promise<{ synced:
       allIssues.push(...await fetchIssuesByKeys([...keySet]));
     }
 
+    let projectLabels: string[] = [];
+    try { projectLabels = JSON.parse(config?.labels ?? '[]'); } catch { /* skip */ }
+
     let labelDiscoveryNote = '';
-    if (labelCycles.length > 0) {
+    if (labelCycles.length > 0 || projectLabels.length > 0) {
       if (!config?.jiraProjectKey) {
         labelDiscoveryNote = ' (label-based discovery skipped — set a Jira project key in Jira settings)';
       } else {
@@ -303,6 +352,14 @@ export async function syncIssuesForProject(projectId: string): Promise<{ synced:
           try { labels = JSON.parse(cycle.jiraLabels); } catch { continue; }
           if (labels.length === 0) continue;
           const discovered = await fetchIssuesByLabels(config.jiraProjectKey, labels, cycle.createdAt, cycle.closedAt);
+          allIssues.push(...discovered);
+        }
+
+        // Project-level (Defects dashboard) label discovery — additive to the
+        // per-cycle discovery above, but not bounded to any cycle's date
+        // window, since there is no cycle window at project scope.
+        if (projectLabels.length > 0) {
+          const discovered = await fetchIssuesByLabels(config.jiraProjectKey, projectLabels, null, null);
           allIssues.push(...discovered);
         }
       }
@@ -327,6 +384,23 @@ export async function syncIssuesForProject(projectId: string): Promise<{ synced:
         // a transient Jira failure shouldn't blank out previously-found bugs.
         const message = err instanceof Error ? err.message : 'Unknown error';
         console.error(`[jira-poll] JQL discovery failed for cycle ${cycle.id}: ${message}`);
+      }
+    }
+
+    // Project-level (Defects dashboard) custom JQL — same "wrap so a typo
+    // doesn't fail the whole sync" treatment, snapshotted onto JiraConfig
+    // itself since it isn't tied to any one cycle.
+    if (config?.jql?.trim()) {
+      try {
+        const discovered = await fetchIssuesByJql(config.jql);
+        allIssues.push(...discovered);
+        await prisma.jiraConfig.updateMany({
+          where: { projectId },
+          data: { jqlDiscoveredKeys: JSON.stringify(discovered.map((i) => i.issueKey)) },
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        console.error(`[jira-poll] Project-level JQL discovery failed for project ${projectId}: ${message}`);
       }
     }
 

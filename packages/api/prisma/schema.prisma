@@ -383,6 +383,7 @@ model JiraIssue {
   components     String    @default("[]") // JSON: string[] — Jira component name(s)
   assigneeName   String?
   reporterName   String?
+  severityName   String? // Jira's "Severity" custom field (auto-discovered by name — see jiraService.getSeverityFieldId), distinct from priorityName
   jiraCreatedAt  DateTime? // Jira's own "created" field, distinct from our lastSyncedAt/createdAt
   dueDate        DateTime?
   jiraUpdatedAt  DateTime?
@@ -407,6 +408,9 @@ model JiraConfig {
   jiraProjectKey      String? // filters which issues are "relevant" to this project
   pollIntervalMinutes Int       @default(5)
   isEnabled           Boolean   @default(false)
+  labels              String    @default("[]") // JSON: string[] — project-wide defect discovery label(s), additive to (not a replacement for) any TestCycle.jiraLabels; unlike cycle-level discovery this is not bounded to a cycle's date window
+  jql                 String? // project-wide custom JQL for the Defects dashboard, additive alongside label discovery
+  jqlDiscoveredKeys   String    @default("[]") // JSON: string[] — cache of issue keys matched by `jql` on the last sync (mirrors TestCycle.jqlDiscoveredKeys — JQL matches can't be re-derived from cached fields alone)
   lastPollAt          DateTime?
   lastPollStatus      String?
   createdAt           DateTime  @default(now())

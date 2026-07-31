@@ -6,6 +6,7 @@ import adminRouter from './admin.js';
 import tcItemsRouter from './tcItems.js';
 import testCyclesRouter from './testCycles.js';
 import jiraRouter from './jira.js';
+import defectsRouter from './defects.js';
 import taskListsRouter from './taskLists.js';
 import tasksRouter from './tasks.js';
 import personalTasksRouter from './personalTasks.js';
@@ -56,6 +57,7 @@ router.use('/projects/:projectId/tc-items', tcItemsRouter);
 // ── Test Management — manual test cycles + Jira integration ───────────────
 router.use('/projects/:projectId/test-cycles', testCyclesRouter);
 router.use('/projects/:projectId/jira', jiraRouter);
+router.use('/projects/:projectId/defects', defectsRouter);
 
 // ── Task Management — ClickUp-style project task tracking ─────────────────
 router.use('/projects/:projectId/task-lists', taskListsRouter);

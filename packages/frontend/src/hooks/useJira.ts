@@ -32,11 +32,14 @@ export function useJiraConfig(projectId: string | undefined) {
 export function useUpdateJiraConfig(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: Partial<Pick<JiraConfig, 'jiraProjectKey' | 'pollIntervalMinutes' | 'isEnabled'>>) => {
+    mutationFn: async (data: Partial<Pick<JiraConfig, 'jiraProjectKey' | 'pollIntervalMinutes' | 'isEnabled' | 'labels' | 'jql'>>) => {
       const res = await api.put<{ config: JiraConfig }>(`/projects/${projectId}/jira/config`, data);
       return res.data.config;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['jira-config', projectId] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['jira-config', projectId] });
+      void qc.invalidateQueries({ queryKey: ['project-defects', projectId] });
+    },
   });
 }
 
@@ -62,6 +65,7 @@ export function useSyncJiraNow(projectId: string) {
       void qc.invalidateQueries({ queryKey: ['jira-config', projectId] });
       void qc.invalidateQueries({ queryKey: ['test-cycle-bugs', projectId] });
       void qc.invalidateQueries({ queryKey: ['test-cycles-all-bugs', projectId] });
+      void qc.invalidateQueries({ queryKey: ['project-defects', projectId] });
     },
   });
 }

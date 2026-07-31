@@ -12,6 +12,10 @@ const UpdateJiraConfigSchema = z.object({
   jiraProjectKey:      z.string().max(50).optional().nullable(),
   pollIntervalMinutes: z.number().int().min(1).max(1440).optional(),
   isEnabled:           z.boolean().optional(),
+  // Project-wide Defects dashboard discovery — additive to (not a replacement
+  // for) any per-cycle TestCycle.jiraLabels/jiraJql.
+  labels:              z.array(z.string().min(1).max(100)).max(20).optional(),
+  jql:                 z.string().max(2000).optional().nullable(),
 });
 
 // ── Router setup ───────────────────────────────────────────────────────────
@@ -33,11 +37,15 @@ router.get('/host', (async (_req, res) => {
 router.get('/config', requireAdmin as RequestHandler, (async (req, res) => {
   const projectId = req.project.id;
   const config = await prisma.jiraConfig.findUnique({ where: { projectId } });
+  let labels: string[] = [];
+  try { labels = JSON.parse(config?.labels ?? '[]'); } catch { /* skip */ }
   res.json({
     config: {
       jiraProjectKey:      config?.jiraProjectKey ?? null,
       pollIntervalMinutes: config?.pollIntervalMinutes ?? 5,
       isEnabled:           config?.isEnabled ?? false,
+      labels,
+      jql:                 config?.jql ?? null,
       lastPollAt:          config?.lastPollAt ?? null,
       lastPollStatus:      config?.lastPollStatus ?? null,
     },
@@ -56,10 +64,17 @@ router.put('/config', requireAdmin as RequestHandler, (async (req, res) => {
     return res.status(400).json({ error: 'Validation failed', issues: parsed.error.issues });
   }
 
+  const { labels, jql, ...rest } = parsed.data;
+  const data = {
+    ...rest,
+    ...(labels !== undefined ? { labels: JSON.stringify(labels) } : {}),
+    ...(jql !== undefined ? { jql: jql?.trim() || null } : {}),
+  };
+
   const config = await prisma.jiraConfig.upsert({
     where: { projectId },
-    create: { projectId, ...parsed.data },
-    update: parsed.data,
+    create: { projectId, ...data },
+    update: data,
   });
   res.json({ config });
 }) as RequestHandler);

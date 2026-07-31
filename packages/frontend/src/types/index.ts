@@ -419,6 +419,7 @@ export interface JiraIssue {
   statusCategory?: string | null; // "new" | "indeterminate" | "done"
   issueType?: string | null;
   priorityName?: string | null;
+  severityName?: string | null; // Jira's "Severity" custom field, auto-discovered by name — distinct from priorityName
   labels: string; // JSON string — parse to string[]
   components: string; // JSON string — parse to string[]
   assigneeName?: string | null;
@@ -452,8 +453,42 @@ export interface JiraConfig {
   jiraProjectKey?: string | null;
   pollIntervalMinutes: number;
   isEnabled: boolean;
+  labels: string[]; // project-wide Defects dashboard discovery labels, additive to any TestCycle.jiraLabels
+  jql?: string | null; // project-wide custom JQL, additive alongside labels
   lastPollAt?: string | null;
   lastPollStatus?: string | null;
+}
+
+// ── Defects Dashboard — project-wide, richer than JiraBugSummaryWithCycles ──
+// (adds severity/component breakdown fields already-parsed as arrays, plus a
+// `sources` tag for how each bug was discovered).
+
+export type DefectSource = 'linked' | 'label' | 'jql';
+
+export interface ProjectDefectIssue {
+  issueKey: string;
+  summary: string | null;
+  status: string | null;
+  statusCategory: string | null; // "new" | "indeterminate" | "done"
+  issueType: string | null;
+  priorityName: string | null;
+  severityName: string | null;
+  labels: string[];
+  components: string[];
+  assigneeName: string | null;
+  reporterName: string | null;
+  dueDate: string | null;
+  jiraCreatedAt: string | null;
+  jiraUpdatedAt: string | null;
+  lastSyncedAt: string;
+}
+
+export interface ProjectDefect {
+  issueKey: string;
+  issue: ProjectDefectIssue | null;
+  testCases: Array<Pick<TestManagementTcItem, 'id' | 'srNo' | 'title'>>;
+  testCycles: Array<Pick<TestCycle, 'id' | 'name'>>;
+  sources: DefectSource[];
 }
 
 export interface TestCycleSummary {
