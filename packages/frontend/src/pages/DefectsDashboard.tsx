@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
@@ -7,6 +7,8 @@ import {
 import Topbar, { TbBtn } from '../components/layout/Topbar';
 import { StatCard } from '../components/testCycles/StatCards';
 import { MultiSelectFilter } from '../components/testCycles/FilterBar';
+import { FloatingPortal } from '../components/ui/FloatingPortal';
+import { useClickOutside } from '../hooks/useClickOutside';
 import { useProject } from '../hooks/useProjects';
 import { useProjectDefects } from '../hooks/useDefects';
 import { useJiraConfig, useUpdateJiraConfig, useSyncJiraNow, useJiraHost } from '../hooks/useJira';
@@ -164,19 +166,29 @@ function buildPredicate(f: DefectFilters): (d: ProjectDefect) => boolean {
   };
 }
 
-// ── Sync settings panel — project-wide label/JQL discovery config, additive
-// to any per-cycle TestCycle.jiraLabels/jiraJql. Labels/JQL editing is
-// admin-gated (mirrors ProjectSettings.tsx's JiraSettingsTab); Sync Now is
-// gated to any write-capable role (mirrors the backend's requireWrite). ────
+// ── Sync settings popover — project-wide label/JQL discovery config,
+// additive to any per-cycle TestCycle.jiraLabels/jiraJql. Labels/JQL editing
+// is admin-gated (mirrors ProjectSettings.tsx's JiraSettingsTab); Sync Now is
+// gated to any write-capable role (mirrors the backend's requireWrite).
+//
+// Lives behind a header button + floating panel (same primitive as
+// MultiSelectFilter's dropdown) rather than a permanent side rail — a
+// fixed-width column reserved for the page's full height was mostly empty
+// space once the panel's short content ended, and it squeezed every chart
+// row to fit the remaining width for no benefit. ───────────────────────────
 
 function SyncPanel({ projectId }: { projectId: string }) {
   const { canManageJiraConfig, canWrite } = useRBAC();
   const { data, isLoading } = useJiraConfig(projectId);
   const updateConfig = useUpdateJiraConfig(projectId);
   const syncNow = useSyncJiraNow(projectId);
+  const [isOpen, setIsOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [labelsInput, setLabelsInput] = useState('');
   const [jqlInput, setJqlInput] = useState('');
+  const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useClickOutside([rootRef, menuRef], () => setIsOpen(false), isOpen);
 
   useEffect(() => {
     if (data?.config) {
@@ -207,83 +219,103 @@ function SyncPanel({ projectId }: { projectId: string }) {
   }
 
   const config = data?.config;
+  const configSummary = !isLoading && config && (config.labels.length > 0 || config.jql)
+    ? `${config.labels.length > 0 ? `${config.labels.length} label(s)` : ''}${config.labels.length > 0 && config.jql ? ' + ' : ''}${config.jql ? 'custom JQL' : ''}`
+    : 'No labels/JQL configured';
 
-  // ── Narrow vertical card — lives in the side rail, so everything stacks
-  // instead of wrapping in a horizontal row (that only worked full-width). ──
   return (
-    <div className="card" style={{ padding: '12px 14px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>🔄 Sync</span>
-        {canWrite && (
-          <TbBtn variant="ghost" onClick={() => void handleSync()} disabled={syncNow.isPending} style={{ fontSize: '10px', padding: '3px 8px' }}>
-            {syncNow.isPending ? '⏳' : '🔄'} {syncNow.isPending ? 'Syncing…' : 'Sync Now'}
-          </TbBtn>
-        )}
-      </div>
-
-      <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-        {!isLoading && config && (config.labels.length > 0 || config.jql) ? (
-          <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
-            {config.labels.length > 0 && `${config.labels.length} label(s)`}{config.labels.length > 0 && config.jql ? ' + ' : ''}{config.jql ? 'custom JQL' : ''}
-          </span>
-        ) : (
-          <span style={{ fontSize: '10px', color: 'var(--text-dim)', fontStyle: 'italic' }}>No labels/JQL configured</span>
-        )}
-        {config?.lastPollAt && (
-          <span style={{ fontSize: '10px', color: 'var(--text-dim)' }} title={config.lastPollStatus ?? undefined}>
-            Synced {new Date(config.lastPollAt).toLocaleString()}
-          </span>
-        )}
-      </div>
-
+    <div ref={rootRef} style={{ position: 'relative' }}>
       <button
-        onClick={() => setExpanded((v) => !v)}
-        style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', padding: 0, marginTop: '8px', font: 'inherit', fontSize: '10px', fontWeight: 700, color: 'var(--cyan)' }}
+        type="button"
+        onClick={() => setIsOpen((v) => !v)}
+        className="input-field"
+        style={{
+          fontSize: '11px', padding: '5px 10px', width: 'auto',
+          display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
+          background: isOpen ? 'var(--surface2)' : undefined,
+        }}
       >
-        {canManageJiraConfig ? 'Edit sync config' : 'View sync config'} <span style={{ fontSize: '9px' }}>{expanded ? '▲' : '▼'}</span>
+        <span>🔄 Sync</span>
+        {config?.lastPollAt && (
+          <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
+            {new Date(config.lastPollAt).toLocaleString()}
+          </span>
+        )}
+        <span style={{ fontSize: '8px', opacity: 0.7 }}>▾</span>
       </button>
 
-      {expanded && (
-        <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
-          {!canManageJiraConfig ? (
-            <div style={{ fontSize: '11px', color: 'var(--text-mid)' }}>
-              <div><strong>Labels:</strong> {config?.labels.length ? config.labels.join(', ') : <span style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>none</span>}</div>
-              <div style={{ marginTop: '6px' }}><strong>JQL:</strong> {config?.jql || <span style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>none</span>}</div>
-            </div>
-          ) : (
-            <>
-              <label style={LABEL_STYLE}>Labels (comma-separated)</label>
-              <input
-                className="input-field"
-                value={labelsInput}
-                onChange={(e) => setLabelsInput(e.target.value)}
-                placeholder="e.g. opco-airtel, regression"
-                style={{ marginBottom: '10px', fontSize: '11px' }}
-              />
-
-              <label style={LABEL_STYLE}>Custom JQL (optional)</label>
-              <textarea
-                className="input-field"
-                value={jqlInput}
-                onChange={(e) => setJqlInput(e.target.value)}
-                placeholder="project = PROJ AND issuetype = Bug"
-                rows={3}
-                style={{ marginBottom: '10px', fontFamily: 'var(--font-mono)', fontSize: '10px', resize: 'vertical' }}
-              />
-
-              {config?.labels.length && !config.jiraProjectKey ? (
-                <p style={{ fontSize: '10px', color: 'var(--amber)', marginBottom: '10px' }}>
-                  ⚠ Needs a Jira project key — set one in Settings → Jira.
-                </p>
-              ) : null}
-
-              <TbBtn variant="primary" onClick={() => void handleSave()} disabled={updateConfig.isPending} style={{ width: '100%', justifyContent: 'center' }}>
-                {updateConfig.isPending ? 'Saving…' : 'Save'}
+      <FloatingPortal anchorRef={rootRef} open={isOpen} align="end" width={260} portalRef={menuRef}>
+        <div className="card" style={{ padding: '12px 14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>🔄 Sync</span>
+            {canWrite && (
+              <TbBtn variant="ghost" onClick={() => void handleSync()} disabled={syncNow.isPending} style={{ fontSize: '10px', padding: '3px 8px' }}>
+                {syncNow.isPending ? '⏳' : '🔄'} {syncNow.isPending ? 'Syncing…' : 'Sync Now'}
               </TbBtn>
-            </>
+            )}
+          </div>
+
+          <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            <span style={{ fontSize: '10px', color: 'var(--text-dim)', fontStyle: configSummary === 'No labels/JQL configured' ? 'italic' : undefined }}>
+              {configSummary}
+            </span>
+            {config?.lastPollAt && (
+              <span style={{ fontSize: '10px', color: 'var(--text-dim)' }} title={config.lastPollStatus ?? undefined}>
+                Synced {new Date(config.lastPollAt).toLocaleString()}
+              </span>
+            )}
+          </div>
+
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', padding: 0, marginTop: '8px', font: 'inherit', fontSize: '10px', fontWeight: 700, color: 'var(--cyan)' }}
+          >
+            {canManageJiraConfig ? 'Edit sync config' : 'View sync config'} <span style={{ fontSize: '9px' }}>{expanded ? '▲' : '▼'}</span>
+          </button>
+
+          {expanded && (
+            <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
+              {!canManageJiraConfig ? (
+                <div style={{ fontSize: '11px', color: 'var(--text-mid)' }}>
+                  <div><strong>Labels:</strong> {config?.labels.length ? config.labels.join(', ') : <span style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>none</span>}</div>
+                  <div style={{ marginTop: '6px' }}><strong>JQL:</strong> {config?.jql || <span style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>none</span>}</div>
+                </div>
+              ) : (
+                <>
+                  <label style={LABEL_STYLE}>Labels (comma-separated)</label>
+                  <input
+                    className="input-field"
+                    value={labelsInput}
+                    onChange={(e) => setLabelsInput(e.target.value)}
+                    placeholder="e.g. opco-airtel, regression"
+                    style={{ marginBottom: '10px', fontSize: '11px' }}
+                  />
+
+                  <label style={LABEL_STYLE}>Custom JQL (optional)</label>
+                  <textarea
+                    className="input-field"
+                    value={jqlInput}
+                    onChange={(e) => setJqlInput(e.target.value)}
+                    placeholder="project = PROJ AND issuetype = Bug"
+                    rows={3}
+                    style={{ marginBottom: '10px', fontFamily: 'var(--font-mono)', fontSize: '10px', resize: 'vertical' }}
+                  />
+
+                  {config?.labels.length && !config.jiraProjectKey ? (
+                    <p style={{ fontSize: '10px', color: 'var(--amber)', marginBottom: '10px' }}>
+                      ⚠ Needs a Jira project key — set one in Settings → Jira.
+                    </p>
+                  ) : null}
+
+                  <TbBtn variant="primary" onClick={() => void handleSave()} disabled={updateConfig.isPending} style={{ width: '100%', justifyContent: 'center' }}>
+                    {updateConfig.isPending ? 'Saving…' : 'Save'}
+                  </TbBtn>
+                </>
+              )}
+            </div>
           )}
         </div>
-      )}
+      </FloatingPortal>
     </div>
   );
 }
@@ -421,17 +453,17 @@ export default function DefectsDashboard() {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '14px 24px 24px' }}>
         {/* Compact header — a title line, not a full page-header block, so
-            the stat cards below start almost immediately */}
+            the stat cards below start almost immediately. Sync settings live
+            behind a header button + popover (see SyncPanel) rather than a
+            permanent side rail, so charts/table get the page's full width. */}
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '12px' }}>
           <h1 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text)', margin: 0 }}>🐞 Defects</h1>
           <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Every Jira bug synced for this project</span>
+          <div style={{ marginLeft: 'auto' }}>
+            {projectId && <SyncPanel projectId={projectId} />}
+          </div>
         </div>
 
-        {/* Main dashboard column + a narrow side rail for sync settings, so
-            the charts/table get full width instead of being pushed down by
-            a full-width settings card */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 240px', gap: '16px', alignItems: 'start' }}>
-          <div style={{ minWidth: 0 }}>
         {isLoading ? (
           <div style={{ color: 'var(--text-dim)', fontSize: '12px', fontFamily: 'var(--font-mono)', padding: '24px' }}>Loading defects…</div>
         ) : allDefects.length === 0 ? (
@@ -689,13 +721,6 @@ export default function DefectsDashboard() {
             )}
           </>
         )}
-          </div>
-
-          {/* Side rail — sync settings, out of the way of the dashboard */}
-          <div>
-            {projectId && <SyncPanel projectId={projectId} />}
-          </div>
-        </div>
       </div>
     </div>
   );
