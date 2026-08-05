@@ -43,6 +43,19 @@ export function taskDotColor(task: Pick<Task, 'dueDate' | 'status'>): string {
   return isTaskOverdue(task) ? 'var(--fail)' : STATUS_DOT_COLOR[task.status];
 }
 
+// Same 4-bucket shape as DefectsDashboard's dueBucket — so "overdue"/"due
+// this week" read identically across the app.
+export const TASK_DUE_BUCKETS = ['Overdue', 'Due this week', 'Later', 'No due date'] as const;
+export type TaskDueBucket = typeof TASK_DUE_BUCKETS[number];
+
+export function taskDueBucket(task: Pick<Task, 'dueDate' | 'status'>): TaskDueBucket {
+  if (!task.dueDate) return 'No due date';
+  if (isTaskOverdue(task)) return 'Overdue';
+  const due = new Date(task.dueDate);
+  const in7Days = new Date(Date.now() + 7 * 86_400_000);
+  return due <= in7Days ? 'Due this week' : 'Later';
+}
+
 export function parseTags(tags: string): string[] {
   try {
     const parsed = JSON.parse(tags);

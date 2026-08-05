@@ -91,7 +91,7 @@ export default function TaskListDetail() {
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         <TaskListsSidebar projectId={projectId} slug={slug ?? ''} activeListId={listId} />
 
-        <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: view === 'board' ? 'hidden' : 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden', padding: '20px 24px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {list && <span style={{ width: 10, height: 10, borderRadius: '50%', background: list.color }} />}
@@ -137,15 +137,17 @@ export default function TaskListDetail() {
               />
             </div>
           ) : (
-            <TaskListView
-              tasks={tasks}
-              projectId={projectId ?? ''}
-              onOpenTask={handleOpenTask}
-              onStatusChange={(id, status) => updateStatus.mutate({ id, status })}
-              onAssigneeChange={(id, userId) => assignTask.mutate({ id, assigneeUserId: userId })}
-              onQuickAdd={() => setCreateFor('quick')}
-              canWrite={canWrite}
-            />
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <TaskListView
+                tasks={tasks}
+                projectId={projectId ?? ''}
+                onOpenTask={handleOpenTask}
+                onStatusChange={(id, status) => updateStatus.mutate({ id, status })}
+                onAssigneeChange={(id, userId) => assignTask.mutate({ id, assigneeUserId: userId })}
+                onQuickAdd={(status) => setCreateFor(status ?? 'quick')}
+                canWrite={canWrite}
+              />
+            </div>
           )}
         </div>
       </div>
