@@ -65,6 +65,10 @@ const CreateCommentSchema = z.object({
   body: z.string().min(1).max(5000),
 });
 
+const UpdateCommentSchema = z.object({
+  body: z.string().min(1).max(5000),
+});
+
 const ListQuerySchema = z.object({
   taskListId: z.string().optional(),
   status:     z.enum(['TO_DO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE']).optional(),
@@ -776,6 +780,32 @@ router.post('/:taskId/comments', requireWrite as RequestHandler, (async (req, re
     include: { user: { select: { id: true, name: true } } },
   });
   res.status(201).json({ comment });
+}) as RequestHandler);
+
+router.patch('/:taskId/comments/:commentId', requireWrite as RequestHandler, (async (req, res) => {
+  const projectId = req.project.id;
+  const { taskId, commentId } = req.params;
+  const parsed = UpdateCommentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Validation failed', issues: parsed.error.issues });
+  }
+
+  const comment = await prisma.taskComment.findFirst({
+    where: { id: commentId, taskId, task: { projectId } },
+  });
+  if (!comment) return res.status(404).json({ error: 'Comment not found' });
+
+  // Only the author may edit — unlike delete, admins don't get to rewrite someone else's words.
+  if (comment.userId !== req.user.id) {
+    return res.status(403).json({ error: 'Only the comment author may edit this comment' });
+  }
+
+  const updated = await prisma.taskComment.update({
+    where: { id: commentId },
+    data: { body: parsed.data.body, editedAt: new Date() },
+    include: { user: { select: { id: true, name: true } } },
+  });
+  res.json({ comment: updated });
 }) as RequestHandler);
 
 router.delete('/:taskId/comments/:commentId', requireWrite as RequestHandler, (async (req, res) => {

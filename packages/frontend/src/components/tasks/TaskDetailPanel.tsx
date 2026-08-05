@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   useTask, useUpdateTask, useUpdateTaskStatus, useAssignTask, useDeleteTask,
-  useCreateTask, useAddTaskComment, useDeleteTaskComment,
+  useCreateTask, useAddTaskComment, useUpdateTaskComment, useDeleteTaskComment,
 } from '../../hooks/useTasks';
 import { useProjectStore } from '../../stores/projectStore';
 import { formatRelativeTime } from '../../lib/utils';
@@ -80,6 +80,7 @@ export function TaskDetailPanel({ projectId, taskId, onClose, onNavigateToTask }
   const deleteTask = useDeleteTask(projectId);
   const createSubtask = useCreateTask(projectId);
   const addComment = useAddTaskComment(projectId);
+  const updateComment = useUpdateTaskComment(projectId);
   const deleteComment = useDeleteTaskComment(projectId);
 
   const [title, setTitle] = useState('');
@@ -87,6 +88,8 @@ export function TaskDetailPanel({ projectId, taskId, onClose, onNavigateToTask }
   const [newSubtask, setNewSubtask] = useState('');
   const [newComment, setNewComment] = useState('');
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentBody, setEditingCommentBody] = useState('');
 
   useEffect(() => {
     if (task) {
@@ -133,6 +136,25 @@ export function TaskDetailPanel({ projectId, taskId, onClose, onNavigateToTask }
   function handleAddComment() {
     if (!newComment.trim()) return;
     addComment.mutate({ taskId: task!.id, body: newComment.trim() }, { onSuccess: () => setNewComment('') });
+  }
+
+  function startEditComment(comment: { id: string; body: string }) {
+    setEditingCommentId(comment.id);
+    setEditingCommentBody(comment.body);
+  }
+
+  function cancelEditComment() {
+    setEditingCommentId(null);
+    setEditingCommentBody('');
+  }
+
+  function saveEditComment() {
+    const body = editingCommentBody.trim();
+    if (!body || !editingCommentId) return;
+    updateComment.mutate(
+      { taskId: task!.id, commentId: editingCommentId, body },
+      { onSuccess: cancelEditComment },
+    );
   }
 
   async function handleDelete() {
@@ -287,26 +309,74 @@ export function TaskDetailPanel({ projectId, taskId, onClose, onNavigateToTask }
             Activity
           </div>
           <div>
-            {(task.comments ?? []).map((c) => (
-              <div key={c.id} className="tm-comment">
-                <TaskAvatar name={c.user.name} userId={c.user.id} size={26} />
-                <div className="tm-comment-bubble">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{c.user.name}</span>
-                    <span style={{ fontSize: 10, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>{formatRelativeTime(c.createdAt)}</span>
+            {(task.comments ?? []).map((c) => {
+              const isEditing = editingCommentId === c.id;
+              const isOwn = currentUser?.id === c.userId;
+              return (
+                <div key={c.id} className="tm-comment">
+                  <TaskAvatar name={c.user.name} userId={c.user.id} size={26} />
+                  <div className="tm-comment-bubble">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{c.user.name}</span>
+                      <span style={{ fontSize: 10, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                        {formatRelativeTime(c.createdAt)}{c.editedAt ? ' · edited' : ''}
+                      </span>
+                    </div>
+                    {isEditing ? (
+                      <div style={{ marginTop: 4 }}>
+                        <textarea
+                          className="input-field"
+                          value={editingCommentBody}
+                          onChange={(e) => setEditingCommentBody(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEditComment(); }
+                            if (e.key === 'Escape') cancelEditComment();
+                          }}
+                          autoFocus
+                          rows={2}
+                          style={{ fontSize: 12.5, width: '100%', resize: 'vertical' }}
+                        />
+                        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                          <button
+                            onClick={saveEditComment}
+                            disabled={!editingCommentBody.trim()}
+                            style={{ background: 'none', border: 'none', color: 'var(--cyan)', fontSize: 10, fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={cancelEditComment}
+                            style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 10, cursor: 'pointer', padding: 0 }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 12.5, color: 'var(--text-mid)', marginTop: 3, whiteSpace: 'pre-wrap' }}>{c.body}</div>
+                        {isOwn && (
+                          <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                            <button
+                              onClick={() => startEditComment(c)}
+                              style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 10, cursor: 'pointer', padding: 0 }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => deleteComment.mutate({ taskId: task.id, commentId: c.id })}
+                              style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 10, cursor: 'pointer', padding: 0 }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
-                  <div style={{ fontSize: 12.5, color: 'var(--text-mid)', marginTop: 3, whiteSpace: 'pre-wrap' }}>{c.body}</div>
-                  {currentUser?.id === c.userId && (
-                    <button
-                      onClick={() => deleteComment.mutate({ taskId: task.id, commentId: c.id })}
-                      style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 10, cursor: 'pointer', padding: 0, marginTop: 4 }}
-                    >
-                      Delete
-                    </button>
-                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {(task.comments ?? []).length === 0 && (
               <div style={{ fontSize: 11.5, color: 'var(--text-dim)', padding: '8px 0' }}>No comments yet.</div>
             )}
