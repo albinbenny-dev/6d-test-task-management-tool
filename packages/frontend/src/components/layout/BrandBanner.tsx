@@ -1,8 +1,9 @@
+import { Minimize2, Maximize2 } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
 import { AppMark } from '../ui/AppMark';
 
 export default function BrandBanner() {
-  const { theme, toggleTheme, activeProject } = useProjectStore();
+  const { theme, toggleTheme, compactMode, toggleCompactMode, activeProject } = useProjectStore();
   const isLight = theme === 'light';
 
   return (
@@ -27,8 +28,19 @@ export default function BrandBanner() {
         )}
       </div>
 
-      {/* Right: theme toggle + logo */}
+      {/* Right: density toggle + theme toggle + logo */}
       <div className="bb-right">
+        <button
+          className="density-toggle"
+          data-testid="density-toggle"
+          aria-pressed={compactMode}
+          aria-label={compactMode ? 'Switch to standard view' : 'Switch to compact view'}
+          onClick={toggleCompactMode}
+          title={compactMode ? 'Switch to standard view' : 'Compact view — shrinks the app to fit smaller screens'}
+          type="button"
+        >
+          {compactMode ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+        </button>
         <button
           className="theme-toggle"
           data-testid="theme-toggle"

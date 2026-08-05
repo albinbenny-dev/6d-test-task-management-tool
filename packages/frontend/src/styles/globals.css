@@ -88,6 +88,21 @@
 }
 
 /* ═══════════════════════════════════════════════════
+   COMPACT DISPLAY MODE — a persistent "zoom out" for the
+   whole app (banner, sidebar, cards, charts, text — all of
+   it), so small/low-res laptop screens stop feeling cramped
+   without every page needing its own shrink logic. Toggled
+   from the button in BrandBanner's top-right corner, next
+   to the theme switch; persisted in localStorage.
+   `zoom` (not transform:scale) so click hit-testing, fixed
+   positioning and text stay crisp — exactly like the
+   browser's own Ctrl/Cmd+- zoom, just scoped to this app.
+═══════════════════════════════════════════════════ */
+html[data-density="compact"] {
+  zoom: 0.82;
+}
+
+/* ═══════════════════════════════════════════════════
    SKELETON LOADING SHIMMER — 6D brand colors
 ═══════════════════════════════════════════════════ */
 @keyframes skeleton-shimmer {
@@ -532,6 +547,33 @@
     font-weight: 500;
   }
   .theme-toggle:hover { background: rgba(255,255,255,0.18); }
+
+  .density-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 100px;
+    cursor: pointer;
+    transition: background 0.15s;
+    color: rgba(255,255,255,0.88);
+    flex-shrink: 0;
+  }
+  .density-toggle:hover { background: rgba(255,255,255,0.18); }
+  .density-toggle[aria-pressed="true"] {
+    background: var(--6d-orange);
+    border-color: var(--6d-orange);
+    color: #fff;
+    box-shadow: 0 2px 6px rgba(2,132,199,0.4);
+  }
+  [data-theme="dark"] .density-toggle[aria-pressed="true"] {
+    background: var(--6d-gold);
+    color: var(--6d-navy);
+    box-shadow: 0 2px 6px rgba(56,189,248,0.4);
+  }
   .theme-toggle__icon {
     width: 22px; height: 22px;
     border-radius: 50%;
