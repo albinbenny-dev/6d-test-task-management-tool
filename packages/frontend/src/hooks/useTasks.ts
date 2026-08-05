@@ -187,6 +187,20 @@ export function useAddTaskComment(projectId: string) {
   });
 }
 
+export function useUpdateTaskComment(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { taskId: string; commentId: string; body: string }) => {
+      const res = await api.patch<{ comment: TaskCommentEntry }>(
+        `/projects/${projectId}/tasks/${data.taskId}/comments/${data.commentId}`,
+        { body: data.body },
+      );
+      return res.data.comment;
+    },
+    onSuccess: (_data, vars) => qc.invalidateQueries({ queryKey: ['task', projectId, vars.taskId] }),
+  });
+}
+
 export function useDeleteTaskComment(projectId: string) {
   const qc = useQueryClient();
   return useMutation({

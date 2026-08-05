@@ -537,6 +537,7 @@ export interface TaskCommentEntry {
   userId: string;
   body: string;
   createdAt: string;
+  editedAt?: string | null;
   user: { id: string; name: string };
 }
 

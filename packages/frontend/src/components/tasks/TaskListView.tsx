@@ -121,6 +121,7 @@ export function TaskListView({
   const [priorityFilters, setPriorityFilters] = useState<string[]>([]);
   const [assigneeFilters, setAssigneeFilters] = useState<string[]>([]);
   const [dueFilters, setDueFilters] = useState<string[]>([]);
+  const [groupByStatus, setGroupByStatus] = useState(false);
 
   const assigneeOptions = useMemo(
     () => [...new Set(tasks.map(assigneeName))].sort(),
@@ -183,7 +184,11 @@ export function TaskListView({
         {activeFilterCount > 0 && (
           <TbBtn variant="ghost" onClick={clearFilters}>✕ Clear ({activeFilterCount})</TbBtn>
         )}
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+        <div className="tm-view-tabs" style={{ marginLeft: 'auto' }}>
+          <button className={`tm-view-tab${!groupByStatus ? ' active' : ''}`} onClick={() => setGroupByStatus(false)}>☰ Flat</button>
+          <button className={`tm-view-tab${groupByStatus ? ' active' : ''}`} onClick={() => setGroupByStatus(true)}>▤ By status</button>
+        </div>
+        <span style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
           {roots.length} of {totalTopLevel} task{totalTopLevel === 1 ? '' : 's'}
         </span>
       </div>
@@ -223,7 +228,7 @@ export function TaskListView({
           </div>
         )}
 
-        {tasks.length > 0 && groups.map(({ status, items }) => (
+        {tasks.length > 0 && groupByStatus && groups.map(({ status, items }) => (
           <div key={status}>
             <div
               style={{
@@ -262,6 +267,29 @@ export function TaskListView({
             )}
           </div>
         ))}
+
+        {tasks.length > 0 && !groupByStatus && (
+          <div>
+            {roots.map((task) => (
+              <Row
+                key={task.id}
+                task={task}
+                projectId={projectId}
+                depth={0}
+                onOpen={onOpenTask}
+                onStatusChange={onStatusChange}
+                onAssigneeChange={onAssigneeChange}
+                canWrite={canWrite}
+              />
+            ))}
+
+            {canWrite && (
+              <div className="tm-quick-add" onClick={() => onQuickAdd()}>
+                <span>＋</span> Add task
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
