@@ -1,10 +1,18 @@
-import { Minimize2, Maximize2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { Minimize2, Maximize2, ChevronDown, FolderKanban } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
 import { AppMark } from '../ui/AppMark';
+import { getInitials, PROJECT_GRADIENTS } from '../../lib/utils';
 
 export default function BrandBanner() {
-  const { theme, toggleTheme, compactMode, toggleCompactMode, activeProject } = useProjectStore();
+  const navigate = useNavigate();
+  const { theme, toggleTheme, compactMode, toggleCompactMode, activeProject, projects } = useProjectStore();
   const isLight = theme === 'light';
+
+  function colorFor(id: string, color?: string | null) {
+    return color ?? PROJECT_GRADIENTS[id.charCodeAt(0) % PROJECT_GRADIENTS.length];
+  }
 
   return (
     <header className="brand-banner-top">
@@ -17,15 +25,60 @@ export default function BrandBanner() {
         </div>
       </div>
 
-      {/* Center: project context */}
+      {/* Center: project switcher */}
       <div className="bb-center">
-        {activeProject ? (
-          <span className="bb-proj">{activeProject.name}</span>
-        ) : (
-          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px' }}>
-            Select a project to begin
-          </span>
-        )}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button className="project-switcher-trigger" type="button" data-testid="project-switcher-trigger">
+              {activeProject ? (
+                <>
+                  <span className="project-switcher-avatar" style={{ background: colorFor(activeProject.id, activeProject.color) }}>
+                    {getInitials(activeProject.name)}
+                  </span>
+                  <span className="project-switcher-name">{activeProject.name}</span>
+                </>
+              ) : (
+                <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: '13px' }}>Select a project</span>
+              )}
+              <ChevronDown size={14} className="project-switcher-chevron" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content className="project-switcher-panel" align="start" sideOffset={8}>
+              {projects.length === 0 ? (
+                <div style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--text-dim)' }}>
+                  No projects yet.
+                </div>
+              ) : (
+                projects.map((p) => (
+                  <DropdownMenu.Item
+                    key={p.id}
+                    className="project-switcher-item"
+                    onSelect={() => navigate(`/projects/${p.slug}/test-cycles`)}
+                  >
+                    <span className="project-switcher-avatar" style={{ background: colorFor(p.id, p.color) }}>
+                      {getInitials(p.name)}
+                    </span>
+                    <div style={{ flex: 1, overflow: 'hidden' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {p.name}
+                      </div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-dim)' }}>
+                        {p._count?.tcItems ?? 0} test cases
+                      </div>
+                    </div>
+                    {activeProject?.id === p.id && <span className="project-switcher-current-tag">CURRENT</span>}
+                  </DropdownMenu.Item>
+                ))
+              )}
+              <DropdownMenu.Separator className="project-switcher-footer" />
+              <DropdownMenu.Item className="project-switcher-footer-link" onSelect={() => navigate('/projects')}>
+                <FolderKanban size={14} />
+                View All Projects
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
       </div>
 
       {/* Right: density toggle + theme toggle + logo */}

@@ -4,6 +4,7 @@ import { getCurrentUser } from '../lib/auth';
 
 const THEME_KEY = 'qai-theme';
 const DENSITY_KEY = 'qai-density';
+const SIDEBAR_KEY = 'qai-sidebar';
 
 function applyTheme(theme: 'light' | 'dark'): void {
   const root = document.documentElement;
@@ -29,6 +30,10 @@ applyTheme(savedTheme);
 const savedDensity = (localStorage.getItem(DENSITY_KEY) as 'standard' | 'compact') ?? 'standard';
 applyDensity(savedDensity);
 
+// Sidebar starts expanded (with labels) unless the user has previously
+// collapsed it to an icon-only rail — see Sidebar.tsx's toggle button.
+const savedSidebarCollapsed = localStorage.getItem(SIDEBAR_KEY) === 'collapsed';
+
 interface ProjectStore {
   activeProject: Project | null;
   setActiveProject: (p: Project | null) => void;
@@ -38,6 +43,8 @@ interface ProjectStore {
   toggleTheme: () => void;
   compactMode: boolean;
   toggleCompactMode: () => void;
+  sidebarCollapsed: boolean;
+  toggleSidebar: () => void;
   currentUser: User | null;
   setCurrentUser: (u: User | null) => void;
 }
@@ -60,6 +67,12 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     localStorage.setItem(DENSITY_KEY, next);
     applyDensity(next);
     set({ compactMode: next === 'compact' });
+  },
+  sidebarCollapsed: savedSidebarCollapsed,
+  toggleSidebar: () => {
+    const next = !get().sidebarCollapsed;
+    localStorage.setItem(SIDEBAR_KEY, next ? 'collapsed' : 'expanded');
+    set({ sidebarCollapsed: next });
   },
   currentUser: getCurrentUser(),
   setCurrentUser: (u) => set({ currentUser: u }),

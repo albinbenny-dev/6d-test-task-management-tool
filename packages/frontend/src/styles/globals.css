@@ -313,6 +313,13 @@ html[data-density="compact"] {
     color: var(--cyan);
     border-color: rgba(2,132,199,0.2);
   }
+  /* Collapsed sidebar rail — icon only, centered, label/badge hidden (the
+     label comes back as a native title tooltip on hover instead). */
+  .nav-item--collapsed {
+    justify-content: center;
+    padding: 10px;
+    gap: 0;
+  }
   .nav-icon {
     font-size: 14px;
     flex-shrink: 0;
@@ -320,6 +327,26 @@ html[data-density="compact"] {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+  }
+
+  /* ── Sidebar collapse/expand toggle ── */
+  .sidebar-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .sidebar-toggle-btn:hover {
+    background: var(--surface2);
+    color: var(--text);
+    border-color: var(--border);
   }
   .nav-badge {
     margin-left: auto;
@@ -516,7 +543,6 @@ html[data-density="compact"] {
     font-size: 13px;
     font-weight: 500;
   }
-  .bb-proj { font-weight: 600; color: #fff; }
   .bb-sep  { color: rgba(255,255,255,0.4); }
   .bb-env {
     font-family: var(--font-mono);
@@ -530,6 +556,97 @@ html[data-density="compact"] {
   }
   .bb-right { display: flex; align-items: center; gap: 14px; }
   .bb-logo { height: 28px; width: auto; opacity: 0.95; flex-shrink: 0; }
+
+  /* ── Project switcher (BrandBanner center) ── */
+  .project-switcher-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 100px;
+    padding: 5px 12px 5px 6px;
+    cursor: pointer;
+    color: #fff;
+    font-family: var(--font-ui);
+    transition: background 0.15s;
+  }
+  .project-switcher-trigger:hover,
+  .project-switcher-trigger[data-state="open"] { background: rgba(255,255,255,0.18); }
+  .project-switcher-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 800;
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .project-switcher-name {
+    font-size: 13px;
+    font-weight: 600;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .project-switcher-chevron { opacity: 0.75; flex-shrink: 0; }
+  .project-switcher-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 12px 32px rgba(8,47,69,0.18);
+    padding: 6px;
+    min-width: 280px;
+    max-height: 70vh;
+    overflow-y: auto;
+    z-index: 1200;
+  }
+  .project-switcher-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    outline: none;
+  }
+  .project-switcher-item[data-highlighted] { background: var(--surface2); }
+  .project-switcher-current-tag {
+    font-family: var(--font-mono);
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--cyan);
+    background: var(--cyan-dim);
+    border: 1px solid rgba(2,132,199,0.2);
+    padding: 1px 6px;
+    border-radius: 100px;
+    flex-shrink: 0;
+  }
+  .project-switcher-footer {
+    height: 1px;
+    background: var(--border);
+    margin: 6px 4px;
+    border: none;
+  }
+  .project-switcher-footer-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    color: var(--cyan);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+  }
+  .project-switcher-footer-link[data-highlighted] { background: var(--cyan-dim); }
 
   .theme-toggle {
     display: inline-flex;
