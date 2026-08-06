@@ -385,12 +385,27 @@ function normalizeEnumValue(raw: string, values: string[]): string | null {
   return values.includes(norm) ? norm : null;
 }
 
-// cellDates:true (below) turns real Excel date cells into JS Dates directly.
-// A lead may instead paste a date as plain text, which cellDates won't
-// touch — this fallback tries to parse that text, and treats anything
+// Excel's date epoch: serial 0 == 1899-12-30 (the 1900 leap-year bug baked
+// into every spreadsheet tool). Pure UTC arithmetic, deliberately NOT using
+// xlsx's own cellDates:true conversion (see the /import route below) or any
+// `new Date(1899, ...)` local-time construction — Node/ICU's timezone
+// database records India's pre-1906 local time as a few seconds off modern
+// IST, so a LOCAL 1899 anchor date is measurably wrong on an IST host; every
+// serial decoded off that anchor then round-trips to the day *before* the
+// spreadsheet's actual date once persisted/serialized as UTC. Date.UTC has
+// no such historical-offset lookup, so this is exact on every host regardless
+// of timezone.
+function excelSerialToUTCDate(serial: number): Date {
+  return new Date(Date.UTC(1899, 11, 30) + Math.round(serial * 86_400_000));
+}
+
+// A lead may instead paste a date as plain text (cellDates is off — see
+// below — so a genuine Excel date cell arrives here as a raw number, not a
+// Date); this fallback tries to parse that text, and treats anything
 // unparseable as "no date given" rather than failing the row.
 function parseDateCell(raw: unknown): Date | null {
-  if (raw instanceof Date && !isNaN(raw.getTime())) return raw;
+  if (typeof raw === 'number' && !isNaN(raw)) return excelSerialToUTCDate(raw);
+  if (raw instanceof Date && !isNaN(raw.getTime())) return new Date(Date.UTC(raw.getFullYear(), raw.getMonth(), raw.getDate()));
   if (typeof raw === 'string' && raw.trim()) {
     const d = new Date(raw.trim());
     if (!isNaN(d.getTime())) return d;
@@ -407,7 +422,9 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
   const list = await prisma.taskList.findFirst({ where: { id: taskListId, projectId } });
   if (!list) return res.status(400).json({ error: 'That task list does not belong to this project' });
 
-  const wb = xlsx.read(req.file.buffer, { type: 'buffer', cellDates: true });
+  // cellDates intentionally omitted (defaults to false) — parseDateCell
+  // above now converts the raw Excel serial itself; see its comment.
+  const wb = xlsx.read(req.file.buffer, { type: 'buffer' });
 
   const findRaw = (row: Record<string, unknown>, keys: string[]): unknown => {
     const norm: Record<string, unknown> = {};
