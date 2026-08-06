@@ -371,7 +371,7 @@ export default function UserManagement() {
             <div className="card-title">All Users</div>
             <span className="badge badge-draft">{totalUsers}</span>
           </div>
-          <div style={{ height: '380px', overflowY: 'auto' }}>
+          <div style={{ height: '650px', overflowY: 'auto' }}>
           <table className="data-table">
             <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface)' }}>
               <tr>
