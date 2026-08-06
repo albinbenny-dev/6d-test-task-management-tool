@@ -14,10 +14,9 @@ import { FloatingPortal } from '../components/ui/FloatingPortal';
 import type { AssignmentItem, Task, TaskPriority, TaskStatus, ManualResultStatus } from '../types';
 
 type Tab = 'tests' | 'tasks';
-type DueFilter = 'all' | 'overdue' | 'today' | 'week' | 'none';
+type DueFilter = 'overdue' | 'today' | 'week' | 'none';
 
 const DUE_FILTER_LABEL: Record<DueFilter, string> = {
-  all: '📅 Any due date',
   overdue: '⏰ Overdue',
   today: '📍 Due today',
   week: '🗓 Due this week',
@@ -107,7 +106,6 @@ function MultiSelectDropdown({ icon, allOptions, optionLabel, selected, onChange
 }
 
 function isDueInRange(dueDate: string | null | undefined, filter: DueFilter): boolean {
-  if (filter === 'all') return true;
   if (filter === 'none') return !dueDate;
   if (!dueDate) return false;
   const due = new Date(dueDate);
@@ -280,7 +278,7 @@ function TasksTab({ projectId, slug }: { projectId: string; slug: string }) {
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>([]);
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<TaskStatus[]>([]);
-  const [dueFilter, setDueFilter] = useState<DueFilter>('all');
+  const [dueFilter, setDueFilter] = useState<DueFilter[]>([]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const tasks = data?.tasks ?? [];
 
@@ -298,7 +296,7 @@ function TasksTab({ projectId, slug }: { projectId: string; slug: string }) {
         const tags = parseTags(t.tags);
         if (!tagFilter.some((tag) => tags.includes(tag))) return false;
       }
-      if (!isDueInRange(t.dueDate, dueFilter)) return false;
+      if (dueFilter.length > 0 && !dueFilter.some((f) => isDueInRange(t.dueDate, f))) return false;
       return true;
     });
   }, [tasks, priorityFilter, statusFilter, tagFilter, dueFilter]);
@@ -321,7 +319,7 @@ function TasksTab({ projectId, slug }: { projectId: string; slug: string }) {
     });
   }
 
-  const dueOptions: DueFilter[] = ['all', 'overdue', 'today', 'week', 'none'];
+  const dueOptions: DueFilter[] = ['overdue', 'today', 'week', 'none'];
 
   return (
     <div>
@@ -345,14 +343,14 @@ function TasksTab({ projectId, slug }: { projectId: string; slug: string }) {
         {allTags.length > 0 && (
           <MultiSelectDropdown icon="🏷" allOptions={allTags} selected={tagFilter} onChange={setTagFilter} emptyLabel="All labels" />
         )}
-        <select
-          className="input-field"
-          value={dueFilter}
-          onChange={(e) => setDueFilter(e.target.value as DueFilter)}
-          style={{ fontSize: '11px', padding: '6px 8px', width: 'auto' }}
-        >
-          {dueOptions.map((d) => <option key={d} value={d}>{DUE_FILTER_LABEL[d]}</option>)}
-        </select>
+        <MultiSelectDropdown
+          icon="📅"
+          allOptions={dueOptions}
+          optionLabel={(v) => DUE_FILTER_LABEL[v as DueFilter]}
+          selected={dueFilter}
+          onChange={(v) => setDueFilter(v as DueFilter[])}
+          emptyLabel="Any due date"
+        />
       </div>
 
       {isLoading ? (

@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
+import { MultiSelectFilter } from '../testCycles/FilterBar';
 import type { TestCase } from '../../types';
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -74,7 +75,7 @@ export default function TCListPanel({
 }: TCListPanelProps) {
   const [viewMode, setViewMode] = useState<'usecase' | 'flat'>('usecase');
   const [typeFilter, setTypeFilter] = useState<'' | 'UI' | 'API' | 'SIT'>('');
-  const [statusFilter, setStatusFilter] = useState('scripted');
+  const [statusFilter, setStatusFilter] = useState<string[]>(['Has Script']);
   const [search, setSearch] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(AIRTEL_USE_CASES));
 
@@ -83,9 +84,18 @@ export default function TCListPanel({
     const q = search.trim().toLowerCase();
     return allTCs.filter((tc) => {
       if (typeFilter && tc.type !== typeFilter) return false;
-      if (statusFilter === 'scripted' && !scriptedTcIds.has(tc.id)) return false;
-      if (statusFilter === 'unscripted' && scriptedTcIds.has(tc.id)) return false;
-      if (statusFilter === 'running' && !runningTcIds.has(tc.id)) return false;
+      // Any-of-selected match — e.g. "Has Script" + "Running" shows a TC
+      // that's either scripted or currently running, same OR-within-
+      // dimension semantics every other multi-select filter uses.
+      if (statusFilter.length > 0) {
+        const matchesAny = statusFilter.some((f) => {
+          if (f === 'Has Script') return scriptedTcIds.has(tc.id);
+          if (f === 'No Script') return !scriptedTcIds.has(tc.id);
+          if (f === 'Running') return runningTcIds.has(tc.id);
+          return false;
+        });
+        if (!matchesAny) return false;
+      }
       if (q && !tc.title.toLowerCase().includes(q) && !tc.tcId.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -186,25 +196,12 @@ export default function TCListPanel({
         </div>
 
         {/* Status filter */}
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          style={{
-            padding: '3px 6px',
-            borderRadius: 4,
-            fontSize: 10,
-            fontFamily: 'var(--font-ui)',
-            background: 'var(--surface3)',
-            border: '1px solid var(--border)',
-            color: 'var(--text-dim)',
-            cursor: 'pointer',
-          }}
-        >
-          <option value="">All Status</option>
-          <option value="scripted">Has Script</option>
-          <option value="unscripted">No Script</option>
-          <option value="running">Running</option>
-        </select>
+        <MultiSelectFilter
+          label="Status"
+          values={statusFilter}
+          onChange={setStatusFilter}
+          options={['Has Script', 'No Script', 'Running']}
+        />
 
         {/* Search */}
         <input
@@ -298,7 +295,7 @@ export default function TCListPanel({
         {filtered.length === 0 ? (
           <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-dim)', fontSize: 12 }}>
             <div style={{ fontSize: 28, marginBottom: 8, opacity: 0.4 }}>📋</div>
-            {search || typeFilter || statusFilter ? 'No matching test cases.' : 'No test cases yet.'}
+            {search || typeFilter || statusFilter.length > 0 ? 'No matching test cases.' : 'No test cases yet.'}
           </div>
         ) : viewMode === 'usecase' ? (
           groups.map((group, gIdx) => (

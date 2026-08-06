@@ -7,6 +7,7 @@ import { useTestCycleDashboardSummary, useCreateTestCycle } from '../hooks/useTe
 import { useRBAC } from '../hooks/useRBAC';
 import { STATUS_COLOR } from '../lib/manualStatus';
 import { AllBugsSection } from '../components/testCycles/AllBugsSection';
+import { MultiSelectFilter } from '../components/testCycles/FilterBar';
 import type { TestCycle, TestCycleSummary, ManualResultStatus } from '../types';
 
 const STATUS_SEGMENTS: ManualResultStatus[] = ['PASS', 'FAIL', 'IN_PROGRESS', 'BLOCKED', 'NOT_RUN'];
@@ -262,14 +263,14 @@ export default function TestCycles() {
   const summaries = dashboardData?.summary ?? [];
   const createCycle = useCreateTestCycle(projectId ?? '');
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<TestCycle['status'] | 'ALL'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<TestCycle['status'][]>([]);
   // Closed cycles are done-and-dusted — they'd otherwise pile up in the
   // default grid forever. Hidden unless explicitly requested via the status
   // filter or this toggle, never a hard delete/archive.
   const [showClosed, setShowClosed] = useState(false);
   const filteredSummaries = summaries
-    .filter((s) => (statusFilter === 'ALL' ? true : s.cycle.status === statusFilter))
-    .filter((s) => (showClosed || statusFilter === 'CLOSED' ? true : s.cycle.status !== 'CLOSED'));
+    .filter((s) => (statusFilter.length === 0 ? true : statusFilter.includes(s.cycle.status)))
+    .filter((s) => (showClosed || statusFilter.includes('CLOSED') ? true : s.cycle.status !== 'CLOSED'));
 
   async function handleCreate(data: { name: string; description?: string; testCaseIds: string[]; jiraLabels?: string[]; jiraJql?: string; driveFolderUrl?: string; dueDate?: string | null }) {
     try {
@@ -308,22 +309,14 @@ export default function TestCycles() {
         </div>
 
         <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-mid)' }}>
-            Status
-          </label>
-          <select
-            className="input-field"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as TestCycle['status'] | 'ALL')}
-            style={{ width: 'auto', fontSize: '11px', padding: '4px 8px' }}
-          >
-            <option value="ALL">All</option>
-            <option value="PLANNING">Planning</option>
-            <option value="ACTIVE">Active</option>
-            <option value="CLOSED">Closed</option>
-          </select>
+          <MultiSelectFilter
+            label="Status"
+            values={statusFilter}
+            onChange={(v) => setStatusFilter(v as TestCycle['status'][])}
+            options={['PLANNING', 'ACTIVE', 'CLOSED']}
+          />
 
-          {statusFilter !== 'CLOSED' && (
+          {!statusFilter.includes('CLOSED') && (
             <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: 'var(--text-mid)', cursor: 'pointer', marginLeft: '4px' }}>
               <input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} />
               Show closed
@@ -339,7 +332,7 @@ export default function TestCycles() {
             <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '48px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
               {summaries.length === 0
                 ? `No test cycles yet.${canManageTestCycles ? ' Create one to start a manual regression pass.' : ''}`
-                : !showClosed && statusFilter !== 'CLOSED' && summaries.every((s) => s.cycle.status === 'CLOSED')
+                : !showClosed && !statusFilter.includes('CLOSED') && summaries.every((s) => s.cycle.status === 'CLOSED')
                   ? 'All cycles are closed. Check "Show closed" to see them.'
                   : 'No cycles match this filter.'}
             </div>

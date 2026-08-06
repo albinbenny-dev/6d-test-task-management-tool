@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { TbBtn } from '../layout/Topbar';
-import { FilterSelect } from './FilterBar';
+import { MultiSelectFilter } from './FilterBar';
 import { useAllTestCycleBugs } from '../../hooks/useTestCycles';
 import { useSyncJiraNow, useJiraHost } from '../../hooks/useJira';
 import { isBugClosed, isBugOverdue } from '../../lib/jiraBugStatus';
@@ -36,10 +36,10 @@ export function AllBugsSection({ projectId }: { projectId: string }) {
   const { data: jiraHost } = useJiraHost(projectId);
   const syncNow = useSyncJiraNow(projectId);
 
-  const [jiraStatusFilter, setJiraStatusFilter] = useState('');
-  const [assigneeFilter, setAssigneeFilter] = useState('');
-  const [cycleFilter, setCycleFilter] = useState('');
-  const [dueFilter, setDueFilter] = useState('');
+  const [jiraStatusFilter, setJiraStatusFilter] = useState<string[]>([]);
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
+  const [cycleFilter, setCycleFilter] = useState<string[]>([]);
+  const [dueFilter, setDueFilter] = useState<string[]>([]);
   // Closed bugs are noise once a release is done — default to open-only so the
   // list stays short, with an explicit toggle for someone who wants the full
   // history (e.g. auditing what got fixed).
@@ -53,10 +53,10 @@ export function AllBugsSection({ projectId }: { projectId: string }) {
 
   const bugs = allBugs.filter((b) => {
     if (!showClosed && isBugClosed(b.issue)) return false;
-    if (jiraStatusFilter && b.issue?.status !== jiraStatusFilter) return false;
-    if (assigneeFilter && b.issue?.assigneeName !== assigneeFilter) return false;
-    if (cycleFilter && !b.testCycles.some((c) => c.name === cycleFilter)) return false;
-    if (dueFilter && dueBucket(b) !== dueFilter) return false;
+    if (jiraStatusFilter.length > 0 && (!b.issue?.status || !jiraStatusFilter.includes(b.issue.status))) return false;
+    if (assigneeFilter.length > 0 && (!b.issue?.assigneeName || !assigneeFilter.includes(b.issue.assigneeName))) return false;
+    if (cycleFilter.length > 0 && !b.testCycles.some((c) => cycleFilter.includes(c.name))) return false;
+    if (dueFilter.length > 0 && !dueFilter.includes(dueBucket(b))) return false;
     return true;
   });
 
@@ -96,10 +96,10 @@ export function AllBugsSection({ projectId }: { projectId: string }) {
       </p>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
-        <FilterSelect label="Status" value={jiraStatusFilter} onChange={setJiraStatusFilter} options={jiraStatusOptions} />
-        <FilterSelect label="Assignee" value={assigneeFilter} onChange={setAssigneeFilter} options={assigneeOptions} />
-        <FilterSelect label="Test Cycle" value={cycleFilter} onChange={setCycleFilter} options={cycleOptions} />
-        <FilterSelect label="Due Date" value={dueFilter} onChange={setDueFilter} options={[...DUE_BUCKETS]} />
+        <MultiSelectFilter label="Status" values={jiraStatusFilter} onChange={setJiraStatusFilter} options={jiraStatusOptions} />
+        <MultiSelectFilter label="Assignee" values={assigneeFilter} onChange={setAssigneeFilter} options={assigneeOptions} />
+        <MultiSelectFilter label="Test Cycle" values={cycleFilter} onChange={setCycleFilter} options={cycleOptions} />
+        <MultiSelectFilter label="Due Date" values={dueFilter} onChange={setDueFilter} options={[...DUE_BUCKETS]} />
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
           {lastSyncedAt && (
             <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>Synced {new Date(lastSyncedAt).toLocaleString()}</span>

@@ -22,7 +22,7 @@ import {
 } from '../hooks/useTestCycles';
 import { useSyncJiraNow, useJiraHost } from '../hooks/useJira';
 import { StatCard, JiraRingCard } from '../components/testCycles/StatCards';
-import { FilterSelect } from '../components/testCycles/FilterBar';
+import { MultiSelectFilter } from '../components/testCycles/FilterBar';
 import { StatusPillPicker } from '../components/testCycles/StatusPillPicker';
 import { ReasonPopover } from '../components/testCycles/ReasonPopover';
 import { JiraKeysCell } from '../components/testCycles/JiraKeyPopover';
@@ -38,8 +38,8 @@ import type { TestCycleItem, TestCycleStatus, ManualResultStatus, TestCycle, Jir
 function CycleStatusCards({ items, bugs, statusFilter, onFilterChange, onViewBugs }: {
   items: TestCycleItem[];
   bugs: JiraBugSummary[];
-  statusFilter: ManualResultStatus | null;
-  onFilterChange: (status: ManualResultStatus | null) => void;
+  statusFilter: ManualResultStatus[];
+  onFilterChange: (status: ManualResultStatus[]) => void;
   onViewBugs: () => void;
 }) {
   const counts = emptyStatusCounts();
@@ -49,8 +49,11 @@ function CycleStatusCards({ items, bugs, statusFilter, onFilterChange, onViewBug
 
   const resolvedKeys = new Set(bugs.filter((b) => b.issue?.statusCategory === 'done').map((b) => b.issueKey));
 
+  // Clicking a card toggles that status in/out of the filter (same
+  // any-of-several matching every other multi-select filter in the app
+  // uses) rather than jumping straight to a single exclusive status.
   function toggle(status: ManualResultStatus) {
-    onFilterChange(statusFilter === status ? null : status);
+    onFilterChange(statusFilter.includes(status) ? statusFilter.filter((s) => s !== status) : [...statusFilter, status]);
   }
 
   return (
@@ -59,12 +62,12 @@ function CycleStatusCards({ items, bugs, statusFilter, onFilterChange, onViewBug
     // proportions visibly shifted between filter states. Grid columns are
     // always the same width regardless of which card is selected.
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px' }}>
-      <StatCard compact label="Total" value={total} theme="total" highlighted={!statusFilter} onClick={() => onFilterChange(null)} />
-      <StatCard compact label="Passed" value={counts.PASS} theme="pass" selected={statusFilter === 'PASS'} onClick={() => toggle('PASS')} />
-      <StatCard compact label="Failed" value={counts.FAIL} theme="fail" selected={statusFilter === 'FAIL'} onClick={() => toggle('FAIL')} />
-      <StatCard compact label="In Progress" value={counts.IN_PROGRESS} theme="progress" selected={statusFilter === 'IN_PROGRESS'} onClick={() => toggle('IN_PROGRESS')} />
-      <StatCard compact label="Blocked" value={counts.BLOCKED} theme="blocked" selected={statusFilter === 'BLOCKED'} onClick={() => toggle('BLOCKED')} />
-      <StatCard compact label="Untested" value={counts.NOT_RUN} theme="untested" selected={statusFilter === 'NOT_RUN'} onClick={() => toggle('NOT_RUN')} />
+      <StatCard compact label="Total" value={total} theme="total" highlighted={statusFilter.length === 0} onClick={() => onFilterChange([])} />
+      <StatCard compact label="Passed" value={counts.PASS} theme="pass" selected={statusFilter.includes('PASS')} onClick={() => toggle('PASS')} />
+      <StatCard compact label="Failed" value={counts.FAIL} theme="fail" selected={statusFilter.includes('FAIL')} onClick={() => toggle('FAIL')} />
+      <StatCard compact label="In Progress" value={counts.IN_PROGRESS} theme="progress" selected={statusFilter.includes('IN_PROGRESS')} onClick={() => toggle('IN_PROGRESS')} />
+      <StatCard compact label="Blocked" value={counts.BLOCKED} theme="blocked" selected={statusFilter.includes('BLOCKED')} onClick={() => toggle('BLOCKED')} />
+      <StatCard compact label="Untested" value={counts.NOT_RUN} theme="untested" selected={statusFilter.includes('NOT_RUN')} onClick={() => toggle('NOT_RUN')} />
       <JiraRingCard compact tickets={{ resolved: resolvedKeys.size, total: bugs.length }} onClick={onViewBugs} />
       <StatCard compact label="Pass Rate" value={`${passRate}%`} theme="passRate" highlighted />
     </div>
@@ -163,25 +166,25 @@ function BugsTab({ projectId, cycleId, items, statusFilter }: {
   projectId: string;
   cycleId: string;
   items: TestCycleItem[];
-  statusFilter: ManualResultStatus | null;
+  statusFilter: ManualResultStatus[];
 }) {
   const { data: allBugs = [], isLoading } = useTestCycleBugs(projectId, cycleId);
   const { data: jiraHost } = useJiraHost(projectId);
   const syncNow = useSyncJiraNow(projectId);
-  const [jiraStatusFilter, setJiraStatusFilter] = useState('');
-  const [assigneeFilter, setAssigneeFilter] = useState('');
-  const [componentFilter, setComponentFilter] = useState('');
-  const [reporterFilter, setReporterFilter] = useState('');
+  const [jiraStatusFilter, setJiraStatusFilter] = useState<string[]>([]);
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
+  const [componentFilter, setComponentFilter] = useState<string[]>([]);
+  const [reporterFilter, setReporterFilter] = useState<string[]>([]);
   // Closed bugs are noise once a release is done — default to open-only,
   // same as the project-wide bug board, with an explicit toggle to see them.
   const [showClosed, setShowClosed] = useState(false);
 
   // A bug "matches" the manual-status filter if it's linked to at least one
-  // test case currently at that status. Bugs with no links yet are kept
-  // regardless — there's nothing to compare them against, so hiding them
-  // would just lose visibility of not-yet-linked bugs while filtering.
-  const filteredTestCaseIds = statusFilter
-    ? new Set(items.filter((i) => i.manualStatus === statusFilter).map((i) => i.testCaseId))
+  // test case currently at ANY of the selected statuses. Bugs with no links
+  // yet are kept regardless — there's nothing to compare them against, so
+  // hiding them would just lose visibility of not-yet-linked bugs.
+  const filteredTestCaseIds = statusFilter.length > 0
+    ? new Set(items.filter((i) => statusFilter.includes(i.manualStatus)).map((i) => i.testCaseId))
     : null;
   const statusMatched = filteredTestCaseIds
     ? allBugs.filter((b) => b.testCases.length === 0 || b.testCases.some((tc) => filteredTestCaseIds.has(tc.id)))
@@ -195,10 +198,10 @@ function BugsTab({ projectId, cycleId, items, statusFilter }: {
 
   const bugs = statusMatched.filter((b) => {
     if (!showClosed && isBugClosed(b.issue)) return false;
-    if (jiraStatusFilter && b.issue?.status !== jiraStatusFilter) return false;
-    if (assigneeFilter && b.issue?.assigneeName !== assigneeFilter) return false;
-    if (componentFilter && !parseJsonArray(b.issue?.components).includes(componentFilter)) return false;
-    if (reporterFilter && b.issue?.reporterName !== reporterFilter) return false;
+    if (jiraStatusFilter.length > 0 && (!b.issue?.status || !jiraStatusFilter.includes(b.issue.status))) return false;
+    if (assigneeFilter.length > 0 && (!b.issue?.assigneeName || !assigneeFilter.includes(b.issue.assigneeName))) return false;
+    if (componentFilter.length > 0 && !parseJsonArray(b.issue?.components).some((c) => componentFilter.includes(c))) return false;
+    if (reporterFilter.length > 0 && (!b.issue?.reporterName || !reporterFilter.includes(b.issue.reporterName))) return false;
     return true;
   });
 
@@ -220,10 +223,10 @@ function BugsTab({ projectId, cycleId, items, statusFilter }: {
 
   const filterBar = (
     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
-      <FilterSelect label="Jira Status" value={jiraStatusFilter} onChange={setJiraStatusFilter} options={jiraStatusOptions} />
-      <FilterSelect label="Assignee" value={assigneeFilter} onChange={setAssigneeFilter} options={assigneeOptions} />
-      <FilterSelect label="Reporter" value={reporterFilter} onChange={setReporterFilter} options={reporterOptions} />
-      <FilterSelect label="Component" value={componentFilter} onChange={setComponentFilter} options={componentOptions} />
+      <MultiSelectFilter label="Jira Status" values={jiraStatusFilter} onChange={setJiraStatusFilter} options={jiraStatusOptions} />
+      <MultiSelectFilter label="Assignee" values={assigneeFilter} onChange={setAssigneeFilter} options={assigneeOptions} />
+      <MultiSelectFilter label="Reporter" values={reporterFilter} onChange={setReporterFilter} options={reporterOptions} />
+      <MultiSelectFilter label="Component" values={componentFilter} onChange={setComponentFilter} options={componentOptions} />
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
         <TbBtn variant="ghost" onClick={() => setShowClosed((v) => !v)}>
           {showClosed ? '🙈 Hide Closed' : `👁 Show Closed (${closedCount})`}
@@ -935,13 +938,14 @@ export default function TestCycleDetail() {
   const [showAddTcModal, setShowAddTcModal] = useState(false);
   const [viewingItemId, setViewingItemId] = useState<string | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
-  // Clicking a stat card filters Items/Features/Bugs down to that status —
-  // shared across both tabs so switching tabs keeps the same filter.
-  const [statusFilter, setStatusFilter] = useState<ManualResultStatus | null>(null);
+  // Clicking a stat card filters Items/Features/Bugs down to any of the
+  // selected statuses — shared across both tabs so switching tabs keeps the
+  // same filter.
+  const [statusFilter, setStatusFilter] = useState<ManualResultStatus[]>([]);
   // Assignee/Feature filters only apply to the Test Cases tab — Bugs has its
   // own separate Jira-Status/Assignee/Component filter row.
-  const [assigneeFilter, setAssigneeFilter] = useState('');
-  const [featureFilter, setFeatureFilter] = useState('');
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
+  const [featureFilter, setFeatureFilter] = useState<string[]>([]);
   // How the Test Cases tab groups its rows — Feature stays the default since
   // that's the shape people expect from TC Library; Assignee is the
   // alternative for a lead scanning per-tester workload within one cycle.
@@ -959,9 +963,9 @@ export default function TestCycleDetail() {
   const assigneeOptions = [...new Set(items.map((i) => i.assignee?.user.name ?? 'Unassigned'))].sort();
   const featureOptions = [...new Set(items.map((i) => i.testCase?.feature ?? i.testCase?.module ?? 'Uncategorised'))].sort();
   const filteredItems = items.filter((i) => {
-    if (statusFilter && i.manualStatus !== statusFilter) return false;
-    if (assigneeFilter && (i.assignee?.user.name ?? 'Unassigned') !== assigneeFilter) return false;
-    if (featureFilter && (i.testCase?.feature ?? i.testCase?.module ?? 'Uncategorised') !== featureFilter) return false;
+    if (statusFilter.length > 0 && !statusFilter.includes(i.manualStatus)) return false;
+    if (assigneeFilter.length > 0 && !assigneeFilter.includes(i.assignee?.user.name ?? 'Unassigned')) return false;
+    if (featureFilter.length > 0 && !featureFilter.includes(i.testCase?.feature ?? i.testCase?.module ?? 'Uncategorised')) return false;
     return true;
   });
 
@@ -1192,12 +1196,14 @@ export default function TestCycleDetail() {
                 : 'Bugs'}
             </button>
           ))}
-          {statusFilter && (
+          {statusFilter.length > 0 && (
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' }}>
               <span style={{ color: 'var(--text-dim)' }}>Filtered by</span>
-              <span className={`badge ${STATUS_BADGE[statusFilter]}`}>{statusFilter}</span>
+              {statusFilter.map((s) => (
+                <span key={s} className={`badge ${STATUS_BADGE[s]}`}>{s}</span>
+              ))}
               <button
-                onClick={() => setStatusFilter(null)}
+                onClick={() => setStatusFilter([])}
                 title="Clear filter"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', fontSize: '14px', padding: '0 4px' }}
               >
@@ -1209,14 +1215,14 @@ export default function TestCycleDetail() {
 
         {activeTab === 'testcases' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <FilterSelect
+            <MultiSelectFilter
               label="Status"
-              value={statusFilter ?? ''}
-              onChange={(v) => setStatusFilter((v || null) as ManualResultStatus | null)}
+              values={statusFilter}
+              onChange={(v) => setStatusFilter(v as ManualResultStatus[])}
               options={['NOT_RUN', 'IN_PROGRESS', 'PASS', 'FAIL', 'BLOCKED']}
             />
-            <FilterSelect label="Assignee" value={assigneeFilter} onChange={setAssigneeFilter} options={assigneeOptions} />
-            <FilterSelect label="Feature" value={featureFilter} onChange={setFeatureFilter} options={featureOptions} />
+            <MultiSelectFilter label="Assignee" values={assigneeFilter} onChange={setAssigneeFilter} options={assigneeOptions} />
+            <MultiSelectFilter label="Feature" values={featureFilter} onChange={setFeatureFilter} options={featureOptions} />
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <label style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-dim)' }}>
                 Group By

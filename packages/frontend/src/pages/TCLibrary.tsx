@@ -5,6 +5,7 @@ import Topbar, { TbBtn } from '../components/layout/Topbar';
 import UseCaseGroup from '../components/tc-library/UseCaseGroup';
 import SelectionBar from '../components/tc-library/SelectionBar';
 import EditTCModal from '../components/tc-library/EditTCModal';
+import { MultiSelectFilter } from '../components/testCycles/FilterBar';
 import { useProject } from '../hooks/useProjects';
 import {
   useTestCases,
@@ -37,7 +38,7 @@ interface LibState {
   groupOpen: Record<string, boolean>;
   search: string;
   typeFilter: '' | 'UI' | 'API' | 'SIT';
-  statusFilter: '' | 'DRAFT' | 'APPROVED' | 'DEPRECATED';
+  statusFilter: Array<'DRAFT' | 'APPROVED' | 'DEPRECATED'>;
   dragMode: boolean;
 }
 
@@ -99,7 +100,7 @@ const initialState: LibState = {
   groupOpen: {},
   search: '',
   typeFilter: '',
-  statusFilter: '',
+  statusFilter: [],
   dragMode: false,
 };
 
@@ -187,7 +188,7 @@ export default function TCLibrary() {
   // ── Filtered TCs ──────────────────────────────────────────────────────────
   const filteredTCs = useMemo(() => {
     return allTCs.filter((tc) => {
-      if (statusFilter && tc.status !== statusFilter) return false;
+      if (statusFilter.length > 0 && !statusFilter.includes(tc.status)) return false;
       return true;
     });
   }, [allTCs, statusFilter]);
@@ -519,17 +520,12 @@ export default function TCLibrary() {
               </div>
 
               {/* Status filter */}
-              <select
-                value={statusFilter}
-                onChange={(e) => dispatch({ type: 'SET_STATUS', value: e.target.value as LibState['statusFilter'] })}
-                className="input-field"
-                style={{ width: '135px', padding: '5px 8px' }}
-              >
-                <option value="">All Statuses</option>
-                <option value="APPROVED">Approved</option>
-                <option value="DRAFT">Draft</option>
-                <option value="DEPRECATED">Deprecated</option>
-              </select>
+              <MultiSelectFilter
+                label="Status"
+                values={statusFilter}
+                onChange={(v) => dispatch({ type: 'SET_STATUS', value: v as LibState['statusFilter'] })}
+                options={['APPROVED', 'DRAFT', 'DEPRECATED']}
+              />
 
               {/* Drag mode toggle */}
               <div
@@ -584,7 +580,7 @@ export default function TCLibrary() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {groups.map((g, idx) => {
-              if (g.tcs.length === 0 && !search && !typeFilter && !statusFilter) return null;
+              if (g.tcs.length === 0 && !search && !typeFilter && statusFilter.length === 0) return null;
               const isOpen = state.groupOpen[g.name] ?? idx < 3;
               return (
                 <UseCaseGroup
