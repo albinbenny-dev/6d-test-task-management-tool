@@ -7,6 +7,7 @@ import {
 import Topbar, { TbBtn } from '../components/layout/Topbar';
 import { StatCard } from '../components/testCycles/StatCards';
 import { MultiSelectFilter } from '../components/testCycles/FilterBar';
+import { TcIdsCell } from '../components/testCycles/TcIdsCell';
 import { FloatingPortal } from '../components/ui/FloatingPortal';
 import { useClickOutside } from '../hooks/useClickOutside';
 import { useProject } from '../hooks/useProjects';
@@ -145,6 +146,7 @@ interface DefectFilters {
   status: string[];
   severity: string[];
   assignee: string[];
+  reporter: string[];
   component: string[];
   cycle: string[];
   due: string[];
@@ -157,6 +159,10 @@ function buildPredicate(f: DefectFilters): (d: ProjectDefect) => boolean {
     if (!matchesMulti(f.status, d.issue?.status ?? '')) return false;
     if (!matchesMulti(f.severity, d.issue?.severityName ?? 'Unspecified')) return false;
     if (!matchesMulti(f.assignee, d.issue?.assigneeName ?? 'Unassigned')) return false;
+    // No "Unreported" fallback bucket — mirrors AllBugsSection/BugsTab's
+    // Reporter filter, which likewise never invents a placeholder for a null
+    // reporter and just excludes it from every specific-reporter match.
+    if (!matchesMulti(f.reporter, d.issue?.reporterName ?? '')) return false;
     if (!matchesComponent(f.component, d.issue?.components ?? [])) return false;
     if (!matchesCycle(f.cycle, d.testCycles)) return false;
     if (!matchesMulti(f.due, dueBucket(d))) return false;
@@ -332,6 +338,7 @@ export default function DefectsDashboard() {
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
   const [severityFilters, setSeverityFilters] = useState<string[]>([]);
   const [assigneeFilters, setAssigneeFilters] = useState<string[]>([]);
+  const [reporterFilters, setReporterFilters] = useState<string[]>([]);
   const [componentFilters, setComponentFilters] = useState<string[]>([]);
   const [cycleFilters, setCycleFilters] = useState<string[]>([]);
   const [dueFilters, setDueFilters] = useState<string[]>([]);
@@ -353,10 +360,10 @@ export default function DefectsDashboard() {
 
   const predicate = useMemo(
     () => buildPredicate({
-      status: statusFilters, severity: severityFilters, assignee: assigneeFilters,
+      status: statusFilters, severity: severityFilters, assignee: assigneeFilters, reporter: reporterFilters,
       component: componentFilters, cycle: cycleFilters, due: dueFilters, aging: agingFilters, label: labelFilters,
     }),
-    [statusFilters, severityFilters, assigneeFilters, componentFilters, cycleFilters, dueFilters, agingFilters, labelFilters],
+    [statusFilters, severityFilters, assigneeFilters, reporterFilters, componentFilters, cycleFilters, dueFilters, agingFilters, labelFilters],
   );
 
   const filteredDefects = useMemo(() => visibleDefects.filter(predicate), [visibleDefects, predicate]);
@@ -431,15 +438,16 @@ export default function DefectsDashboard() {
   const statusOptions = [...new Set(visibleDefects.map((d) => d.issue?.status).filter((s): s is string => !!s))].sort();
   const severityOptions = [...new Set(visibleDefects.map((d) => d.issue?.severityName ?? 'Unspecified'))].sort();
   const assigneeOptions = [...new Set(visibleDefects.map((d) => d.issue?.assigneeName ?? 'Unassigned'))].sort();
+  const reporterOptions = [...new Set(visibleDefects.map((d) => d.issue?.reporterName).filter((s): s is string => !!s))].sort();
   const componentOptions = [...new Set(visibleDefects.flatMap((d) => d.issue?.components.length ? d.issue.components : ['No component']))].sort();
   const cycleOptions = [...new Set(visibleDefects.flatMap((d) => d.testCycles.map((c) => c.name)))].sort();
   const labelOptions = [...new Set(visibleDefects.flatMap((d) => d.issue?.labels ?? []))].sort();
 
   function clearAllFilters() {
-    setStatusFilters([]); setSeverityFilters([]); setAssigneeFilters([]); setComponentFilters([]);
+    setStatusFilters([]); setSeverityFilters([]); setAssigneeFilters([]); setReporterFilters([]); setComponentFilters([]);
     setCycleFilters([]); setDueFilters([]); setAgingFilters([]); setLabelFilters([]);
   }
-  const activeFilterCount = [statusFilters, severityFilters, assigneeFilters, componentFilters, cycleFilters, dueFilters, agingFilters, labelFilters]
+  const activeFilterCount = [statusFilters, severityFilters, assigneeFilters, reporterFilters, componentFilters, cycleFilters, dueFilters, agingFilters, labelFilters]
     .reduce((sum, f) => sum + f.length, 0);
 
   return (
@@ -638,6 +646,7 @@ export default function DefectsDashboard() {
               <MultiSelectFilter label="Status" values={statusFilters} onChange={setStatusFilters} options={statusOptions} />
               <MultiSelectFilter label="Severity" values={severityFilters} onChange={setSeverityFilters} options={severityOptions} />
               <MultiSelectFilter label="Assignee" values={assigneeFilters} onChange={setAssigneeFilters} options={assigneeOptions} />
+              <MultiSelectFilter label="Reporter" values={reporterFilters} onChange={setReporterFilters} options={reporterOptions} />
               <MultiSelectFilter label="Component" values={componentFilters} onChange={setComponentFilters} options={componentOptions} />
               <MultiSelectFilter label="Test Cycle" values={cycleFilters} onChange={setCycleFilters} options={cycleOptions} />
               <MultiSelectFilter label="Due Date" values={dueFilters} onChange={setDueFilters} options={[...DUE_BUCKETS]} />
@@ -710,7 +719,7 @@ export default function DefectsDashboard() {
                             ) : '—'}
                           </td>
                           <td style={{ fontSize: '11px' }}>
-                            {d.testCases.length > 0 ? <span title={d.testCases.map((tc) => tc.srNo).join(', ')}>{d.testCases.length}</span> : <span style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>0</span>}
+                            <TcIdsCell testCases={d.testCases} />
                           </td>
                         </tr>
                       );

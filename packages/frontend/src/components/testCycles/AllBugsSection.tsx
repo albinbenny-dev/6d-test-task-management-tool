@@ -2,6 +2,7 @@ import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { TbBtn } from '../layout/Topbar';
 import { MultiSelectFilter } from './FilterBar';
+import { TcIdsCell } from './TcIdsCell';
 import { useAllTestCycleBugs } from '../../hooks/useTestCycles';
 import { useSyncJiraNow, useJiraHost } from '../../hooks/useJira';
 import { isBugClosed, isBugOverdue } from '../../lib/jiraBugStatus';
@@ -38,6 +39,7 @@ export function AllBugsSection({ projectId }: { projectId: string }) {
 
   const [jiraStatusFilter, setJiraStatusFilter] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
+  const [reporterFilter, setReporterFilter] = useState<string[]>([]);
   const [cycleFilter, setCycleFilter] = useState<string[]>([]);
   const [dueFilter, setDueFilter] = useState<string[]>([]);
   // Closed bugs are noise once a release is done — default to open-only so the
@@ -47,6 +49,7 @@ export function AllBugsSection({ projectId }: { projectId: string }) {
 
   const jiraStatusOptions = [...new Set(allBugs.map((b) => b.issue?.status).filter((s): s is string => !!s))].sort();
   const assigneeOptions = [...new Set(allBugs.map((b) => b.issue?.assigneeName).filter((s): s is string => !!s))].sort();
+  const reporterOptions = [...new Set(allBugs.map((b) => b.issue?.reporterName).filter((s): s is string => !!s))].sort();
   const cycleOptions = [...new Set(allBugs.flatMap((b) => b.testCycles.map((c) => c.name)))].sort();
 
   const closedCount = allBugs.filter((b) => isBugClosed(b.issue)).length;
@@ -55,6 +58,7 @@ export function AllBugsSection({ projectId }: { projectId: string }) {
     if (!showClosed && isBugClosed(b.issue)) return false;
     if (jiraStatusFilter.length > 0 && (!b.issue?.status || !jiraStatusFilter.includes(b.issue.status))) return false;
     if (assigneeFilter.length > 0 && (!b.issue?.assigneeName || !assigneeFilter.includes(b.issue.assigneeName))) return false;
+    if (reporterFilter.length > 0 && (!b.issue?.reporterName || !reporterFilter.includes(b.issue.reporterName))) return false;
     if (cycleFilter.length > 0 && !b.testCycles.some((c) => cycleFilter.includes(c.name))) return false;
     if (dueFilter.length > 0 && !dueFilter.includes(dueBucket(b))) return false;
     return true;
@@ -98,6 +102,7 @@ export function AllBugsSection({ projectId }: { projectId: string }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
         <MultiSelectFilter label="Status" values={jiraStatusFilter} onChange={setJiraStatusFilter} options={jiraStatusOptions} />
         <MultiSelectFilter label="Assignee" values={assigneeFilter} onChange={setAssigneeFilter} options={assigneeOptions} />
+        <MultiSelectFilter label="Reporter" values={reporterFilter} onChange={setReporterFilter} options={reporterOptions} />
         <MultiSelectFilter label="Test Cycle" values={cycleFilter} onChange={setCycleFilter} options={cycleOptions} />
         <MultiSelectFilter label="Due Date" values={dueFilter} onChange={setDueFilter} options={[...DUE_BUCKETS]} />
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -168,11 +173,7 @@ export function AllBugsSection({ projectId }: { projectId: string }) {
                       ) : '—'}
                     </td>
                     <td style={{ fontSize: '11px' }}>
-                      {bug.testCases.length > 0 ? (
-                        <span title={bug.testCases.map((tc) => tc.srNo).join(', ')}>{bug.testCases.length}</span>
-                      ) : (
-                        <span style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>0</span>
-                      )}
+                      <TcIdsCell testCases={bug.testCases} />
                     </td>
                   </tr>
                 );

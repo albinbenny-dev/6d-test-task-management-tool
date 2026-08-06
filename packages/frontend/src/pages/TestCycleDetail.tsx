@@ -23,6 +23,7 @@ import {
 import { useSyncJiraNow, useJiraHost } from '../hooks/useJira';
 import { StatCard, JiraRingCard } from '../components/testCycles/StatCards';
 import { MultiSelectFilter } from '../components/testCycles/FilterBar';
+import { TcIdsCell } from '../components/testCycles/TcIdsCell';
 import { StatusPillPicker } from '../components/testCycles/StatusPillPicker';
 import { ReasonPopover } from '../components/testCycles/ReasonPopover';
 import { JiraKeysCell } from '../components/testCycles/JiraKeyPopover';
@@ -312,7 +313,7 @@ function BugsTab({ projectId, cycleId, items, statusFilter }: {
               </td>
               <td style={{ fontSize: '11px' }}>
                 {bug.testCases.length > 0 ? (
-                  <span title={bug.testCases.map((tc) => tc.srNo).join(', ')}>{bug.testCases.length}</span>
+                  <TcIdsCell testCases={bug.testCases} />
                 ) : items.length > 0 ? (
                   <LinkBugCell projectId={projectId} cycleId={cycleId} issueKey={bug.issueKey} items={items} />
                 ) : (
