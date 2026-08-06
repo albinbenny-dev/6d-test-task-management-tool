@@ -196,6 +196,17 @@ function CycleSummaryCard({ summary, index, onOpen }: { summary: TestCycleSummar
         <div style={{ fontSize: '12px', color: 'var(--text-mid)' }}>{cycle.description}</div>
       )}
 
+      {cycle.dueDate && (
+        <div
+          style={{
+            fontSize: '11px', fontFamily: 'var(--font-mono)',
+            color: new Date(cycle.dueDate).getTime() < Date.now() && cycle.status !== 'CLOSED' ? 'var(--fail)' : 'var(--text-dim)',
+          }}
+        >
+          📅 Due {new Date(cycle.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+        </div>
+      )}
+
       {(labels.length > 0 || cycle.driveFolderUrl) && (
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
           {shownLabels.map((l) => <span key={l} className="tag" style={{ fontSize: '9px' }}>{l}</span>)}
