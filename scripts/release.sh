@@ -10,7 +10,7 @@
 #
 # One-time setup (turning the existing deploy directory into a git clone) -
 # run this once, before the first `release.sh`:
-#   cd /data/autoab/6d-test-task-management-tool
+#   cd /data/6d-test-task-management-tool
 #   git init
 #   git remote add origin https://github.com/albinbenny-dev/6d-test-task-management-tool.git
 #   git fetch origin
@@ -23,7 +23,7 @@
 #   ./scripts/release.sh <commit-sha> # deploy an exact commit
 #
 # Or trigger it remotely without logging in:
-#   ssh qa-server "cd /data/autoab/6d-test-task-management-tool && ./scripts/release.sh v1.1.0"
+#   ssh qa-infinity "cd /data/6d-test-task-management-tool && ./scripts/release.sh v1.1.0"
 #
 # Rolling back is the same command with an older ref:
 #   ./scripts/release.sh v1.0.0

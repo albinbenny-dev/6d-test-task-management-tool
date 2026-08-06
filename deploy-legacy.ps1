@@ -39,8 +39,8 @@
 param(
     [ValidateSet('release', 'full')]
     [string]$Mode = 'release',
-    [string]$SSH  = 'qa-server',
-    [string]$RemoteDir = '/data/autoab/6d-test-task-management-tool',
+    [string]$SSH  = 'qa-infinity',
+    [string]$RemoteDir = '/data/6d-test-task-management-tool',
     # Left unset by default -> auto-detected against the remote (see PHASE 0).
     # Pass this explicitly only to force a specific one and skip detection.
     [string]$RemoteComposeCmd

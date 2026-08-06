@@ -29,8 +29,8 @@
 param(
     [string]$Ref = 'main',
     [string]$Tag,
-    [string]$SSH = 'qa-server',
-    [string]$RemoteDir = '/data/autoab/6d-test-task-management-tool',
+    [string]$SSH = 'qa-infinity',
+    [string]$RemoteDir = '/data/6d-test-task-management-tool',
     [switch]$SkipPush
 )
 
