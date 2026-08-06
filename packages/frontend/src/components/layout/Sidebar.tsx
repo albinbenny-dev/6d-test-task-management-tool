@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   LogOut, Globe, ShieldCheck, BookOpen, ClipboardList, FlaskConical,
   BarChart3, UserCheck, ListChecks, Settings, ChevronDown, ListTodo, FileText, Gauge, Bug,
-  PanelLeftClose, PanelLeftOpen,
+  PanelLeftClose, PanelLeftOpen, LayoutDashboard,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
@@ -52,6 +52,12 @@ export default function Sidebar({ slug }: SidebarProps) {
 
   const navGroups: NavGroup[] = slug
     ? [
+        {
+          label: 'Overview',
+          items: [
+            { label: 'Overview', path: `/projects/${slug}/overview`, Icon: LayoutDashboard },
+          ],
+        },
         {
           label: 'My Work',
           items: [

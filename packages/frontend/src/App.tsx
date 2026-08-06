@@ -4,6 +4,7 @@ import AppShell from './components/layout/AppShell';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import GlobalProjects from './pages/GlobalProjects';
+import ProjectOverview from './pages/ProjectOverview';
 import Portfolio from './pages/Portfolio';
 import ProjectSettings from './pages/ProjectSettings';
 import TestCaseLibrary from './pages/TestCaseLibrary';
@@ -54,6 +55,7 @@ export default function App() {
         <Route path="/projects" element={<GlobalProjects />} />
 
         {/* Per-project screens */}
+        <Route path="/projects/:slug/overview"     element={<ProjectOverview />} />
         <Route path="/projects/:slug/test-cases"   element={<TestCaseLibrary />} />
         <Route path="/projects/:slug/test-cycles"  element={<TestCycles />} />
         <Route path="/projects/:slug/test-cycles/dashboard" element={<TestCyclesDashboard />} />
