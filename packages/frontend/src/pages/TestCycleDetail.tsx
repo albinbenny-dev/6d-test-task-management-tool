@@ -163,11 +163,12 @@ const JIRA_STATUS_BADGE: Record<string, string> = {
   new:           'badge-draft',
 };
 
-function BugsTab({ projectId, cycleId, items, statusFilter }: {
+function BugsTab({ projectId, cycleId, items, statusFilter, onViewTestCase }: {
   projectId: string;
   cycleId: string;
   items: TestCycleItem[];
   statusFilter: ManualResultStatus[];
+  onViewTestCase: (tcId: string) => void;
 }) {
   const { data: allBugs = [], isLoading } = useTestCycleBugs(projectId, cycleId);
   const { data: jiraHost } = useJiraHost(projectId);
@@ -313,7 +314,7 @@ function BugsTab({ projectId, cycleId, items, statusFilter }: {
               </td>
               <td style={{ fontSize: '11px' }}>
                 {bug.testCases.length > 0 ? (
-                  <TcIdsCell testCases={bug.testCases} />
+                  <TcIdsCell testCases={bug.testCases} onViewTestCase={onViewTestCase} />
                 ) : items.length > 0 ? (
                   <LinkBugCell projectId={projectId} cycleId={cycleId} issueKey={bug.issueKey} items={items} />
                 ) : (
@@ -1286,7 +1287,7 @@ export default function TestCycleDetail() {
             onViewTestCase={setViewingItemId}
           />
         ) : (
-          <BugsTab projectId={projectId} cycleId={cycleId!} items={items} statusFilter={statusFilter} />
+          <BugsTab projectId={projectId} cycleId={cycleId!} items={items} statusFilter={statusFilter} onViewTestCase={setViewingItemId} />
         )}
       </div>
 
