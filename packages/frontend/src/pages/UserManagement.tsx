@@ -334,7 +334,7 @@ export default function UserManagement() {
   const adminCount       = users.filter((u) => u.globalRole === 'ADMIN').length;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Topbar
         breadcrumbs={[
           { label: 'Admin' },
@@ -342,7 +342,7 @@ export default function UserManagement() {
         ]}
       />
 
-      <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
         {/* Page header */}
         <div>
           <div className="page-eyebrow">Administration</div>
