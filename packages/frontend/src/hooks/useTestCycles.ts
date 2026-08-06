@@ -4,6 +4,7 @@ import type {
   TestCycle, TestCycleItem, TestCycleStatus, ManualResultStatus, JiraBugSummary,
   TestCycleSummary, ResourceSummaryRow, JiraResolutionSummary, AssignmentItem,
   AssignmentHistoryEntry, TestCycleItemHistoryEntry, JiraBugSummaryWithCycles,
+  DashboardHistoryEntry,
 } from '../types';
 
 export function useTestCycles(projectId: string | undefined) {
@@ -38,6 +39,22 @@ export function useResourceSummary(projectId: string | undefined) {
         `/projects/${projectId}/test-cycles/dashboard/resource-summary`,
       );
       return res.data.data ?? [];
+    },
+    enabled: !!projectId,
+  });
+}
+
+// Daily execution counts across every cycle in the project — powers the
+// Test Cycles Dashboard's "Daily Execution Count by Cycle" chart.
+export function useTestCycleDashboardHistory(projectId: string | undefined, days = 30) {
+  return useQuery({
+    queryKey: ['test-cycles-dashboard-history', projectId, days],
+    queryFn: async () => {
+      const res = await api.get<{ days: number; history: DashboardHistoryEntry[] }>(
+        `/projects/${projectId}/test-cycles/dashboard/history`,
+        { params: { days } },
+      );
+      return res.data;
     },
     enabled: !!projectId,
   });
@@ -257,6 +274,13 @@ export function useUpdateTestCycleItemStatus(projectId: string) {
       void qc.invalidateQueries({ queryKey: ['test-cycle-assignments', projectId] });
       void qc.invalidateQueries({ queryKey: ['test-cycles-dashboard-summary', projectId] });
       void qc.invalidateQueries({ queryKey: ['test-cycles-resource-summary', projectId] });
+      // Bug-list views now embed each linked test case's own execution
+      // status — a status change from the test case modal on any of them
+      // needs those lists refetched too, or they'd keep showing the status
+      // as of whenever they last loaded.
+      void qc.invalidateQueries({ queryKey: ['test-cycle-bugs', projectId, vars.cycleId] });
+      void qc.invalidateQueries({ queryKey: ['test-cycles-all-bugs', projectId] });
+      void qc.invalidateQueries({ queryKey: ['project-defects', projectId] });
     },
   });
 }

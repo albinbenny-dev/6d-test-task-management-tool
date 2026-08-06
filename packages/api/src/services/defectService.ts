@@ -11,6 +11,25 @@ import { prisma } from '../lib/prisma.js';
 
 export type DefectSource = 'linked' | 'label' | 'jql';
 
+// One TestCycleItem's execution of a linked test case — enough for the
+// frontend to both display it AND change its manual result directly (the
+// "TC_ID" link opens the test case modal with this as execution context),
+// without a second round-trip to fetch the TestCycleItem itself.
+export interface LinkedTestCaseExecution {
+  id:              string; // TcItem id
+  srNo:            string | null;
+  title:           string;
+  testCycleItemId: string;
+  testCycleId:     string;
+  cycleName:       string | null;
+  // Prisma types this as a plain string (see schema.prisma's comment on
+  // enum-like fields) — the frontend's ManualResultStatus union is the
+  // actual contract, enforced by the Zod schema on write, not by this type.
+  manualStatus:    string;
+  reason:          string | null;
+  jiraIssueKeys:   string; // JSON string array
+}
+
 export interface ProjectDefect {
   issueKey: string;
   issue: {
@@ -30,7 +49,7 @@ export interface ProjectDefect {
     jiraUpdatedAt:  Date | null;
     lastSyncedAt:   Date;
   } | null;
-  testCases:  { id: string; srNo: string | null; title: string }[];
+  testCases:  LinkedTestCaseExecution[];
   testCycles: { id: string; name: string }[];
   sources:    DefectSource[];
 }
@@ -50,8 +69,14 @@ export async function getProjectDefects(projectId: string): Promise<ProjectDefec
     prisma.jiraConfig.findUnique({ where: { projectId } }),
   ]);
 
+  const cycleById = new Map(cycles.map((c) => [c.id, c]));
+
   const cycleIdsByKey = new Map<string, Set<string>>();
-  const testCasesByKey = new Map<string, Map<string, { id: string; srNo: string | null; title: string }>>();
+  // Keyed by TestCycleItem id (not TcItem id) — the same test case executed
+  // in two different cycles, both linked to the same bug, must surface as
+  // two separate entries here, or one of those executions silently vanishes
+  // from the dashboard and can never be retested from it.
+  const testCasesByKey = new Map<string, Map<string, LinkedTestCaseExecution>>();
   const sourcesByKey = new Map<string, Set<DefectSource>>();
 
   function touchKey(key: string) {
@@ -75,7 +100,17 @@ export async function getProjectDefects(projectId: string): Promise<ProjectDefec
       linkKeyToCycle(key, item.testCycleId);
       addSource(key, 'linked');
       if (!testCasesByKey.has(key)) testCasesByKey.set(key, new Map());
-      testCasesByKey.get(key)!.set(item.testCase.id, item.testCase);
+      testCasesByKey.get(key)!.set(item.id, {
+        id: item.testCase.id,
+        srNo: item.testCase.srNo,
+        title: item.testCase.title,
+        testCycleItemId: item.id,
+        testCycleId: item.testCycleId,
+        cycleName: cycleById.get(item.testCycleId)?.name ?? null,
+        manualStatus: item.manualStatus,
+        reason: item.reason,
+        jiraIssueKeys: item.jiraIssueKeys,
+      });
     }
   }
 
@@ -110,7 +145,6 @@ export async function getProjectDefects(projectId: string): Promise<ProjectDefec
   safeParseArray(config?.jqlDiscoveredKeys ?? '[]').forEach((k) => addSource(k, 'jql'));
 
   const issueByKey = new Map(allCachedIssues.map((i) => [i.issueKey, i]));
-  const cycleById = new Map(cycles.map((c) => [c.id, c]));
 
   return [...cycleIdsByKey.entries()].map(([key, cycleIdSet]) => {
     const raw = issueByKey.get(key) ?? null;

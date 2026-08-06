@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { useTcItem, useUpdateTcItem, type TcItem } from '../../hooks/useTcItems';
+import { useUpdateTestCycleItemStatus } from '../../hooks/useTestCycles';
 import { useRBAC } from '../../hooks/useRBAC';
+import { StatusPillPicker } from '../testCycles/StatusPillPicker';
+import { STATUS_LABEL as EXEC_STATUS_LABEL } from '../../lib/manualStatus';
+import type { LinkedTc } from '../testCycles/TcIdsCell';
+import type { ManualResultStatus } from '../../types';
 
 // ── Full test-case view/edit popup — the "eye" action from cycle/resource
 // views. Test Management links to TcItem (the real TC Library test case),
@@ -54,21 +59,72 @@ function toEditState(item: TcItem): EditState {
   };
 }
 
-export default function TestCaseDetailModal({ projectId, itemId, onClose }: {
+function parseJiraKeys(s: string | null | undefined): string[] {
+  if (!s) return [];
+  try { return JSON.parse(s) as string[]; } catch { return []; }
+}
+
+export default function TestCaseDetailModal({ projectId, itemId, execution, onClose }: {
   projectId: string;
   itemId: string;
+  // Only present when opened from a bug's TC_ID link — that's the one place
+  // this modal knows exactly which TestCycleItem execution to let the
+  // viewer retest against, without navigating back to the cycle's own
+  // Test Cases tab (which already has this via its own StatusPillPicker).
+  execution?: LinkedTc;
   onClose: () => void;
 }) {
   const { data: item, isLoading } = useTcItem(projectId, itemId);
   const updateItem = useUpdateTcItem(projectId);
+  const updateStatus = useUpdateTestCycleItemStatus(projectId);
   const { canWrite } = useRBAC();
 
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<EditState | null>(null);
 
+  // Execution result state — separate from the TcItem edit form above, since
+  // it's a different record (TestCycleItem) via a different mutation.
+  // Started from `execution` (a snapshot as of when the modal opened) and
+  // updated locally on save, so the pill reflects the new result right away
+  // rather than waiting on the bug list's own refetch.
+  const [currentStatus, setCurrentStatus] = useState(execution?.manualStatus);
+  const [pendingStatus, setPendingStatus] = useState<ManualResultStatus | null>(null);
+  const [reason, setReason] = useState('');
+  const [jiraKeysInput, setJiraKeysInput] = useState('');
+
   useEffect(() => {
     if (item) setForm(toEditState(item));
   }, [item?.id]);
+
+  function pickStatus(status: ManualResultStatus) {
+    setPendingStatus(status);
+    setReason(execution?.reason ?? '');
+    setJiraKeysInput(parseJiraKeys(execution?.jiraIssueKeys).join(', '));
+  }
+
+  async function handleSaveStatus() {
+    if (!execution || !pendingStatus) return;
+    if ((pendingStatus === 'FAIL' || pendingStatus === 'BLOCKED') && !reason.trim()) {
+      toast.error('A reason is required when marking a result Fail or Blocked');
+      return;
+    }
+    const jiraIssueKeys = jiraKeysInput.split(',').map((k) => k.trim()).filter(Boolean);
+    try {
+      await updateStatus.mutateAsync({
+        cycleId: execution.testCycleId,
+        itemId: execution.testCycleItemId,
+        status: pendingStatus,
+        reason: reason.trim() || undefined,
+        jiraIssueKeys,
+      });
+      toast.success('Result updated');
+      setCurrentStatus(pendingStatus);
+      setPendingStatus(null);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Failed to update result';
+      toast.error(msg);
+    }
+  }
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Escape') onClose();
@@ -193,6 +249,61 @@ export default function TestCaseDetailModal({ projectId, itemId, onClose }: {
             </>
           ) : (
             <>
+              {execution && currentStatus && (
+                <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <div style={LABEL}>{execution.cycleName ? `Result — ${execution.cycleName}` : 'Result'}</div>
+                    {canWrite ? (
+                      <StatusPillPicker value={currentStatus} onChange={pickStatus} />
+                    ) : (
+                      <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)' }}>{EXEC_STATUS_LABEL[currentStatus]}</span>
+                    )}
+                  </div>
+
+                  {pendingStatus && (
+                    <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div>
+                        <div style={LABEL}>Reason {(pendingStatus === 'FAIL' || pendingStatus === 'BLOCKED') && '(required)'}</div>
+                        <textarea
+                          style={{ ...INPUT, resize: 'vertical', minHeight: '50px' }}
+                          value={reason}
+                          onChange={(e) => setReason(e.target.value)}
+                          autoFocus
+                        />
+                      </div>
+                      <div>
+                        <div style={LABEL}>Jira issue keys (comma-separated, optional)</div>
+                        <input
+                          style={INPUT}
+                          value={jiraKeysInput}
+                          onChange={(e) => setJiraKeysInput(e.target.value)}
+                          placeholder="e.g. PROJ-123, PROJ-456"
+                        />
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                        <button
+                          onClick={() => setPendingStatus(null)}
+                          style={{ padding: '6px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-dim)', fontSize: '11px', cursor: 'pointer' }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => void handleSaveStatus()}
+                          disabled={updateStatus.isPending}
+                          style={{
+                            padding: '6px 16px', background: 'var(--cyan-dim)', border: '1px solid rgba(37,99,171,0.35)',
+                            borderRadius: '6px', color: 'var(--cyan)', fontSize: '11px', fontWeight: 700,
+                            cursor: updateStatus.isPending ? 'not-allowed' : 'pointer', opacity: updateStatus.isPending ? 0.5 : 1,
+                          }}
+                        >
+                          {updateStatus.isPending ? 'Saving…' : 'Save Result'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                 {item.module && <span className="badge badge-cyan">{item.module}</span>}
                 {item.feature && <span className="badge badge-teal">{item.feature}</span>}

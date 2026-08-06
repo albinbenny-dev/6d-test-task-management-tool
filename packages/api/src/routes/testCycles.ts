@@ -228,6 +228,43 @@ router.get('/dashboard/resource-summary', (async (req, res) => {
   res.json({ data: scopedData });
 }) as RequestHandler);
 
+// ── GET /dashboard/history?days= — daily execution counts, every cycle ─────
+// Same append-only TestCycleItemHistory audit trail as /:cycleId/history and
+// /assignments/history, just scoped by project+time instead of by one cycle
+// or one resource. Returns raw (testCycleId, changedAt, toStatus) rows —
+// small enough per project to bucket by day/cycle client-side (same approach
+// buildDailySeries already uses), so this stays a plain read with no
+// server-side date-bucketing SQL. Deliberately not restricted to ACTIVE
+// cycles (unlike /dashboard/resource-summary's current-workload totals) — a
+// cycle closed yesterday still had real execution volume yesterday that
+// belongs in a trend chart.
+
+const DashboardHistoryQuerySchema = z.object({
+  days: z.string().optional(),
+});
+
+router.get('/dashboard/history', (async (req, res) => {
+  const projectId = req.project.id;
+  const parsed = DashboardHistoryQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Validation failed', issues: parsed.error.issues });
+  }
+
+  const daysParam = parseInt(parsed.data.days ?? '30', 10);
+  const days = Math.min(Math.max(Number.isFinite(daysParam) ? daysParam : 30, 1), 180);
+  const since = new Date(Date.now() - days * 86_400_000);
+
+  // IN_PROGRESS excluded — "picked up" isn't a completed execution, same
+  // exclusion /assignments/history applies so a run count means a run.
+  const history = await prisma.testCycleItemHistory.findMany({
+    where: { projectId, changedAt: { gte: since }, toStatus: { not: 'IN_PROGRESS' } },
+    select: { testCycleId: true, changedAt: true, toStatus: true },
+    orderBy: { changedAt: 'asc' },
+  });
+
+  res.json({ days, history });
+}) as RequestHandler);
+
 // ── GET /assignments?userId= — items assigned to a resource across all cycles
 // Defaults to the caller (self, no query param needed). Looking up a
 // DIFFERENT user's assignments requires a privileged role, matching the
@@ -422,8 +459,17 @@ router.get('/bugs', (async (req, res) => {
     prisma.jiraIssue.findMany({ where: { projectId } }),
   ]);
 
+  const cycleById = new Map(cycles.map((c) => [c.id, c]));
+
   const cycleIdsByKey = new Map<string, Set<string>>();
-  const testCasesByKey = new Map<string, Map<string, { id: string; srNo: string | null; title: string }>>();
+  // Keyed by TestCycleItem id (not TcItem id) — the same test case executed
+  // in two different cycles, both linked to the same bug, must surface as
+  // two separate entries here, or one of those executions silently vanishes.
+  const testCasesByKey = new Map<string, Map<string, {
+    id: string; srNo: string | null; title: string;
+    testCycleItemId: string; testCycleId: string; cycleName: string | null;
+    manualStatus: string; reason: string | null; jiraIssueKeys: string;
+  }>>();
 
   function linkKeyToCycle(key: string, cycleId: string) {
     if (!cycleIdsByKey.has(key)) cycleIdsByKey.set(key, new Set());
@@ -436,7 +482,17 @@ router.get('/bugs', (async (req, res) => {
     for (const key of keys) {
       linkKeyToCycle(key, item.testCycleId);
       if (!testCasesByKey.has(key)) testCasesByKey.set(key, new Map());
-      testCasesByKey.get(key)!.set(item.testCase.id, item.testCase);
+      testCasesByKey.get(key)!.set(item.id, {
+        id: item.testCase.id,
+        srNo: item.testCase.srNo,
+        title: item.testCase.title,
+        testCycleItemId: item.id,
+        testCycleId: item.testCycleId,
+        cycleName: cycleById.get(item.testCycleId)?.name ?? null,
+        manualStatus: item.manualStatus,
+        reason: item.reason,
+        jiraIssueKeys: item.jiraIssueKeys,
+      });
     }
   }
 
@@ -457,7 +513,6 @@ router.get('/bugs', (async (req, res) => {
   }
 
   const issueByKey = new Map(allCachedIssues.map((i) => [i.issueKey, i]));
-  const cycleById = new Map(cycles.map((c) => [c.id, c]));
 
   const bugs = [...cycleIdsByKey.entries()].map(([key, cycleIdSet]) => ({
     issueKey: key,
@@ -869,7 +924,17 @@ router.get('/:cycleId/bugs', (async (req, res) => {
         try { return (JSON.parse(item.jiraIssueKeys) as string[]).includes(key); }
         catch { return false; }
       })
-      .map((item) => item.testCase),
+      .map((item) => ({
+        id: item.testCase.id,
+        srNo: item.testCase.srNo,
+        title: item.testCase.title,
+        testCycleItemId: item.id,
+        testCycleId: item.testCycleId,
+        cycleName: cycle.name,
+        manualStatus: item.manualStatus,
+        reason: item.reason,
+        jiraIssueKeys: item.jiraIssueKeys,
+      })),
   }));
 
   res.json({ bugs });

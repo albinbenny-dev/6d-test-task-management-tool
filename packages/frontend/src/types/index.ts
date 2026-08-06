@@ -42,6 +42,11 @@ export interface Project {
 }
 
 export interface ProjectMember {
+  // ProjectMember.id — distinct from user.id below. This is what
+  // TestCycleItem.assigneeId / TestCycleItemHistoryEntry.assigneeId actually
+  // reference, so resolving a history row's resource name needs this, not
+  // user.id (the assign-by-userId picker's identity).
+  id: string;
   projectId: string;
   userId: string;
   role: ProjectRole;
@@ -403,6 +408,17 @@ export interface TestCycleItemHistoryEntry {
   changedAt: string;
 }
 
+// One row per completed (non-IN_PROGRESS) status change across the whole
+// project, within the requested day window — powers the Test Cycles
+// Dashboard's "Daily Execution Count by Cycle" chart. Deliberately minimal
+// (no test-case/reason detail, unlike TestCycleItemHistoryEntry) since this
+// is fetched project-wide and only ever bucketed into day×cycle counts.
+export interface DashboardHistoryEntry {
+  testCycleId: string;
+  changedAt: string;
+  toStatus: ManualResultStatus;
+}
+
 export interface AssignmentHistoryEntry {
   id: string;
   changedAt: string;
@@ -441,10 +457,25 @@ export interface JiraResolutionSummary {
   testCases: { resolved: number; total: number };
 }
 
+// A linked test case PLUS enough of its own TestCycleItem execution record
+// (which cycle, its current manualStatus/reason/jiraIssueKeys) for the "TC_ID"
+// link on a bug row to open the test case modal ready to record a retest —
+// not just view the test case. One entry per TestCycleItem, not per test
+// case: the same test case executed in two different cycles against the
+// same bug surfaces as two separate entries here.
+export interface LinkedTestCaseExecution extends Pick<TestManagementTcItem, 'id' | 'srNo' | 'title'> {
+  testCycleItemId: string;
+  testCycleId: string;
+  cycleName: string | null;
+  manualStatus: ManualResultStatus;
+  reason: string | null;
+  jiraIssueKeys: string; // JSON string — parse to string[]
+}
+
 export interface JiraBugSummary {
   issueKey: string;
   issue: JiraIssue | null;
-  testCases: Array<Pick<TestManagementTcItem, 'id' | 'srNo' | 'title'>>;
+  testCases: LinkedTestCaseExecution[];
 }
 
 // Project-wide bug board (Test Cycles list page) — same shape as
@@ -491,7 +522,7 @@ export interface ProjectDefectIssue {
 export interface ProjectDefect {
   issueKey: string;
   issue: ProjectDefectIssue | null;
-  testCases: Array<Pick<TestManagementTcItem, 'id' | 'srNo' | 'title'>>;
+  testCases: LinkedTestCaseExecution[];
   testCycles: Array<Pick<TestCycle, 'id' | 'name'>>;
   sources: DefectSource[];
 }

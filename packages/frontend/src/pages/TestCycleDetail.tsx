@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { ComposedChart, BarChart, Bar, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import Topbar, { TbBtn } from '../components/layout/Topbar';
 import { useProject, useProjectMembers } from '../hooks/useProjects';
 import { useProjectStore } from '../stores/projectStore';
@@ -14,6 +15,7 @@ import {
   useBulkAssignTestCycleItems,
   useUpdateTestCycleItemStatus,
   useTestCycleBugs,
+  useTestCycleHistory,
   useUpdateTestCycle,
   useLinkBugToItem,
   useAddTestCycleItems,
@@ -23,16 +25,17 @@ import {
 import { useSyncJiraNow, useJiraHost } from '../hooks/useJira';
 import { StatCard, JiraRingCard } from '../components/testCycles/StatCards';
 import { MultiSelectFilter } from '../components/testCycles/FilterBar';
-import { TcIdsCell } from '../components/testCycles/TcIdsCell';
+import { TcIdsCell, type LinkedTc } from '../components/testCycles/TcIdsCell';
 import { StatusPillPicker } from '../components/testCycles/StatusPillPicker';
 import { ReasonPopover } from '../components/testCycles/ReasonPopover';
 import { JiraKeysCell } from '../components/testCycles/JiraKeyPopover';
 import { ItemHistoryTimeline, RetestedBadge, useHasHistory } from '../components/testCycles/ItemHistoryTimeline';
 import TestCaseDetailModal from '../components/testCases/TestCaseDetailModal';
-import { STATUS_BADGE, STATUS_COLOR, emptyStatusCounts } from '../lib/manualStatus';
+import { STATUS_BADGE, STATUS_COLOR, STATUS_LABEL, emptyStatusCounts } from '../lib/manualStatus';
 import { isBugClosed, isBugOverdue } from '../lib/jiraBugStatus';
 import { groupColor, colorToRgba } from '../lib/featureGroupTheme';
-import type { TestCycleItem, TestCycleStatus, ManualResultStatus, TestCycle, JiraBugSummary } from '../types';
+import { DAY_RANGE_OPTIONS, dayKeyOf, lastNDayKeys, formatShortDate } from '../lib/dailySeries';
+import type { TestCycleItem, TestCycleStatus, ManualResultStatus, TestCycle, JiraBugSummary, TestCycleItemHistoryEntry, ProjectMember } from '../types';
 
 // ── Status cards — computed client-side from already-fetched items + bugs ──
 
@@ -168,7 +171,7 @@ function BugsTab({ projectId, cycleId, items, statusFilter, onViewTestCase }: {
   cycleId: string;
   items: TestCycleItem[];
   statusFilter: ManualResultStatus[];
-  onViewTestCase: (tcId: string) => void;
+  onViewTestCase: (tc: LinkedTc) => void;
 }) {
   const { data: allBugs = [], isLoading } = useTestCycleBugs(projectId, cycleId);
   const { data: jiraHost } = useJiraHost(projectId);
@@ -328,6 +331,265 @@ function BugsTab({ projectId, cycleId, items, statusFilter, onViewTestCase }: {
       </table>
       </div>
     </>
+  );
+}
+
+// ── Velocity tab — three daily trend charts scoped to this one cycle:
+// overall execution velocity, resource-wise breakdown, and bug open/close.
+// All three share one day-range control and are sourced from data the page
+// already fetches (the cycle's full TestCycleItemHistory audit trail +
+// its linked bugs) — no per-chart requests. ────────────────────────────────
+
+const RESOURCE_CHART_PALETTE = ['--cyan', '--violet', '--emerald', '--amber', '--rose', '--sky'];
+const RESOURCE_OTHER_COLOR = 'var(--text-dim)';
+const TOP_N_RESOURCES = 6;
+
+type StatusDailyPoint = { dayKey: string; PASS: number; FAIL: number; BLOCKED: number; NOT_RUN: number; total: number };
+
+// Same shape as Assignments.tsx's buildDailySeries, but the source here
+// (useTestCycleHistory) includes IN_PROGRESS rows too — needed for the item
+// timeline elsewhere on this page — so IN_PROGRESS is filtered out here
+// instead of at the query layer.
+function buildStatusDailySeries(history: TestCycleItemHistoryEntry[], days: number): StatusDailyPoint[] {
+  const byDay = new Map<string, ReturnType<typeof emptyStatusCounts>>();
+  for (const entry of history) {
+    if (entry.toStatus === 'IN_PROGRESS') continue;
+    const day = dayKeyOf(entry.changedAt);
+    if (!byDay.has(day)) byDay.set(day, emptyStatusCounts());
+    byDay.get(day)![entry.toStatus]++;
+  }
+  return lastNDayKeys(days).map((dayKey) => {
+    const c = byDay.get(dayKey) ?? emptyStatusCounts();
+    return { dayKey, PASS: c.PASS, FAIL: c.FAIL, BLOCKED: c.BLOCKED, NOT_RUN: c.NOT_RUN, total: c.PASS + c.FAIL + c.BLOCKED + c.NOT_RUN };
+  });
+}
+
+const VELOCITY_BAR_SERIES: Array<{ key: 'PASS' | 'FAIL' | 'BLOCKED' | 'NOT_RUN'; label: string }> = [
+  { key: 'PASS', label: STATUS_LABEL.PASS },
+  { key: 'FAIL', label: STATUS_LABEL.FAIL },
+  { key: 'BLOCKED', label: STATUS_LABEL.BLOCKED },
+  { key: 'NOT_RUN', label: 'Reverted to Not Run' },
+];
+
+type ResourceDailyPoint = { dayKey: string; total: number } & Record<string, number>;
+
+function buildResourceDailySeries(history: TestCycleItemHistoryEntry[], days: number, resourceKeys: string[]): ResourceDailyPoint[] {
+  const byDay = new Map<string, Record<string, number>>();
+  for (const entry of history) {
+    if (entry.toStatus === 'IN_PROGRESS') continue;
+    const day = dayKeyOf(entry.changedAt);
+    const key = entry.assigneeId ?? 'unassigned';
+    if (!byDay.has(day)) byDay.set(day, {});
+    const rec = byDay.get(day)!;
+    rec[key] = (rec[key] ?? 0) + 1;
+  }
+  return lastNDayKeys(days).map((dayKey) => {
+    const rec = byDay.get(dayKey) ?? {};
+    const point = { dayKey } as ResourceDailyPoint;
+    let total = 0;
+    for (const key of resourceKeys) {
+      const count = key === 'other'
+        ? Object.entries(rec).filter(([k]) => !resourceKeys.includes(k)).reduce((s, [, v]) => s + v, 0)
+        : (rec[key] ?? 0);
+      point[key] = count;
+      total += count;
+    }
+    point.total = total;
+    return point;
+  });
+}
+
+type BugDailyPoint = { dayKey: string; opened: number; closed: number };
+
+// "Closed" has no exact date to bucket by — Jira's own resolution timestamp
+// isn't part of the synced JiraIssue cache (see jiraCreatedAt for the exact
+// "opened" counterpart) — so this approximates with jiraUpdatedAt on a bug
+// already in a closed status, same proxy the project-wide Defects dashboard
+// uses. It can be off if a closed bug is edited again later.
+function buildBugDailySeries(bugs: JiraBugSummary[], days: number): BugDailyPoint[] {
+  const openedByDay = new Map<string, number>();
+  const closedByDay = new Map<string, number>();
+  for (const b of bugs) {
+    const issue = b.issue;
+    if (!issue) continue;
+    if (issue.jiraCreatedAt) {
+      const day = dayKeyOf(issue.jiraCreatedAt);
+      openedByDay.set(day, (openedByDay.get(day) ?? 0) + 1);
+    }
+    if (isBugClosed(issue) && issue.jiraUpdatedAt) {
+      const day = dayKeyOf(issue.jiraUpdatedAt);
+      closedByDay.set(day, (closedByDay.get(day) ?? 0) + 1);
+    }
+  }
+  return lastNDayKeys(days).map((dayKey) => ({
+    dayKey,
+    opened: openedByDay.get(dayKey) ?? 0,
+    closed: closedByDay.get(dayKey) ?? 0,
+  }));
+}
+
+function DailyChartTooltip({ active, payload, label, nameByKey }: {
+  active?: boolean;
+  payload?: Array<{ color: string; dataKey: string; value: number }>;
+  label?: string;
+  nameByKey?: Map<string, string>;
+}) {
+  if (!active || !payload?.length || !label) return null;
+  const total = payload.reduce((s, p) => s + p.value, 0);
+  return (
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', fontSize: 12, boxShadow: 'var(--shadow-card)' }}>
+      <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>{formatShortDate(label)} · {total} total</div>
+      {payload.filter((p) => p.value > 0).map((p) => (
+        <div key={p.dataKey} style={{ color: p.color, marginBottom: 2 }}>{nameByKey?.get(p.dataKey) ?? p.dataKey}: {p.value}</div>
+      ))}
+    </div>
+  );
+}
+
+function DailyRangePicker({ days, onChange }: { days: number; onChange: (days: number) => void }) {
+  return (
+    <select
+      className="input-field"
+      value={days}
+      onChange={(e) => onChange(Number(e.target.value))}
+      style={{ fontSize: '11px', padding: '4px 8px', width: 'auto' }}
+    >
+      {DAY_RANGE_OPTIONS.map((d) => <option key={d} value={d}>Last {d} days</option>)}
+    </select>
+  );
+}
+
+function VelocityTab({ projectId, cycleId, members, bugs }: {
+  projectId: string;
+  cycleId: string;
+  members: ProjectMember[];
+  bugs: JiraBugSummary[];
+}) {
+  const [days, setDays] = useState(30);
+  const { data: history = [], isLoading } = useTestCycleHistory(projectId, cycleId);
+
+  const executionSeries = buildStatusDailySeries(history, days);
+  const totalExecutions = executionSeries.reduce((s, d) => s + d.total, 0);
+  const tickInterval = days <= 14 ? 0 : days <= 30 ? 2 : 6;
+
+  const nameByAssigneeId = useMemo(() => new Map(members.map((m) => [m.id, m.user.name])), [members]);
+  const { resourceKeys, resourceColors } = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const entry of history) {
+      if (entry.toStatus === 'IN_PROGRESS') continue;
+      const key = entry.assigneeId ?? 'unassigned';
+      totals.set(key, (totals.get(key) ?? 0) + 1);
+    }
+    const sorted = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+    const top = sorted.slice(0, TOP_N_RESOURCES);
+    const keys = sorted.length > TOP_N_RESOURCES ? [...top, 'other'] : top;
+    const colors = new Map<string, string>();
+    keys.forEach((key, i) => colors.set(key, key === 'other' ? RESOURCE_OTHER_COLOR : `var(${RESOURCE_CHART_PALETTE[i % RESOURCE_CHART_PALETTE.length]})`));
+    return { resourceKeys: keys, resourceColors: colors };
+  }, [history]);
+  const nameByResourceKey = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const key of resourceKeys) {
+      map.set(key, key === 'other' ? 'Other resources' : key === 'unassigned' ? 'Unassigned' : (nameByAssigneeId.get(key) ?? 'Unknown'));
+    }
+    return map;
+  }, [resourceKeys, nameByAssigneeId]);
+  const resourceSeries = buildResourceDailySeries(history, days, resourceKeys);
+  const totalResourceRuns = resourceSeries.reduce((s, d) => s + d.total, 0);
+
+  const bugSeries = buildBugDailySeries(bugs, days);
+  const totalOpened = bugSeries.reduce((s, d) => s + d.opened, 0);
+  const totalClosed = bugSeries.reduce((s, d) => s + d.closed, 0);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <DailyRangePicker days={days} onChange={setDays} />
+      </div>
+
+      {/* Card 1 — overall daily execution velocity, same visual language as
+          My Assignments' per-resource chart, just scoped to the whole cycle. */}
+      <div className="card" style={{ padding: '16px' }}>
+        <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>Daily Execution Velocity</div>
+        {totalExecutions > 0 && (
+          <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
+            {totalExecutions} execution{totalExecutions === 1 ? '' : 's'} over {days} days · avg {(totalExecutions / days).toFixed(1)}/day
+          </div>
+        )}
+        {isLoading ? (
+          <div style={{ color: 'var(--text-dim)', fontSize: '12px' }}>Loading…</div>
+        ) : totalExecutions === 0 ? (
+          <div style={{ color: 'var(--text-dim)', fontSize: '12px', fontFamily: 'var(--font-mono)', padding: '24px', textAlign: 'center' }}>No executions recorded in this period.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <ComposedChart data={executionSeries} margin={{ top: 8, right: 4, bottom: 0, left: -20 }}>
+              <XAxis dataKey="dayKey" tickFormatter={formatShortDate} tick={{ fontSize: 10, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} interval={tickInterval} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} width={24} />
+              <Tooltip content={<DailyChartTooltip />} cursor={{ fill: 'var(--surface2)' }} />
+              <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
+              {VELOCITY_BAR_SERIES.map(({ key, label }, i) => (
+                <Bar key={key} dataKey={key} name={label} stackId="a" fill={STATUS_COLOR[key]} radius={i === VELOCITY_BAR_SERIES.length - 1 ? [2, 2, 0, 0] : [0, 0, 0, 0]} isAnimationActive={false} />
+              ))}
+              <Line dataKey="total" name="Total" stroke="var(--text)" strokeWidth={1.5} dot={{ r: 3, fill: 'var(--text)', strokeWidth: 0 }} activeDot={false} isAnimationActive={false} legendType="none" />
+            </ComposedChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* Card 2 — same daily buckets, segmented by who ran the test instead
+          of what the result was — a lead's view of resource-wise load. */}
+      <div className="card" style={{ padding: '16px' }}>
+        <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>Resource-wise Daily Count</div>
+        {totalResourceRuns > 0 && (
+          <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
+            {totalResourceRuns} execution{totalResourceRuns === 1 ? '' : 's'} across {resourceKeys.length} resource{resourceKeys.length === 1 ? '' : 's'}
+          </div>
+        )}
+        {isLoading ? (
+          <div style={{ color: 'var(--text-dim)', fontSize: '12px' }}>Loading…</div>
+        ) : totalResourceRuns === 0 ? (
+          <div style={{ color: 'var(--text-dim)', fontSize: '12px', fontFamily: 'var(--font-mono)', padding: '24px', textAlign: 'center' }}>No executions recorded in this period.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <ComposedChart data={resourceSeries} margin={{ top: 8, right: 4, bottom: 0, left: -20 }}>
+              <XAxis dataKey="dayKey" tickFormatter={formatShortDate} tick={{ fontSize: 10, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} interval={tickInterval} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} width={24} />
+              <Tooltip content={<DailyChartTooltip nameByKey={nameByResourceKey} />} cursor={{ fill: 'var(--surface2)' }} />
+              <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11, paddingTop: 4 }} formatter={(value, entry) => nameByResourceKey.get((entry as { dataKey?: string }).dataKey ?? '') ?? String(value)} />
+              {resourceKeys.map((key, i) => (
+                <Bar key={key} dataKey={key} stackId="a" fill={resourceColors.get(key)} radius={i === resourceKeys.length - 1 ? [2, 2, 0, 0] : [0, 0, 0, 0]} isAnimationActive={false} />
+              ))}
+              <Line dataKey="total" name="Total" stroke="var(--text)" strokeWidth={1.5} dot={{ r: 3, fill: 'var(--text)', strokeWidth: 0 }} activeDot={false} isAnimationActive={false} legendType="none" />
+            </ComposedChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* Card 3 — bugs linked to this cycle, opened vs. closed per day.
+          "Opened" is exact (Jira's own created date); "Closed" is an
+          approximation — see buildBugDailySeries. */}
+      <div className="card" style={{ padding: '16px' }}>
+        <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>Bugs Opened vs. Closed</div>
+        <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
+          {totalOpened} opened · {totalClosed} closed over {days} days
+          <span title="Closed uses the bug's last Jira sync date while its status is Closed/Accepted/Cancelled — there is no true resolution date in the synced data, so this can be slightly off if a closed bug is edited again." style={{ marginLeft: '6px', cursor: 'help' }}>ⓘ approx.</span>
+        </div>
+        {bugs.length === 0 ? (
+          <div style={{ color: 'var(--text-dim)', fontSize: '12px', fontFamily: 'var(--font-mono)', padding: '24px', textAlign: 'center' }}>No Jira bugs linked to this cycle yet.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={bugSeries} margin={{ top: 8, right: 4, bottom: 0, left: -20 }}>
+              <XAxis dataKey="dayKey" tickFormatter={formatShortDate} tick={{ fontSize: 10, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} interval={tickInterval} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} width={24} />
+              <Tooltip content={<DailyChartTooltip />} cursor={{ fill: 'var(--surface2)' }} />
+              <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
+              <Bar dataKey="opened" name="Opened" fill="var(--fail)" radius={[2, 2, 0, 0]} isAnimationActive={false} />
+              <Bar dataKey="closed" name="Closed" fill="var(--pass)" radius={[2, 2, 0, 0]} isAnimationActive={false} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -933,12 +1195,21 @@ export default function TestCycleDetail() {
   const bulkAssignItems = useBulkAssignTestCycleItems(projectId);
   const { data: members = [] } = useProjectMembers(projectId);
 
-  const [activeTab, setActiveTab] = useState<'testcases' | 'bugs'>('testcases');
+  const [activeTab, setActiveTab] = useState<'testcases' | 'bugs' | 'velocity'>('testcases');
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingStatus, setEditingStatus] = useState<ManualResultStatus | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAddTcModal, setShowAddTcModal] = useState(false);
   const [viewingItemId, setViewingItemId] = useState<string | null>(null);
+  // Only set when opened from a Bugs-tab TC_ID link (which knows exactly
+  // which TestCycleItem execution it refers to) — the Test Cases tab's own
+  // "👁" button leaves this null, since that row already has its own
+  // StatusPillPicker for changing the result.
+  const [viewingExecution, setViewingExecution] = useState<LinkedTc | null>(null);
+  function openTestCaseWithExecution(tc: LinkedTc) {
+    setViewingItemId(tc.id);
+    setViewingExecution(tc);
+  }
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   // Clicking a stat card filters Items/Features/Bugs down to any of the
   // selected statuses — shared across both tabs so switching tabs keeps the
@@ -1183,7 +1454,7 @@ export default function TestCycleDetail() {
         <CycleStatusCards items={items} bugs={bugs} statusFilter={statusFilter} onFilterChange={setStatusFilter} onViewBugs={() => setActiveTab('bugs')} />
 
         <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border)', gap: '4px' }}>
-          {(['testcases', 'bugs'] as const).map((tab) => (
+          {(['testcases', 'bugs', 'velocity'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -1195,7 +1466,7 @@ export default function TestCycleDetail() {
             >
               {tab === 'testcases'
                 ? `Test Cases (${filteredItems.length !== items.length ? `${filteredItems.length}/${items.length}` : items.length})`
-                : 'Bugs'}
+                : tab === 'bugs' ? 'Bugs' : 'Velocity'}
             </button>
           ))}
           {statusFilter.length > 0 && (
@@ -1286,8 +1557,10 @@ export default function TestCycleDetail() {
             onCancelResult={() => { setEditingItemId(null); setEditingStatus(null); }}
             onViewTestCase={setViewingItemId}
           />
+        ) : activeTab === 'bugs' ? (
+          <BugsTab projectId={projectId} cycleId={cycleId!} items={items} statusFilter={statusFilter} onViewTestCase={openTestCaseWithExecution} />
         ) : (
-          <BugsTab projectId={projectId} cycleId={cycleId!} items={items} statusFilter={statusFilter} onViewTestCase={setViewingItemId} />
+          <VelocityTab projectId={projectId} cycleId={cycleId!} members={members} bugs={bugs} />
         )}
       </div>
 
@@ -1311,7 +1584,12 @@ export default function TestCycleDetail() {
       )}
 
       {viewingItemId && (
-        <TestCaseDetailModal projectId={projectId} itemId={viewingItemId} onClose={() => setViewingItemId(null)} />
+        <TestCaseDetailModal
+          projectId={projectId}
+          itemId={viewingItemId}
+          execution={viewingExecution ?? undefined}
+          onClose={() => { setViewingItemId(null); setViewingExecution(null); }}
+        />
       )}
     </div>
   );

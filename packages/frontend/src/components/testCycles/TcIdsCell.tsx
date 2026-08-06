@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { FloatingPortal } from '../ui/FloatingPortal';
-import type { TestManagementTcItem } from '../../types';
+import type { LinkedTestCaseExecution } from '../../types';
 
-type LinkedTc = Pick<TestManagementTcItem, 'id' | 'srNo' | 'title'>;
+export type LinkedTc = LinkedTestCaseExecution;
 
 function tcLabel(tc: LinkedTc): string {
   return tc.srNo || tc.id;
@@ -16,7 +16,7 @@ function tcLabel(tc: LinkedTc): string {
 // given, every TC_ID becomes a link that opens the full test case modal
 // (the caller owns rendering that modal, same as the "👁" action elsewhere). ─
 
-export function TcIdsCell({ testCases, onViewTestCase }: { testCases: LinkedTc[]; onViewTestCase?: (tcId: string) => void }) {
+export function TcIdsCell({ testCases, onViewTestCase }: { testCases: LinkedTc[]; onViewTestCase?: (tc: LinkedTc) => void }) {
   const [isOpen, setIsOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -35,7 +35,7 @@ export function TcIdsCell({ testCases, onViewTestCase }: { testCases: LinkedTc[]
   if (testCases.length === 1) {
     const tc = testCases[0];
     return onViewTestCase ? (
-      <button type="button" onClick={() => onViewTestCase(tc.id)} title={tc.title ? `View ${tc.title}` : 'View test case'} style={linkStyle}>
+      <button type="button" onClick={() => onViewTestCase(tc)} title={tc.title ? `View ${tc.title}` : 'View test case'} style={linkStyle}>
         {tcLabel(tc)}
       </button>
     ) : (
@@ -73,7 +73,7 @@ export function TcIdsCell({ testCases, onViewTestCase }: { testCases: LinkedTc[]
                 {onViewTestCase ? (
                   <button
                     type="button"
-                    onClick={() => { setIsOpen(false); onViewTestCase(tc.id); }}
+                    onClick={() => { setIsOpen(false); onViewTestCase(tc); }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'var(--font-mono)', color: 'var(--cyan)', fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: '2px' }}
                   >
                     {tcLabel(tc)}

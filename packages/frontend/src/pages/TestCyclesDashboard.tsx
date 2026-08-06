@@ -1,11 +1,13 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import Topbar from '../components/layout/Topbar';
 import { useProject } from '../hooks/useProjects';
-import { useTestCycleDashboardSummary, useResourceSummary } from '../hooks/useTestCycles';
+import { useTestCycleDashboardSummary, useResourceSummary, useTestCycleDashboardHistory } from '../hooks/useTestCycles';
 import { StatCard, JiraRingCard } from '../components/testCycles/StatCards';
 import { emptyStatusCounts } from '../lib/manualStatus';
-import type { ManualResultStatus, TestCycle, TestCycleSummary, ResourceSummaryRow } from '../types';
+import { DAY_RANGE_OPTIONS, dayKeyOf, lastNDayKeys, formatShortDate } from '../lib/dailySeries';
+import type { ManualResultStatus, TestCycle, TestCycleSummary, ResourceSummaryRow, DashboardHistoryEntry } from '../types';
 
 const CYCLE_STATUS_BADGE: Record<TestCycle['status'], string> = {
   PLANNING: 'badge-draft',
@@ -119,6 +121,171 @@ function ResourceSummaryTable({ slug, rows, isLoading }: { slug: string; rows: R
   );
 }
 
+// ── Daily execution count by cycle — one stacked bar per calendar day,
+// segmented by which cycle the executions belong to, with a line tracing
+// the day's total. Sourced from the project-wide TestCycleItemHistory audit
+// trail (GET /dashboard/history), bucketed client-side the same way the
+// per-resource "Daily Run History" chart on My Assignments is. Capped to the
+// busiest cycles in the window + an "Other" bucket so a project with many
+// cycles doesn't blow the legend/chart out with a color per cycle. ─────────
+
+const CHART_PALETTE = ['#2563eb', '#ea580c', '#0f766e', '#7c3aed', '#be185d', '#65a30d'];
+const OTHER_COLOR = 'var(--text-dim)';
+const TOP_N_CYCLES = 6;
+
+type DailyCyclePoint = { dayKey: string; total: number } & Record<string, number>;
+
+function buildDailyCycleSeries(
+  history: DashboardHistoryEntry[],
+  days: number,
+  cycleKeys: string[],
+): DailyCyclePoint[] {
+  const byDay = new Map<string, Record<string, number>>();
+  for (const entry of history) {
+    const day = dayKeyOf(entry.changedAt);
+    if (!byDay.has(day)) byDay.set(day, {});
+    const rec = byDay.get(day)!;
+    rec[entry.testCycleId] = (rec[entry.testCycleId] ?? 0) + 1;
+  }
+  return lastNDayKeys(days).map((dayKey) => {
+    const rec = byDay.get(dayKey) ?? {};
+    const point = { dayKey } as DailyCyclePoint;
+    let total = 0;
+    for (const key of cycleKeys) {
+      const count = key === 'other'
+        ? Object.entries(rec).filter(([k]) => !cycleKeys.includes(k)).reduce((s, [, v]) => s + v, 0)
+        : (rec[key] ?? 0);
+      point[key] = count;
+      total += count;
+    }
+    point.total = total;
+    return point;
+  });
+}
+
+function DailyExecutionTooltip({ active, payload, label, nameByKey }: {
+  active?: boolean;
+  payload?: Array<{ color: string; dataKey: string; value: number }>;
+  label?: string;
+  nameByKey: Map<string, string>;
+}) {
+  if (!active || !payload?.length || !label) return null;
+  const total = payload.reduce((s, p) => s + p.value, 0);
+  return (
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', fontSize: 12, boxShadow: 'var(--shadow-card)' }}>
+      <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>{formatShortDate(label)} · {total} execution{total === 1 ? '' : 's'}</div>
+      {payload.filter((p) => p.value > 0).map((p) => (
+        <div key={p.dataKey} style={{ color: p.color, marginBottom: 2 }}>{nameByKey.get(p.dataKey) ?? p.dataKey}: {p.value}</div>
+      ))}
+    </div>
+  );
+}
+
+function DailyExecutionChart({ history, isLoading, summary, days, onDaysChange }: {
+  history: DashboardHistoryEntry[];
+  isLoading: boolean;
+  summary: TestCycleSummary[];
+  days: number;
+  onDaysChange: (days: number) => void;
+}) {
+  const nameByCycleId = useMemo(() => new Map(summary.map((s) => [s.cycle.id, s.cycle.name])), [summary]);
+
+  const { cycleKeys, colorByKey } = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const entry of history) totals.set(entry.testCycleId, (totals.get(entry.testCycleId) ?? 0) + 1);
+    const sorted = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+    const top = sorted.slice(0, TOP_N_CYCLES);
+    const keys = sorted.length > TOP_N_CYCLES ? [...top, 'other'] : top;
+    const colors = new Map<string, string>();
+    keys.forEach((key, i) => colors.set(key, key === 'other' ? OTHER_COLOR : CHART_PALETTE[i % CHART_PALETTE.length]));
+    return { cycleKeys: keys, colorByKey: colors };
+  }, [history]);
+
+  const nameByKey = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const key of cycleKeys) map.set(key, key === 'other' ? 'Other cycles' : (nameByCycleId.get(key) ?? 'Unknown cycle'));
+    return map;
+  }, [cycleKeys, nameByCycleId]);
+
+  const series = buildDailyCycleSeries(history, days, cycleKeys);
+  const totalRuns = series.reduce((s, d) => s + d.total, 0);
+  const tickInterval = days <= 14 ? 0 : days <= 30 ? 2 : 6;
+
+  return (
+    <div className="card" style={{ padding: '16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+        <div>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>Daily Execution Count by Cycle</div>
+          {totalRuns > 0 && (
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
+              {totalRuns} execution{totalRuns === 1 ? '' : 's'} over {days} days
+            </div>
+          )}
+        </div>
+        <select
+          className="input-field"
+          value={days}
+          onChange={(e) => onDaysChange(Number(e.target.value))}
+          style={{ fontSize: '11px', padding: '4px 8px', width: 'auto' }}
+        >
+          {DAY_RANGE_OPTIONS.map((d) => <option key={d} value={d}>Last {d} days</option>)}
+        </select>
+      </div>
+
+      {isLoading ? (
+        <div style={{ color: 'var(--text-dim)', fontSize: '12px' }}>Loading…</div>
+      ) : totalRuns === 0 ? (
+        <div style={{ color: 'var(--text-dim)', fontSize: '12px', fontFamily: 'var(--font-mono)', padding: '24px', textAlign: 'center' }}>
+          No executions recorded in this period.
+        </div>
+      ) : (
+        <div style={{ margin: '8px 0 4px' }}>
+          <ResponsiveContainer width="100%" height={200}>
+            <ComposedChart data={series} margin={{ top: 8, right: 4, bottom: 0, left: -20 }}>
+              <XAxis
+                dataKey="dayKey"
+                tickFormatter={formatShortDate}
+                tick={{ fontSize: 10, fill: 'var(--text-dim)' }}
+                axisLine={false}
+                tickLine={false}
+                interval={tickInterval}
+              />
+              <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} width={24} />
+              <Tooltip content={<DailyExecutionTooltip nameByKey={nameByKey} />} cursor={{ fill: 'var(--surface2)' }} />
+              <Legend
+                iconType="circle"
+                iconSize={7}
+                wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
+                formatter={(value, entry) => nameByKey.get((entry as { dataKey?: string }).dataKey ?? '') ?? String(value)}
+              />
+              {cycleKeys.map((key, i) => (
+                <Bar
+                  key={key}
+                  dataKey={key}
+                  stackId="a"
+                  fill={colorByKey.get(key)}
+                  radius={i === cycleKeys.length - 1 ? [2, 2, 0, 0] : [0, 0, 0, 0]}
+                  isAnimationActive={false}
+                />
+              ))}
+              <Line
+                dataKey="total"
+                name="Total"
+                stroke="var(--text)"
+                strokeWidth={1.5}
+                dot={{ r: 3, fill: 'var(--text)', strokeWidth: 0 }}
+                activeDot={false}
+                isAnimationActive={false}
+                legendType="none"
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────
 
 export default function TestCyclesDashboard() {
@@ -131,6 +298,9 @@ export default function TestCyclesDashboard() {
   const summary = dashboardData?.summary ?? [];
   const jira = dashboardData?.jira ?? { tickets: { resolved: 0, total: 0 }, testCases: { resolved: 0, total: 0 } };
   const { data: resourceSummary = [], isLoading: resourceLoading } = useResourceSummary(projectId);
+
+  const [historyDays, setHistoryDays] = useState(30);
+  const { data: historyData, isLoading: historyLoading } = useTestCycleDashboardHistory(projectId, historyDays);
 
   // "Total" only counts ACTIVE cycles — a stale PLANNING cycle or a leftover
   // test/junk cycle shouldn't skew what the dashboard reports as in-flight work.
@@ -208,6 +378,14 @@ export default function TestCyclesDashboard() {
             <CycleSummaryTable slug={slug!} summary={summary} />
           )}
         </div>
+
+        <DailyExecutionChart
+          history={historyData?.history ?? []}
+          isLoading={historyLoading}
+          summary={summary}
+          days={historyDays}
+          onDaysChange={setHistoryDays}
+        />
 
         {/* Resource-wise summary — SPOC-style totals across active cycles */}
         <div className="card" style={{ padding: '16px' }}>
