@@ -8,6 +8,7 @@ import Topbar, { TbBtn } from '../components/layout/Topbar';
 import { StatCard } from '../components/testCycles/StatCards';
 import { MultiSelectFilter } from '../components/testCycles/FilterBar';
 import { TcIdsCell } from '../components/testCycles/TcIdsCell';
+import TestCaseDetailModal from '../components/testCases/TestCaseDetailModal';
 import { FloatingPortal } from '../components/ui/FloatingPortal';
 import { useClickOutside } from '../hooks/useClickOutside';
 import { useProject } from '../hooks/useProjects';
@@ -345,6 +346,7 @@ export default function DefectsDashboard() {
   const [agingFilters, setAgingFilters] = useState<string[]>([]);
   const [labelFilters, setLabelFilters] = useState<string[]>([]);
   const [showClosed, setShowClosed] = useState(false);
+  const [viewingTcId, setViewingTcId] = useState<string | null>(null);
 
   function toggleFilter(cur: string[], set: (v: string[]) => void, value: string) {
     set(cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value]);
@@ -719,7 +721,7 @@ export default function DefectsDashboard() {
                             ) : '—'}
                           </td>
                           <td style={{ fontSize: '11px' }}>
-                            <TcIdsCell testCases={d.testCases} />
+                            <TcIdsCell testCases={d.testCases} onViewTestCase={setViewingTcId} />
                           </td>
                         </tr>
                       );
@@ -731,6 +733,10 @@ export default function DefectsDashboard() {
           </>
         )}
       </div>
+
+      {projectId && viewingTcId && (
+        <TestCaseDetailModal projectId={projectId} itemId={viewingTcId} onClose={() => setViewingTcId(null)} />
+      )}
     </div>
   );
 }
