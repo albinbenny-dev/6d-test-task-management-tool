@@ -198,7 +198,7 @@ const PERMISSIONS: PermRow[] = [
 
 function PermCell({ allowed }: { allowed: boolean }) {
   return (
-    <td style={{ textAlign: 'center', padding: '11px 10px' }}>
+    <td style={{ textAlign: 'center', padding: '8px 6px' }}>
       {allowed ? (
         <span style={{ color: 'var(--pass)', fontSize: '14px', fontWeight: 700 }}>✓</span>
       ) : (
@@ -213,14 +213,14 @@ function RolePermissionsMatrix() {
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      <table className="data-table" style={{ minWidth: '680px' }}>
+      <table className="data-table" style={{ minWidth: '600px' }}>
         <thead>
           <tr>
-            <th style={{ width: '100px', fontFamily: 'var(--font-mono)', fontSize: '10px' }}>Section</th>
-            <th style={{ minWidth: '160px' }}>Feature</th>
+            <th style={{ width: '90px', fontFamily: 'var(--font-mono)', fontSize: '10px' }}>Section</th>
+            <th style={{ minWidth: '140px' }}>Feature</th>
             {ROLES.map((r) => (
-              <th key={r.key} style={{ textAlign: 'center', minWidth: '125px', padding: '12px 10px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+              <th key={r.key} style={{ textAlign: 'center', minWidth: '110px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
                   <span className={`badge ${r.badge}`} style={{ fontSize: '9px', letterSpacing: '0.5px' }}>
                     {r.icon} {r.label}
                   </span>
@@ -296,6 +296,9 @@ export default function UserManagement() {
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [changingRoleId, setChangingRoleId]   = useState<string | null>(null);
   const [search, setSearch]                   = useState('');
+  const [showAll, setShowAll]                 = useState(false);
+
+  const VISIBLE_COUNT = 20;
 
   // SUPER_ADMIN guard — shouldn't reach here without it, but belt-and-suspenders
   if (currentUser?.globalRole !== 'SUPER_ADMIN') {
@@ -338,6 +341,8 @@ export default function UserManagement() {
   const filteredUsers = q
     ? users.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
     : users;
+  const visibleUsers = showAll ? filteredUsers : filteredUsers.slice(0, VISIBLE_COUNT);
+  const hiddenCount = filteredUsers.length - visibleUsers.length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -384,21 +389,20 @@ export default function UserManagement() {
                 type="text"
                 className="input-field"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => { setSearch(e.target.value); setShowAll(false); }}
                 placeholder="Search by name or email…"
                 style={{ width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '6px 10px 6px 30px' }}
               />
               {search && (
                 <button
                   type="button"
-                  onClick={() => setSearch('')}
+                  onClick={() => { setSearch(''); setShowAll(false); }}
                   title="Clear search"
                   style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: 'var(--text-dim)', padding: 0, lineHeight: 1 }}
                 >✕</button>
               )}
             </div>
           </div>
-          <div className="user-list-scroll" style={{ maxHeight: '640px', overflowY: 'auto', borderTop: '1px solid var(--border)' }}>
           <table className="data-table">
             <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface)' }}>
               <tr>
@@ -430,7 +434,7 @@ export default function UserManagement() {
                   </td>
                 </tr>
               ) : (
-                filteredUsers.map((u) => {
+                visibleUsers.map((u) => {
                   const isSelf = u.id === currentUser?.id;
                   return (
                     <tr key={u.id}>
@@ -565,7 +569,30 @@ export default function UserManagement() {
               )}
             </tbody>
           </table>
-          </div>
+          {hiddenCount > 0 && (
+            <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
+              <button
+                type="button"
+                className="tb-btn tb-btn-ghost"
+                onClick={() => setShowAll(true)}
+                style={{ fontSize: '11.5px', padding: '6px 14px' }}
+              >
+                Show {hiddenCount} more user{hiddenCount === 1 ? '' : 's'} ({filteredUsers.length} total) ↓
+              </button>
+            </div>
+          )}
+          {showAll && filteredUsers.length > VISIBLE_COUNT && (
+            <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
+              <button
+                type="button"
+                className="tb-btn tb-btn-ghost"
+                onClick={() => setShowAll(false)}
+                style={{ fontSize: '11.5px', padding: '6px 14px' }}
+              >
+                Show fewer ↑
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Role Permissions Matrix */}

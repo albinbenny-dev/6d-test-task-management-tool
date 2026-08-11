@@ -780,14 +780,6 @@ html[data-density="compact"] {
   .data-table tr:last-child td { border-bottom: none; }
   .data-table td.primary { color: var(--text); font-weight: 500; }
 
-  /* ── User Management's user list — a visible, chunkier scrollbar so it
-     reads as its own scrollable panel (the app-wide 5px transparent-track
-     one is easy to miss against the card background). ── */
-  .user-list-scroll::-webkit-scrollbar { width: 10px; }
-  .user-list-scroll::-webkit-scrollbar-track { background: var(--surface2); }
-  .user-list-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 5px; border: 2px solid var(--surface2); }
-  .user-list-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
-
   /* ── Radix UI overrides ── */
   [role="dialog"] { font-family: var(--font-ui); }
   [data-radix-popper-content-wrapper] { z-index: 9999 !important; }
