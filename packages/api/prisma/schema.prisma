@@ -64,6 +64,7 @@ model Project {
   tasks                Task[]
   wikiPages            WikiPage[]
   milestones           Milestone[]
+  milestoneLists       MilestoneList[]
 
   @@index([createdBy])
 }
@@ -527,32 +528,49 @@ model WikiPage {
 }
 
 // ── Payment Milestones — per-project delivery/invoicing milestone tracker ───
-// A PM-curated list of key contractual milestones (e.g. "HLD Sign-off",
-// "Drop 1 Go-Live") used to flag upcoming/overdue delivery dates and to
-// surface schedule slippage against the original baseline. Deliberately
-// does NOT store amounts, invoices, or any other financial data — only the
-// milestone, its dates, and whether payment is contractually tied to it.
-// "Overdue"/"due this month" is never stored, same convention as
-// Task.dueDate — always computed from targetDate vs. now (see
-// packages/frontend/src/lib/milestoneMeta.ts).
+// A project can carry several distinct milestone lists side by side (e.g.
+// "Project Milestones", "CR Milestones", "MS Milestones") — mirrors
+// TaskList/Task exactly: MilestoneList is the named bucket a PM creates,
+// Milestone is a row inside one. Deliberately does NOT store amounts,
+// invoices, or any other financial data — only the milestone, its dates,
+// and whether payment is contractually tied to it. "Overdue"/"due this
+// month" is never stored, same convention as Task.dueDate — always computed
+// from targetDate vs. now (see packages/frontend/src/lib/milestoneMeta.ts).
+model MilestoneList {
+  id         String      @id @default(cuid())
+  projectId  String
+  name       String
+  color      String      @default("#2563AB")
+  sortOrder  Int         @default(0)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestones Milestone[]
+
+  @@unique([projectId, name])
+  @@index([projectId])
+}
+
 model Milestone {
-  id              String    @id @default(cuid())
+  id              String        @id @default(cuid())
   projectId       String
+  milestoneListId String
   name            String
-  groupName       String? // optional phase/drop label (e.g. "Drop 1") for grouping in the UI — no forced hierarchy
-  sortOrder       Int       @default(0)
+  sortOrder       Int           @default(0)
   baselineDate    DateTime? // originally committed date (e.g. "as per PIP") — set once, used to measure schedule slip
   targetDate      DateTime? // current/revised commitment date — the one "due soon/overdue" is computed against
   actualDate      DateTime? // date the milestone was actually delivered
-  isCompleted     Boolean   @default(false)
-  isPaymentLinked Boolean   @default(false) // true when an invoice can be raised against this milestone
-  invoiceRaised   Boolean   @default(false) // status only — no amount is ever stored here
+  isCompleted     Boolean       @default(false)
+  isPaymentLinked Boolean       @default(false) // true when an invoice can be raised against this milestone
+  invoiceRaised   Boolean       @default(false) // status only — no amount is ever stored here
   notes           String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestoneList   MilestoneList @relation(fields: [milestoneListId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
+  @@index([milestoneListId])
   @@index([projectId, isPaymentLinked])
 }
 

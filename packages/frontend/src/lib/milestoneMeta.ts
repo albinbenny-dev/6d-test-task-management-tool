@@ -62,15 +62,3 @@ export function formatMilestoneDate(date: string | null | undefined): string {
   const sameYear = d.getFullYear() === now.getFullYear();
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: sameYear ? undefined : 'numeric' });
 }
-
-/** Groups milestones by their optional groupName, preserving sortOrder within and across groups. Milestones without a groupName are collected under `null`. */
-export function groupMilestones(milestones: Milestone[]): Array<{ groupName: string | null; milestones: Milestone[] }> {
-  const order: Array<string | null> = [];
-  const byGroup = new Map<string | null, Milestone[]>();
-  for (const m of milestones) {
-    const key = m.groupName?.trim() || null;
-    if (!byGroup.has(key)) { byGroup.set(key, []); order.push(key); }
-    byGroup.get(key)!.push(m);
-  }
-  return order.map((key) => ({ groupName: key, milestones: byGroup.get(key)! }));
-}

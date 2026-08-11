@@ -4,13 +4,19 @@ import type { Milestone } from '../types';
 
 function invalidateAll(qc: ReturnType<typeof useQueryClient>, projectId: string) {
   void qc.invalidateQueries({ queryKey: ['milestones', projectId] });
+  void qc.invalidateQueries({ queryKey: ['milestone-lists', projectId] }); // row counts per list
 }
 
-export function useMilestones(projectId: string | undefined) {
+// Omitting milestoneListId fetches every milestone in the project (used by
+// dashboards/portfolio to aggregate across every list); passing it scopes to
+// one list (used by the Milestones page's active tab).
+export function useMilestones(projectId: string | undefined, milestoneListId?: string) {
   return useQuery({
-    queryKey: ['milestones', projectId],
+    queryKey: ['milestones', projectId, milestoneListId ?? 'all'],
     queryFn: async () => {
-      const res = await api.get<{ milestones: Milestone[] }>(`/projects/${projectId}/milestones`);
+      const res = await api.get<{ milestones: Milestone[] }>(`/projects/${projectId}/milestones`, {
+        params: milestoneListId ? { milestoneListId } : undefined,
+      });
       return res.data.milestones ?? [];
     },
     enabled: !!projectId,
@@ -18,8 +24,8 @@ export function useMilestones(projectId: string | undefined) {
 }
 
 export interface MilestoneInput {
+  milestoneListId?: string;
   name: string;
-  groupName?: string | null;
   baselineDate?: string | null;
   targetDate?: string | null;
   actualDate?: string | null;
@@ -31,7 +37,7 @@ export interface MilestoneInput {
 export function useCreateMilestone(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: MilestoneInput) => {
+    mutationFn: async (data: MilestoneInput & { milestoneListId: string }) => {
       const res = await api.post<{ milestone: Milestone }>(`/projects/${projectId}/milestones`, data);
       return res.data.milestone;
     },
@@ -54,8 +60,8 @@ export function useUpdateMilestone(projectId: string) {
 export function useReorderMilestones(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (orderedIds: string[]) => {
-      await api.patch(`/projects/${projectId}/milestones/reorder`, { orderedIds });
+    mutationFn: async (data: { milestoneListId: string; orderedIds: string[] }) => {
+      await api.patch(`/projects/${projectId}/milestones/reorder`, data);
     },
     onSuccess: () => invalidateAll(qc, projectId),
   });

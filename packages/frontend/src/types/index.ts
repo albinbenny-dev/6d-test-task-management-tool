@@ -634,14 +634,27 @@ export interface TaskDashboardSummary {
 }
 
 // ── Payment Milestones — per-project delivery/invoicing milestone tracker ──
-// Deliberately carries no amount/invoice-value field — see schema.prisma's
-// Milestone comment. "Overdue"/"due this month" is never stored; it's always
-// computed from targetDate vs. now (see lib/milestoneMeta.ts).
-export interface Milestone {
+// A project can carry several distinct milestone lists side by side (e.g.
+// "Project Milestones", "CR Milestones", "MS Milestones") — mirrors
+// TaskList/Task. Deliberately carries no amount/invoice-value field — see
+// schema.prisma's Milestone comment. "Overdue"/"due this month" is never
+// stored; it's always computed from targetDate vs. now (see lib/milestoneMeta.ts).
+export interface MilestoneList {
   id: string;
   projectId: string;
   name: string;
-  groupName?: string | null;
+  color: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { milestones: number };
+}
+
+export interface Milestone {
+  id: string;
+  projectId: string;
+  milestoneListId: string;
+  name: string;
   sortOrder: number;
   baselineDate?: string | null;
   targetDate?: string | null;
@@ -652,6 +665,7 @@ export interface Milestone {
   notes?: string | null;
   createdAt: string;
   updatedAt: string;
+  milestoneList?: { id: string; name: string; color: string };
 }
 
 // ── Wiki — per-project living documentation ────────────────────────────────

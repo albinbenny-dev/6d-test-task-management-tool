@@ -191,7 +191,7 @@ function OverdueTable({ rows }: { rows: PortfolioOverdueTask[] }) {
 function MilestonesTable({ rows }: { rows: PortfolioMilestoneRow[] }) {
   const navigate = useNavigate();
   if (rows.length === 0) {
-    return <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-dim)', fontSize: 12 }}>No payment-linked milestones coming up across the portfolio.</div>;
+    return <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-dim)', fontSize: 12 }}>No milestones coming up across the portfolio.</div>;
   }
   return (
     <div style={{ overflowX: 'auto' }}>
@@ -210,7 +210,13 @@ function MilestonesTable({ rows }: { rows: PortfolioMilestoneRow[] }) {
             const tone = deviationTone(m.slipDays);
             return (
               <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/projects/${m.projectSlug}/milestones`)}>
-                <td className="primary" style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</td>
+                <td className="primary" style={{ maxWidth: 260 }}>
+                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {m.isPaymentLinked && <span title="Payment-linked" style={{ marginRight: 5 }}>💲</span>}
+                    {m.name}
+                  </div>
+                  {m.listName && <span style={{ display: 'block', fontSize: 10.5, color: 'var(--text-dim)', fontWeight: 500, marginTop: 1 }}>{m.listName}</span>}
+                </td>
                 <td>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
                     <span style={{ width: 8, height: 8, borderRadius: 3, background: m.projectColor ?? 'var(--cyan)', flexShrink: 0 }} />
@@ -308,7 +314,7 @@ export default function Portfolio() {
               </div>
               <div onClick={() => scrollTo(milestonesRef)} style={{ cursor: 'pointer' }}>
                 <StatCard compact label="Milestones overdue" value={data.milestonesOverdueCount} theme="fail" highlighted
-                  sub={data.milestonesDueSoonCount > 0 ? `+${data.milestonesDueSoonCount} due this month` : 'payment-linked'} />
+                  sub={data.milestonesDueSoonCount > 0 ? `+${data.milestonesDueSoonCount} due this month` : undefined} />
               </div>
             </div>
 

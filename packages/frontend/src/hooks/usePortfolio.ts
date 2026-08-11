@@ -41,12 +41,16 @@ export interface PortfolioOverdueTask {
   daysOverdue: number;
 }
 
-// Payment-linked, undelivered milestones only — same filter as the Project
-// Overview widget — so "what's coming up/late" reads identically whether a
-// PM is looking at one project or the whole portfolio.
+// Every undelivered milestone across every list, in every project — same
+// scope as the Project Overview widget — so "what's coming up/late" reads
+// identically whether a PM is looking at one project or the whole
+// portfolio. isPaymentLinked is a highlight here, not a filter.
 export interface PortfolioMilestoneRow {
   id: string;
   name: string;
+  isPaymentLinked: boolean;
+  listName?: string;
+  listColor?: string;
   projectSlug: string;
   projectName: string;
   projectColor?: string;
@@ -70,8 +74,8 @@ export interface PortfolioData {
   resources: PortfolioResourceRow[];
   overdueTasks: PortfolioOverdueTask[];
   milestonesOverdueCount: number;
-  milestonesDueSoonCount: number; // "due this month", payment-linked, across every project
-  upcomingMilestones: PortfolioMilestoneRow[]; // payment-linked, undelivered, worst-first
+  milestonesDueSoonCount: number; // "due this month", across every project and list
+  upcomingMilestones: PortfolioMilestoneRow[]; // undelivered, worst-first
 }
 
 // Same overdue-ratio / completion-rate thresholds pitched in the reviewed
@@ -111,12 +115,12 @@ export function usePortfolioData(projects: Project[]): PortfolioData {
     })),
   });
 
-  // Same query key ['milestones', p.id] the per-project Milestones page and
-  // Project Overview widget use — a portfolio load warms their cache and
-  // vice versa, same convention as taskQueries/cycleQueries above.
+  // Same query key useMilestones(p.id) (no list filter) produces — a
+  // portfolio load warms the Project Overview widget's cache and vice versa,
+  // same convention as taskQueries/cycleQueries above.
   const milestoneQueries = useQueries({
     queries: projects.map((p) => ({
-      queryKey: ['milestones', p.id],
+      queryKey: ['milestones', p.id, 'all'],
       queryFn: async () => (await api.get<{ milestones: Milestone[] }>(`/projects/${p.id}/milestones`)).data.milestones ?? [],
       enabled: !!p.id,
     })),
@@ -206,16 +210,19 @@ export function usePortfolioData(projects: Project[]): PortfolioData {
         });
       }
 
-      // Payment-linked, undelivered milestones only — same filter as the
+      // Every undelivered milestone, across every list — same scope as the
       // Project Overview widget, so the portfolio reads consistently.
       for (const m of milestoneData) {
-        if (!m.isPaymentLinked || m.isCompleted) continue;
+        if (m.isCompleted) continue;
         const bucket = milestoneDueBucket(m);
         if (bucket === 'Overdue') milestonesOverdueCount++;
         else if (bucket === 'Due this month') milestonesDueSoonCount++;
         upcomingMilestones.push({
           id: m.id,
           name: m.name,
+          isPaymentLinked: m.isPaymentLinked,
+          listName: m.milestoneList?.name,
+          listColor: m.milestoneList?.color,
           projectSlug: project.slug,
           projectName: project.name,
           projectColor: project.color,
