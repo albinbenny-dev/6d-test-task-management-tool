@@ -297,6 +297,7 @@ export default function UserManagement() {
   const [changingRoleId, setChangingRoleId]   = useState<string | null>(null);
   const [search, setSearch]                   = useState('');
   const [page, setPage]                       = useState(1);
+  const [activeTab, setActiveTab]             = useState<'users' | 'permissions'>('users');
 
   const PAGE_SIZE = 20;
 
@@ -378,9 +379,33 @@ export default function UserManagement() {
           ))}
         </div>
 
+        {/* Tabs — Users list vs. Role Permissions matrix, so the page isn't
+            just one long scroll of both. */}
+        <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border)' }}>
+          {([
+            { key: 'users' as const, label: `👥 All Users (${totalUsers})` },
+            { key: 'permissions' as const, label: '🛡 Role Permissions' },
+          ]).map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setActiveTab(t.key)}
+              style={{
+                background: 'none', border: 'none', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer',
+                padding: '8px 14px', marginBottom: '-1px',
+                color: activeTab === t.key ? 'var(--cyan)' : 'var(--text-dim)',
+                borderBottom: activeTab === t.key ? '2px solid var(--cyan)' : '2px solid transparent',
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
         {/* Users — flat list, no card box. Real pagination (below) instead of
             an expand-in-place button, so only one page's worth of rows is
             ever in the DOM at once. */}
+        {activeTab === 'users' && (
         <div>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '10px', paddingBottom: '10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -599,8 +624,10 @@ export default function UserManagement() {
             </div>
           )}
         </div>
+        )}
 
         {/* Role Permissions Matrix */}
+        {activeTab === 'permissions' && (
         <div className="card">
           <div className="card-header">
             <div className="card-title">Role Permissions</div>
@@ -610,6 +637,7 @@ export default function UserManagement() {
           </div>
           <RolePermissionsMatrix />
         </div>
+        )}
       </div>
 
       {/* Reset Password Dialog */}
