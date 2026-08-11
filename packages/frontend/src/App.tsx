@@ -21,6 +21,7 @@ import Wiki from './pages/Wiki';
 import Milestones from './pages/Milestones';
 import UserManagement from './pages/UserManagement';
 import PersonalTasks from './pages/PersonalTasks';
+import MyAccount from './pages/MyAccount';
 import { isAuthenticated } from './lib/auth';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
@@ -73,6 +74,7 @@ export default function App() {
         <Route path="/projects/:slug/settings"     element={<ProjectSettings />} />
         <Route path="/admin/users"                 element={<UserManagement />} />
         <Route path="/personal-tasks"              element={<PersonalTasks />} />
+        <Route path="/account"                     element={<MyAccount />} />
         <Route path="/portfolio"                   element={<Portfolio />} />
       </Route>
 

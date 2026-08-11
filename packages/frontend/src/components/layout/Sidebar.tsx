@@ -338,6 +338,8 @@ export default function Sidebar({ slug }: SidebarProps) {
       {/* User widget + logout */}
       <div style={{ padding: '10px 10px', borderTop: '1px solid var(--border)' }}>
         <div
+          onClick={() => navigate('/account')}
+          title="My Account"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -347,6 +349,7 @@ export default function Sidebar({ slug }: SidebarProps) {
             background: 'transparent',
             flexDirection: collapsed ? 'column' : 'row',
             justifyContent: collapsed ? 'center' : 'flex-start',
+            cursor: 'pointer',
           }}
         >
           <div
@@ -373,7 +376,7 @@ export default function Sidebar({ slug }: SidebarProps) {
           )}
 
           <button
-            onClick={handleLogout}
+            onClick={(e) => { e.stopPropagation(); handleLogout(); }}
             onMouseEnter={() => setLogoutHover(true)}
             onMouseLeave={() => setLogoutHover(false)}
             title="Sign out"
