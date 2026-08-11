@@ -295,6 +295,7 @@ export default function UserManagement() {
   const [resetTarget, setResetTarget]         = useState<AdminUser | null>(null);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [changingRoleId, setChangingRoleId]   = useState<string | null>(null);
+  const [search, setSearch]                   = useState('');
 
   // SUPER_ADMIN guard — shouldn't reach here without it, but belt-and-suspenders
   if (currentUser?.globalRole !== 'SUPER_ADMIN') {
@@ -333,6 +334,11 @@ export default function UserManagement() {
   const superAdminCount  = users.filter((u) => u.globalRole === 'SUPER_ADMIN').length;
   const adminCount       = users.filter((u) => u.globalRole === 'ADMIN').length;
 
+  const q = search.trim().toLowerCase();
+  const filteredUsers = q
+    ? users.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
+    : users;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Topbar
@@ -367,11 +373,32 @@ export default function UserManagement() {
 
         {/* Users table */}
         <div className="card">
-          <div className="card-header">
-            <div className="card-title">All Users</div>
-            <span className="badge badge-draft">{totalUsers}</span>
+          <div className="card-header" style={{ flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div className="card-title">All Users</div>
+              <span className="badge badge-draft">{q ? `${filteredUsers.length} / ${totalUsers}` : totalUsers}</span>
+            </div>
+            <div style={{ position: 'relative', width: '260px', maxWidth: '100%' }}>
+              <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', opacity: 0.5, pointerEvents: 'none' }}>🔍</span>
+              <input
+                type="text"
+                className="input-field"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name or email…"
+                style={{ width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '6px 10px 6px 30px' }}
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  title="Clear search"
+                  style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: 'var(--text-dim)', padding: 0, lineHeight: 1 }}
+                >✕</button>
+              )}
+            </div>
           </div>
-          <div style={{ height: '650px', overflowY: 'auto' }}>
+          <div style={{ height: '1080px', maxHeight: '75vh', overflowY: 'auto' }}>
           <table className="data-table">
             <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface)' }}>
               <tr>
@@ -396,8 +423,14 @@ export default function UserManagement() {
                     No users found.
                   </td>
                 </tr>
+              ) : filteredUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+                    No users match "{search.trim()}".
+                  </td>
+                </tr>
               ) : (
-                users.map((u) => {
+                filteredUsers.map((u) => {
                   const isSelf = u.id === currentUser?.id;
                   return (
                     <tr key={u.id}>
