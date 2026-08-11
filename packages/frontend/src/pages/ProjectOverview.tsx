@@ -366,6 +366,17 @@ export default function ProjectOverview() {
               <StatCard compact label="Milestones Due Soon" value={dueThisMonthMilestoneCount} theme="blocked" sub="this month" />
             </div>
 
+            {/* Payment Milestones */}
+            <div style={{ display: 'grid' }}>
+              <div className="card" style={{ padding: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>Payment Milestones</span>
+                  <Link to={`/projects/${slug}/milestones`} style={{ fontSize: 11.5, color: 'var(--cyan)', textDecoration: 'none' }}>View all →</Link>
+                </div>
+                <PaymentMilestonesTable milestones={milestones} slug={slug!} />
+              </div>
+            </div>
+
             {/* Task Health / Testing Health */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 16 }}>
               <div className="card" style={{ padding: 16 }}>
@@ -422,17 +433,6 @@ export default function ProjectOverview() {
               <div className="card" style={{ padding: 16 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Resource Workload</div>
                 <ResourceWorkloadTable rows={data.resources} />
-              </div>
-            </div>
-
-            {/* Payment Milestones */}
-            <div style={{ display: 'grid' }}>
-              <div className="card" style={{ padding: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700 }}>Payment Milestones</span>
-                  <Link to={`/projects/${slug}/milestones`} style={{ fontSize: 11.5, color: 'var(--cyan)', textDecoration: 'none' }}>View all →</Link>
-                </div>
-                <PaymentMilestonesTable milestones={milestones} slug={slug!} />
               </div>
             </div>
 

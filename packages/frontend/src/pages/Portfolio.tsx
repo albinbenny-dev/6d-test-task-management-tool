@@ -332,6 +332,13 @@ export default function Portfolio() {
               </div>
             </div>
 
+            <div ref={milestonesRef} className="section">
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Payment milestones — coming up &amp; delayed, across every project</div>
+              <div className="card" style={{ padding: 0 }}>
+                <MilestonesTable rows={data.upcomingMilestones} />
+              </div>
+            </div>
+
             <div ref={projectsRef} className="section">
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Projects</div>
               <div className="card" style={{ padding: 0 }}>
@@ -358,13 +365,6 @@ export default function Portfolio() {
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Most overdue — portfolio-wide</div>
               <div className="card" style={{ padding: 0 }}>
                 <OverdueTable rows={data.overdueTasks} />
-              </div>
-            </div>
-
-            <div ref={milestonesRef} className="section">
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Payment milestones — coming up &amp; delayed, across every project</div>
-              <div className="card" style={{ padding: 0 }}>
-                <MilestonesTable rows={data.upcomingMilestones} />
               </div>
             </div>
           </>
