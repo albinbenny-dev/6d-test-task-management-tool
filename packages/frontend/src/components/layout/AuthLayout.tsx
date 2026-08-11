@@ -18,7 +18,7 @@ export function AuthLayout({
   return (
     <div
       style={{
-        minHeight: '100vh',
+        minHeight: 'calc(100vh / var(--app-zoom))',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

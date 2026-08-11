@@ -26,7 +26,7 @@ export default function AppShell() {
   }, [isSuccess, projects, slug, setProjects, setActiveProject]);
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
+    <div style={{ minHeight: 'calc(100vh / var(--app-zoom))', background: 'var(--bg)' }}>
       {/* Global background listeners — fire notifications regardless of active page */}
       <ScanNotificationManager />
       <HealNotificationManager />
@@ -34,11 +34,15 @@ export default function AppShell() {
       {/* Fixed top banner */}
       <BrandBanner />
 
-      {/* Layout below banner */}
+      {/* Layout below banner — `calc(100vh / var(--app-zoom) - 64px)` rather
+          than plain `100vh`: compact mode's `zoom` (globals.css) scales
+          rendering, but `vh` always measures the true, unzoomed viewport,
+          so a plain `calc(100vh - 64px)` here would only ever visually
+          fill --app-zoom's worth of the screen, leaving blank space below. */}
       <div
         style={{
           marginTop: '64px',
-          height: 'calc(100vh - 64px)',
+          height: 'calc(100vh / var(--app-zoom) - 64px)',
           display: 'flex',
           overflow: 'hidden',
         }}

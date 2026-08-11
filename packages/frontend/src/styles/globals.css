@@ -55,6 +55,14 @@
   --shadow-card: 0 2px 6px rgba(8,47,69,0.05);
   --font-ui:   'Open Sans', 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Compact mode's zoom factor — 1 (no-op) normally, overridden to match
+     `zoom:` below under [data-density="compact"]. `vh` units are always
+     relative to the true, unzoomed viewport, so any layout that sizes
+     itself with raw 100vh needs `calc(100vh / var(--app-zoom))` instead —
+     otherwise the zoomed-down page only visually fills --app-zoom's worth
+     of the screen, leaving blank space below/beside it. */
+  --app-zoom: 1;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -100,6 +108,7 @@
 ═══════════════════════════════════════════════════ */
 html[data-density="compact"] {
   zoom: 0.82;
+  --app-zoom: 0.82;
 }
 
 /* ═══════════════════════════════════════════════════
