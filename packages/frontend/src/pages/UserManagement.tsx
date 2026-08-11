@@ -398,7 +398,6 @@ export default function UserManagement() {
               )}
             </div>
           </div>
-          <div style={{ height: '1080px', maxHeight: '75vh', overflowY: 'auto' }}>
           <table className="data-table">
             <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface)' }}>
               <tr>
@@ -565,7 +564,6 @@ export default function UserManagement() {
               )}
             </tbody>
           </table>
-          </div>
         </div>
 
         {/* Role Permissions Matrix */}
