@@ -296,9 +296,9 @@ export default function UserManagement() {
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [changingRoleId, setChangingRoleId]   = useState<string | null>(null);
   const [search, setSearch]                   = useState('');
-  const [showAll, setShowAll]                 = useState(false);
+  const [page, setPage]                       = useState(1);
 
-  const VISIBLE_COUNT = 20;
+  const PAGE_SIZE = 20;
 
   // SUPER_ADMIN guard — shouldn't reach here without it, but belt-and-suspenders
   if (currentUser?.globalRole !== 'SUPER_ADMIN') {
@@ -341,8 +341,10 @@ export default function UserManagement() {
   const filteredUsers = q
     ? users.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
     : users;
-  const visibleUsers = showAll ? filteredUsers : filteredUsers.slice(0, VISIBLE_COUNT);
-  const hiddenCount = filteredUsers.length - visibleUsers.length;
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const pagedUsers = filteredUsers.slice(pageStart, pageStart + PAGE_SIZE);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -376,11 +378,13 @@ export default function UserManagement() {
           ))}
         </div>
 
-        {/* Users table */}
-        <div className="card">
-          <div className="card-header" style={{ flexWrap: 'wrap', gap: '10px' }}>
+        {/* Users — flat list, no card box. Real pagination (below) instead of
+            an expand-in-place button, so only one page's worth of rows is
+            ever in the DOM at once. */}
+        <div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '10px', paddingBottom: '10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div className="card-title">All Users</div>
+              <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>All Users</span>
               <span className="badge badge-draft">{q ? `${filteredUsers.length} / ${totalUsers}` : totalUsers}</span>
             </div>
             <div style={{ position: 'relative', width: '260px', maxWidth: '100%' }}>
@@ -389,23 +393,24 @@ export default function UserManagement() {
                 type="text"
                 className="input-field"
                 value={search}
-                onChange={(e) => { setSearch(e.target.value); setShowAll(false); }}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                 placeholder="Search by name or email…"
                 style={{ width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '6px 10px 6px 30px' }}
               />
               {search && (
                 <button
                   type="button"
-                  onClick={() => { setSearch(''); setShowAll(false); }}
+                  onClick={() => { setSearch(''); setPage(1); }}
                   title="Clear search"
                   style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: 'var(--text-dim)', padding: 0, lineHeight: 1 }}
                 >✕</button>
               )}
             </div>
           </div>
+
           {/* Column headers — plain flex row, not a <table>, so column widths
               below must stay in sync with each user row's widths. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 18px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: '10.5px', letterSpacing: '1.1px', textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 4px', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: '10.5px', letterSpacing: '1.1px', textTransform: 'uppercase', color: 'var(--text-dim)' }}>
             <div style={{ flex: '2 1 200px' }}>User</div>
             <div style={{ flex: '2 1 180px' }}>Email</div>
             <div style={{ width: '190px', flexShrink: 0 }}>Global Role</div>
@@ -427,12 +432,12 @@ export default function UserManagement() {
               No users match "{search.trim()}".
             </div>
           ) : (
-            visibleUsers.map((u) => {
+            pagedUsers.map((u) => {
               const isSelf = u.id === currentUser?.id;
               return (
                 <div
                   key={u.id}
-                  style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 18px', borderBottom: '1px solid var(--border)' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 4px', borderBottom: '1px solid var(--border)' }}
                 >
                   {/* Name + avatar */}
                   <div style={{ flex: '2 1 200px', display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
@@ -559,28 +564,38 @@ export default function UserManagement() {
               );
             })
           )}
-          {hiddenCount > 0 && (
-            <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
-              <button
-                type="button"
-                className="tb-btn tb-btn-ghost"
-                onClick={() => setShowAll(true)}
-                style={{ fontSize: '11.5px', padding: '6px 14px' }}
-              >
-                Show {hiddenCount} more user{hiddenCount === 1 ? '' : 's'} ({filteredUsers.length} total) ↓
-              </button>
-            </div>
-          )}
-          {showAll && filteredUsers.length > VISIBLE_COUNT && (
-            <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
-              <button
-                type="button"
-                className="tb-btn tb-btn-ghost"
-                onClick={() => setShowAll(false)}
-                style={{ fontSize: '11.5px', padding: '6px 14px' }}
-              >
-                Show fewer ↑
-              </button>
+          {/* Pagination — real pages, not expand-in-place, so only one
+              page's worth of rows is ever in the DOM at a time. */}
+          {filteredUsers.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', padding: '14px 4px 0' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                Showing {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filteredUsers.length)} of {filteredUsers.length}
+              </span>
+              {totalPages > 1 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <button
+                    type="button"
+                    className="tb-btn tb-btn-ghost"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    style={{ fontSize: '11.5px', padding: '5px 12px', opacity: currentPage === 1 ? 0.5 : 1, cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
+                  >
+                    ← Prev
+                  </button>
+                  <span style={{ fontSize: '11px', color: 'var(--text-mid)', fontFamily: 'var(--font-mono)' }}>
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="tb-btn tb-btn-ghost"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    style={{ fontSize: '11.5px', padding: '5px 12px', opacity: currentPage === totalPages ? 0.5 : 1, cursor: currentPage === totalPages ? 'not-allowed' : 'pointer' }}
+                  >
+                    Next →
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
