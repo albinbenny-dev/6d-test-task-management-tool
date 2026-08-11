@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import type { Project, TaskDashboardSummary, TestCycleSummary, JiraResolutionSummary, TaskPriority } from '../types';
+import { milestoneDueBucket, executionSlipDays, type MilestoneDueBucket } from '../lib/milestoneMeta';
+import type { Project, TaskDashboardSummary, TestCycleSummary, JiraResolutionSummary, TaskPriority, Milestone } from '../types';
 
 export type ProjectHealth = 'healthy' | 'at-risk' | 'critical';
 export type ResourceLoad = 'low' | 'medium' | 'high' | 'over';
@@ -40,6 +41,20 @@ export interface PortfolioOverdueTask {
   daysOverdue: number;
 }
 
+// Payment-linked, undelivered milestones only — same filter as the Project
+// Overview widget — so "what's coming up/late" reads identically whether a
+// PM is looking at one project or the whole portfolio.
+export interface PortfolioMilestoneRow {
+  id: string;
+  name: string;
+  projectSlug: string;
+  projectName: string;
+  projectColor?: string;
+  targetDate: string | null;
+  bucket: MilestoneDueBucket;
+  slipDays: number | null;
+}
+
 export interface PortfolioData {
   isLoading: boolean;
   projectCount: number;
@@ -54,6 +69,9 @@ export interface PortfolioData {
   projects: PortfolioProjectRow[];
   resources: PortfolioResourceRow[];
   overdueTasks: PortfolioOverdueTask[];
+  milestonesOverdueCount: number;
+  milestonesDueSoonCount: number; // "due this month", payment-linked, across every project
+  upcomingMilestones: PortfolioMilestoneRow[]; // payment-linked, undelivered, worst-first
 }
 
 // Same overdue-ratio / completion-rate thresholds pitched in the reviewed
@@ -93,21 +111,35 @@ export function usePortfolioData(projects: Project[]): PortfolioData {
     })),
   });
 
-  const isLoading = taskQueries.some((q) => q.isLoading) || cycleQueries.some((q) => q.isLoading);
+  // Same query key ['milestones', p.id] the per-project Milestones page and
+  // Project Overview widget use — a portfolio load warms their cache and
+  // vice versa, same convention as taskQueries/cycleQueries above.
+  const milestoneQueries = useQueries({
+    queries: projects.map((p) => ({
+      queryKey: ['milestones', p.id],
+      queryFn: async () => (await api.get<{ milestones: Milestone[] }>(`/projects/${p.id}/milestones`)).data.milestones ?? [],
+      enabled: !!p.id,
+    })),
+  });
+
+  const isLoading = taskQueries.some((q) => q.isLoading) || cycleQueries.some((q) => q.isLoading) || milestoneQueries.some((q) => q.isLoading);
 
   return useMemo(() => {
     const projectRows: PortfolioProjectRow[] = [];
     const resourceMap = new Map<string, PortfolioResourceRow>();
     const overdueTasks: PortfolioOverdueTask[] = [];
     const unassignedByProject: { name: string; slug: string; count: number }[] = [];
+    const upcomingMilestones: PortfolioMilestoneRow[] = [];
 
     let totalOpen = 0, totalOverdue = 0, totalDone = 0, totalTasks = 0;
     let totalPass = 0, totalActiveItems = 0;
+    let milestonesOverdueCount = 0, milestonesDueSoonCount = 0;
     const now = Date.now();
 
     projects.forEach((project, i) => {
       const taskData = taskQueries[i]?.data;
       const cycleData = cycleQueries[i]?.data;
+      const milestoneData = milestoneQueries[i]?.data ?? [];
       if (!taskData) return; // excluded from aggregates, not a crash — e.g. a transient fetch failure
 
       const open = taskData.total - taskData.counts.DONE;
@@ -173,6 +205,25 @@ export function usePortfolioData(projects: Project[]): PortfolioData {
           daysOverdue: Math.max(1, Math.floor((now - new Date(task.dueDate).getTime()) / 86_400_000)),
         });
       }
+
+      // Payment-linked, undelivered milestones only — same filter as the
+      // Project Overview widget, so the portfolio reads consistently.
+      for (const m of milestoneData) {
+        if (!m.isPaymentLinked || m.isCompleted) continue;
+        const bucket = milestoneDueBucket(m);
+        if (bucket === 'Overdue') milestonesOverdueCount++;
+        else if (bucket === 'Due this month') milestonesDueSoonCount++;
+        upcomingMilestones.push({
+          id: m.id,
+          name: m.name,
+          projectSlug: project.slug,
+          projectName: project.name,
+          projectColor: project.color,
+          targetDate: m.targetDate ?? null,
+          bucket,
+          slipDays: executionSlipDays(m),
+        });
+      }
     });
 
     for (const row of resourceMap.values()) row.load = computeLoad(row.open);
@@ -198,7 +249,20 @@ export function usePortfolioData(projects: Project[]): PortfolioData {
         .filter((r) => r.userId !== null)
         .sort((a, b) => b.open - a.open),
       overdueTasks: overdueTasks.sort((a, b) => b.daysOverdue - a.daysOverdue).slice(0, 30),
+      milestonesOverdueCount,
+      milestonesDueSoonCount,
+      // Worst-first: overdue, then due this month, then everything else —
+      // ties broken by soonest target date — same ranking as
+      // PaymentMilestonesTable in ProjectOverview.tsx.
+      upcomingMilestones: upcomingMilestones
+        .sort((a, b) => {
+          const rank = (m: PortfolioMilestoneRow) => (m.bucket === 'Overdue' ? 0 : m.bucket === 'Due this month' ? 1 : 2);
+          if (rank(a) !== rank(b)) return rank(a) - rank(b);
+          if (a.targetDate && b.targetDate) return new Date(a.targetDate).getTime() - new Date(b.targetDate).getTime();
+          return a.targetDate ? -1 : b.targetDate ? 1 : 0;
+        })
+        .slice(0, 30),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, isLoading, taskQueries, cycleQueries]);
+  }, [projects, isLoading, taskQueries, cycleQueries, milestoneQueries]);
 }

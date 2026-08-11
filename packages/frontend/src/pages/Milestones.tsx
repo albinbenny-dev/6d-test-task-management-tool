@@ -108,7 +108,16 @@ function MilestoneRow({ milestone, canEdit, onUpdate, onDelete }: {
         />
       </td>
       <td>
-        {!milestone.isCompleted && (
+        {milestone.isCompleted ? (
+          <span
+            style={{
+              fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+              background: 'var(--surface2)', color: DEVIATION_COLOR[deviationTone(execSlip)],
+            }}
+          >
+            {execSlip && execSlip > 0 ? `Delivered ${execSlip}d late` : 'Delivered'}
+          </span>
+        ) : (
           <span
             style={{
               fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20,

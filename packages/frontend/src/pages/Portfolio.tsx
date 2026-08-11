@@ -3,10 +3,11 @@ import { useNavigate, Link } from 'react-router-dom';
 import Topbar from '../components/layout/Topbar';
 import { useProjects } from '../hooks/useProjects';
 import { useProjectStore } from '../stores/projectStore';
-import { usePortfolioData, type PortfolioProjectRow, type PortfolioResourceRow, type PortfolioOverdueTask, type ProjectHealth, type ResourceLoad } from '../hooks/usePortfolio';
+import { usePortfolioData, type PortfolioProjectRow, type PortfolioResourceRow, type PortfolioOverdueTask, type PortfolioMilestoneRow, type ProjectHealth, type ResourceLoad } from '../hooks/usePortfolio';
 import { StatCard } from '../components/testCycles/StatCards';
 import { PriorityBadge } from '../components/tasks/PriorityBadge';
 import { landingPath } from '../lib/projectLanding';
+import { deviationTone, DEVIATION_COLOR, formatMilestoneDate } from '../lib/milestoneMeta';
 import type { Project } from '../types';
 
 const HEALTH_META: Record<ProjectHealth, { label: string; color: string }> = {
@@ -187,6 +188,55 @@ function OverdueTable({ rows }: { rows: PortfolioOverdueTask[] }) {
   );
 }
 
+function MilestonesTable({ rows }: { rows: PortfolioMilestoneRow[] }) {
+  const navigate = useNavigate();
+  if (rows.length === 0) {
+    return <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-dim)', fontSize: 12 }}>No payment-linked milestones coming up across the portfolio.</div>;
+  }
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table className="data-table" style={{ minWidth: 640 }}>
+        <thead>
+          <tr>
+            <th>Milestone</th>
+            <th>Project</th>
+            <th>Target date</th>
+            <th>Status</th>
+            <th>Slip</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((m) => {
+            const tone = deviationTone(m.slipDays);
+            return (
+              <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/projects/${m.projectSlug}/milestones`)}>
+                <td className="primary" style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</td>
+                <td>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 3, background: m.projectColor ?? 'var(--cyan)', flexShrink: 0 }} />
+                    {m.projectName}
+                  </span>
+                </td>
+                <td style={{ color: m.bucket === 'Overdue' ? 'var(--fail)' : 'var(--text-mid)', fontFamily: 'var(--font-mono)' }}>{formatMilestoneDate(m.targetDate)}</td>
+                <td>
+                  <span style={{
+                    fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                    background: m.bucket === 'Overdue' ? 'var(--rose-dim)' : m.bucket === 'Due this month' ? 'var(--amber-dim)' : 'var(--surface2)',
+                    color: m.bucket === 'Overdue' ? 'var(--fail)' : m.bucket === 'Due this month' ? 'var(--amber)' : 'var(--text-dim)',
+                  }}>
+                    {m.bucket}
+                  </span>
+                </td>
+                <td style={{ fontWeight: 700, color: DEVIATION_COLOR[tone] }}>{m.slipDays !== null && m.slipDays > 0 ? `${m.slipDays}d` : '—'}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function Portfolio() {
   const navigate = useNavigate();
   const { currentUser } = useProjectStore();
@@ -198,6 +248,7 @@ export default function Portfolio() {
   const projectsRef = useRef<HTMLDivElement>(null);
   const resourcesRef = useRef<HTMLDivElement>(null);
   const overdueRef = useRef<HTMLDivElement>(null);
+  const milestonesRef = useRef<HTMLDivElement>(null);
   const scrollTo = (ref: React.RefObject<HTMLDivElement>) => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   // SUPER_ADMIN/ADMIN/SUPER_USER only — shouldn't reach here without it (the
@@ -255,6 +306,10 @@ export default function Portfolio() {
               <div onClick={() => scrollTo(resourcesRef)} style={{ cursor: 'pointer' }}>
                 <StatCard compact label="Active resources" value={data.resourceCount} theme="unlinked" highlighted />
               </div>
+              <div onClick={() => scrollTo(milestonesRef)} style={{ cursor: 'pointer' }}>
+                <StatCard compact label="Milestones overdue" value={data.milestonesOverdueCount} theme="fail" highlighted
+                  sub={data.milestonesDueSoonCount > 0 ? `+${data.milestonesDueSoonCount} due this month` : 'payment-linked'} />
+              </div>
             </div>
 
             <div className="card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -297,6 +352,13 @@ export default function Portfolio() {
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Most overdue — portfolio-wide</div>
               <div className="card" style={{ padding: 0 }}>
                 <OverdueTable rows={data.overdueTasks} />
+              </div>
+            </div>
+
+            <div ref={milestonesRef} className="section">
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Payment milestones — coming up &amp; delayed, across every project</div>
+              <div className="card" style={{ padding: 0 }}>
+                <MilestonesTable rows={data.upcomingMilestones} />
               </div>
             </div>
           </>
