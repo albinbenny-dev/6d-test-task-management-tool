@@ -198,7 +198,7 @@ const PERMISSIONS: PermRow[] = [
 
 function PermCell({ allowed }: { allowed: boolean }) {
   return (
-    <td style={{ textAlign: 'center', padding: '8px 6px' }}>
+    <td style={{ textAlign: 'center', padding: '11px 10px' }}>
       {allowed ? (
         <span style={{ color: 'var(--pass)', fontSize: '14px', fontWeight: 700 }}>✓</span>
       ) : (
@@ -213,14 +213,14 @@ function RolePermissionsMatrix() {
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      <table className="data-table" style={{ minWidth: '600px' }}>
+      <table className="data-table" style={{ minWidth: '680px' }}>
         <thead>
           <tr>
-            <th style={{ width: '90px', fontFamily: 'var(--font-mono)', fontSize: '10px' }}>Section</th>
-            <th style={{ minWidth: '140px' }}>Feature</th>
+            <th style={{ width: '100px', fontFamily: 'var(--font-mono)', fontSize: '10px' }}>Section</th>
+            <th style={{ minWidth: '160px' }}>Feature</th>
             {ROLES.map((r) => (
-              <th key={r.key} style={{ textAlign: 'center', minWidth: '110px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+              <th key={r.key} style={{ textAlign: 'center', minWidth: '125px', padding: '12px 10px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
                   <span className={`badge ${r.badge}`} style={{ fontSize: '9px', letterSpacing: '0.5px' }}>
                     {r.icon} {r.label}
                   </span>
@@ -398,6 +398,7 @@ export default function UserManagement() {
               )}
             </div>
           </div>
+          <div className="user-list-scroll" style={{ maxHeight: '640px', overflowY: 'auto', borderTop: '1px solid var(--border)' }}>
           <table className="data-table">
             <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface)' }}>
               <tr>
@@ -564,6 +565,7 @@ export default function UserManagement() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* Role Permissions Matrix */}
