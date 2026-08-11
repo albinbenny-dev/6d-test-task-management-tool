@@ -5,11 +5,13 @@ import Topbar from '../components/layout/Topbar';
 import { useProject } from '../hooks/useProjects';
 import { useJiraHost } from '../hooks/useJira';
 import { useProjectOverview, SEVERITY_LABEL, SEVERITY_ACCENT, type ProjectHealthLevel, type OverviewResourceRow, type FailingTestRow, type DefectRow } from '../hooks/useProjectOverview';
+import { useMilestones } from '../hooks/useMilestones';
 import { StatCard } from '../components/testCycles/StatCards';
 import { PriorityBadge } from '../components/tasks/PriorityBadge';
 import { ALL_TASK_STATUSES, STATUS_LABEL as TASK_STATUS_LABEL, STATUS_DOT_COLOR as TASK_STATUS_COLOR, PRIORITY_ACCENT, PRIORITY_LABEL, ALL_PRIORITIES, formatDueDate } from '../lib/taskMeta';
 import { STATUS_LABEL as EXEC_STATUS_LABEL, STATUS_COLOR as EXEC_STATUS_COLOR, STATUS_BADGE as EXEC_STATUS_BADGE, ALL_MANUAL_STATUSES } from '../lib/manualStatus';
-import type { TaskPriority, ManualResultStatus, TestCycle, Task } from '../types';
+import { milestoneDueBucket, isMilestoneOverdue, executionSlipDays, deviationTone, DEVIATION_COLOR, formatMilestoneDate } from '../lib/milestoneMeta';
+import type { TaskPriority, ManualResultStatus, TestCycle, Task, Milestone } from '../types';
 
 const HEALTH_META: Record<ProjectHealthLevel, { label: string; color: string }> = {
   healthy:   { label: 'Healthy', color: 'var(--pass)' },
@@ -250,6 +252,48 @@ function OverdueTasksTable({ tasks, slug }: { tasks: Task[]; slug: string }) {
   );
 }
 
+// ── Payment Milestones — payment-linked milestones only, worst-behind
+// (overdue, then soonest target date) first, so a PM sees what needs
+// attention at a glance. Amounts are never shown — this tool doesn't track
+// them — only dates and schedule slip against the current target. ─────────
+function PaymentMilestonesTable({ milestones, slug }: { milestones: Milestone[]; slug: string }) {
+  const navigate = useNavigate();
+  const linked = milestones.filter((m) => m.isPaymentLinked && !m.isCompleted);
+  if (linked.length === 0) {
+    return <div style={{ color: 'var(--text-dim)', fontSize: 12, fontFamily: 'var(--font-mono)', padding: 24, textAlign: 'center' }}>{milestones.some((m) => m.isPaymentLinked) ? 'All payment-linked milestones are delivered 🎉' : 'No payment-linked milestones defined yet.'}</div>;
+  }
+  const sorted = [...linked].sort((a, b) => {
+    const rank = (m: Milestone) => (isMilestoneOverdue(m) ? 0 : milestoneDueBucket(m) === 'Due this month' ? 1 : 2);
+    if (rank(a) !== rank(b)) return rank(a) - rank(b);
+    if (a.targetDate && b.targetDate) return new Date(a.targetDate).getTime() - new Date(b.targetDate).getTime();
+    return a.targetDate ? -1 : b.targetDate ? 1 : 0;
+  });
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table className="data-table" style={{ minWidth: 520 }}>
+        <thead><tr><th>Milestone</th><th>Target Date</th><th>Status</th><th>Slip</th></tr></thead>
+        <tbody>
+          {sorted.slice(0, 10).map((m) => {
+            const bucket = milestoneDueBucket(m);
+            const slip = executionSlipDays(m);
+            const tone = deviationTone(slip);
+            return (
+              <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/projects/${slug}/milestones`)}>
+                <td className="primary" style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</td>
+                <td style={{ color: bucket === 'Overdue' ? 'var(--fail)' : 'var(--text-mid)', fontFamily: 'var(--font-mono)' }}>{formatMilestoneDate(m.targetDate)}</td>
+                <td>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: bucket === 'Overdue' ? 'var(--rose-dim)' : bucket === 'Due this month' ? 'var(--amber-dim)' : 'var(--surface2)', color: bucket === 'Overdue' ? 'var(--fail)' : bucket === 'Due this month' ? 'var(--amber)' : 'var(--text-dim)' }}>{bucket}</span>
+                </td>
+                <td style={{ fontWeight: 700, color: DEVIATION_COLOR[tone] }}>{slip !== null && slip > 0 ? `${slip}d` : '—'}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 const TABS = [
   { key: 'overdue', label: 'Overdue Tasks' },
   { key: 'failing', label: 'Failing / Blocked Tests' },
@@ -263,7 +307,12 @@ export default function ProjectOverview() {
   const projectId = project?.id;
   const { data: jiraHost } = useJiraHost(projectId);
   const data = useProjectOverview(projectId);
+  const { data: milestones = [] } = useMilestones(projectId);
   const [tab, setTab] = useState<TabKey>('overdue');
+
+  const paymentLinkedMilestones = milestones.filter((m) => m.isPaymentLinked);
+  const overdueMilestoneCount = paymentLinkedMilestones.filter((m) => isMilestoneOverdue(m)).length;
+  const dueThisMonthMilestoneCount = paymentLinkedMilestones.filter((m) => milestoneDueBucket(m) === 'Due this month').length;
 
   const healthMeta = HEALTH_META[data.health.level];
 
@@ -300,6 +349,8 @@ export default function ProjectOverview() {
               <StatCard compact label="Cycle Progress" value={`${data.cycleProgress}%`} theme="progress" sub={`${data.activeCycleCount} active cycle${data.activeCycleCount === 1 ? '' : 's'}`} />
               <StatCard compact label="Critical Defects" value={data.criticalDefectsOpen} theme="fail" sub="open, unresolved" />
               <StatCard compact label="Unassigned" value={data.task.unassignedOpenCount} theme="unlinked" />
+              <StatCard compact label="Milestones Overdue" value={overdueMilestoneCount} theme="fail" sub="payment-linked" />
+              <StatCard compact label="Milestones Due Soon" value={dueThisMonthMilestoneCount} theme="blocked" sub="this month" />
             </div>
 
             {/* Task Health / Testing Health */}
@@ -358,6 +409,17 @@ export default function ProjectOverview() {
               <div className="card" style={{ padding: 16 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Resource Workload</div>
                 <ResourceWorkloadTable rows={data.resources} />
+              </div>
+            </div>
+
+            {/* Payment Milestones */}
+            <div style={{ display: 'grid' }}>
+              <div className="card" style={{ padding: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>Payment Milestones</span>
+                  <Link to={`/projects/${slug}/milestones`} style={{ fontSize: 11.5, color: 'var(--cyan)', textDecoration: 'none' }}>View all →</Link>
+                </div>
+                <PaymentMilestonesTable milestones={milestones} slug={slug!} />
               </div>
             </div>
 

@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   LogOut, Globe, ShieldCheck, BookOpen, ClipboardList, FlaskConical,
   BarChart3, UserCheck, ListChecks, Settings, ChevronDown, ListTodo, FileText, Gauge, Bug,
-  PanelLeftClose, PanelLeftOpen, LayoutDashboard,
+  PanelLeftClose, PanelLeftOpen, LayoutDashboard, Milestone,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
@@ -84,6 +84,12 @@ export default function Sidebar({ slug }: SidebarProps) {
           label: 'Wiki',
           items: [
             { label: 'Wiki', path: `/projects/${slug}/wiki`, Icon: FileText },
+          ],
+        },
+        {
+          label: 'Delivery Tracking',
+          items: [
+            { label: 'Milestones', path: `/projects/${slug}/milestones`, Icon: Milestone },
           ],
         },
         ...(canAccessSettings

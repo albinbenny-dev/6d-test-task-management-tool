@@ -633,6 +633,27 @@ export interface TaskDashboardSummary {
   byTaskList: TaskListSummary[];
 }
 
+// ── Payment Milestones — per-project delivery/invoicing milestone tracker ──
+// Deliberately carries no amount/invoice-value field — see schema.prisma's
+// Milestone comment. "Overdue"/"due this month" is never stored; it's always
+// computed from targetDate vs. now (see lib/milestoneMeta.ts).
+export interface Milestone {
+  id: string;
+  projectId: string;
+  name: string;
+  groupName?: string | null;
+  sortOrder: number;
+  baselineDate?: string | null;
+  targetDate?: string | null;
+  actualDate?: string | null;
+  isCompleted: boolean;
+  isPaymentLinked: boolean;
+  invoiceRaised: boolean;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── Wiki — per-project living documentation ────────────────────────────────
 // Confluence-style but deliberately minimal: markdown pages with plain links
 // out to Drive/SharePoint/etc, one level of nesting via parentPageId. See

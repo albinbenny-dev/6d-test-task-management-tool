@@ -38,6 +38,8 @@ interface RBACResult {
   canManageTcLibrary: boolean;
   /** canEditTcItems = everyone except TEST_USER — edit/link-to-script/scope-toggle/create/move-feature in TC Library. STANDARD_USER keeps this; only TEST_USER (read-only) is excluded. */
   canEditTcItems: boolean;
+  /** canManageMilestones = SUPER_ADMIN | ADMIN | SUPER_USER — create/edit/reorder/delete Payment Milestones. Everyone may still view them (dashboard signal for the whole team); this is PM/lead-owned data, same tier as Test Cycle administration. */
+  canManageMilestones: boolean;
 }
 
 /**
@@ -79,6 +81,7 @@ export function useRBAC(): RBACResult {
       canAccessAutomationSection: true,
       canManageTcLibrary: true,
       canEditTcItems: true,
+      canManageMilestones: true,
     };
   }
 
@@ -103,5 +106,6 @@ export function useRBAC(): RBACResult {
     canAccessAutomationSection: role !== 'TEST_USER',
     canManageTcLibrary: role === 'ADMIN' || role === 'SUPER_USER',
     canEditTcItems: role === 'ADMIN' || role === 'SUPER_USER' || role === 'STANDARD_USER',
+    canManageMilestones: role === 'ADMIN' || role === 'SUPER_USER',
   };
 }

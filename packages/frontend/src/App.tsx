@@ -18,6 +18,7 @@ import TaskLists from './pages/TaskLists';
 import TaskListDetail from './pages/TaskListDetail';
 import TaskDashboard from './pages/TaskDashboard';
 import Wiki from './pages/Wiki';
+import Milestones from './pages/Milestones';
 import UserManagement from './pages/UserManagement';
 import PersonalTasks from './pages/PersonalTasks';
 import { isAuthenticated } from './lib/auth';
@@ -68,6 +69,7 @@ export default function App() {
         <Route path="/projects/:slug/tasks/:listId" element={<TaskListDetail />} />
         <Route path="/projects/:slug/wiki"         element={<Wiki />} />
         <Route path="/projects/:slug/wiki/:pageId" element={<Wiki />} />
+        <Route path="/projects/:slug/milestones"   element={<Milestones />} />
         <Route path="/projects/:slug/settings"     element={<ProjectSettings />} />
         <Route path="/admin/users"                 element={<UserManagement />} />
         <Route path="/personal-tasks"              element={<PersonalTasks />} />
