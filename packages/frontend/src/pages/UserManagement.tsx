@@ -403,172 +403,162 @@ export default function UserManagement() {
               )}
             </div>
           </div>
-          <table className="data-table">
-            <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface)' }}>
-              <tr>
-                <th>User</th>
-                <th>Email</th>
-                <th>Global Role</th>
-                <th>Projects</th>
-                <th>Joined</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
-                    Loading users…
-                  </td>
-                </tr>
-              ) : users.length === 0 ? (
-                <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
-                    No users found.
-                  </td>
-                </tr>
-              ) : filteredUsers.length === 0 ? (
-                <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
-                    No users match "{search.trim()}".
-                  </td>
-                </tr>
-              ) : (
-                visibleUsers.map((u) => {
-                  const isSelf = u.id === currentUser?.id;
-                  return (
-                    <tr key={u.id}>
-                      {/* Name + avatar */}
-                      <td className="primary">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div
-                            style={{
-                              width: '30px', height: '30px', borderRadius: '50%', flexShrink: 0,
-                              background: u.globalRole === 'SUPER_ADMIN'
-                                ? 'linear-gradient(135deg, var(--6d-orange), #D9601A)'
-                                : 'linear-gradient(135deg, var(--violet), var(--cyan))',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              fontSize: '11px', fontWeight: 700, color: '#fff',
-                            }}
-                          >
-                            {getInitials(u.name)}
-                          </div>
-                          <div>
-                            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                              {u.name}
-                              {isSelf && (
-                                <span style={{ marginLeft: '6px', fontSize: '9px', fontFamily: 'var(--font-mono)', color: 'var(--cyan)', background: 'var(--cyan-dim)', padding: '1px 5px', borderRadius: '8px', border: '1px solid rgba(34,211,238,0.3)' }}>
-                                  YOU
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
+          {/* Column headers — plain flex row, not a <table>, so column widths
+              below must stay in sync with each user row's widths. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 18px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: '10.5px', letterSpacing: '1.1px', textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+            <div style={{ flex: '2 1 200px' }}>User</div>
+            <div style={{ flex: '2 1 180px' }}>Email</div>
+            <div style={{ width: '190px', flexShrink: 0 }}>Global Role</div>
+            <div style={{ width: '70px', flexShrink: 0 }}>Projects</div>
+            <div style={{ width: '100px', flexShrink: 0 }}>Joined</div>
+            <div style={{ width: '190px', flexShrink: 0 }}>Actions</div>
+          </div>
 
-                      {/* Email */}
-                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-mid)' }}>
-                        {u.email}
-                      </td>
+          {isLoading ? (
+            <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+              Loading users…
+            </div>
+          ) : users.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+              No users found.
+            </div>
+          ) : filteredUsers.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+              No users match "{search.trim()}".
+            </div>
+          ) : (
+            visibleUsers.map((u) => {
+              const isSelf = u.id === currentUser?.id;
+              return (
+                <div
+                  key={u.id}
+                  style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 18px', borderBottom: '1px solid var(--border)' }}
+                >
+                  {/* Name + avatar */}
+                  <div style={{ flex: '2 1 200px', display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                    <div
+                      style={{
+                        width: '30px', height: '30px', borderRadius: '50%', flexShrink: 0,
+                        background: u.globalRole === 'SUPER_ADMIN'
+                          ? 'linear-gradient(135deg, var(--6d-orange), #D9601A)'
+                          : 'linear-gradient(135deg, var(--violet), var(--cyan))',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: '11px', fontWeight: 700, color: '#fff',
+                      }}
+                    >
+                      {getInitials(u.name)}
+                    </div>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                      {u.name}
+                      {isSelf && (
+                        <span style={{ marginLeft: '6px', fontSize: '9px', fontFamily: 'var(--font-mono)', color: 'var(--cyan)', background: 'var(--cyan-dim)', padding: '1px 5px', borderRadius: '8px', border: '1px solid rgba(34,211,238,0.3)' }}>
+                          YOU
+                        </span>
+                      )}
+                    </div>
+                  </div>
 
-                      {/* Global Role */}
-                      <td>
-                        {changingRoleId === u.id ? (
-                          <select
-                            className="input-field"
-                            defaultValue={u.globalRole}
-                            autoFocus
-                            onChange={(e) => void handleRoleChange(u.id, e.target.value)}
-                            onBlur={() => setChangingRoleId(null)}
-                            style={{ fontSize: '11px', padding: '3px 8px', width: '160px', fontFamily: 'var(--font-ui)' }}
-                          >
-                            <option value="SUPER_ADMIN">⭐ SUPER_ADMIN</option>
-                            <option value="ADMIN">🛡 ADMIN</option>
-                            <option value="SUPER_USER">👤 SUPER_USER</option>
-                            <option value="STANDARD_USER">👥 STANDARD_USER</option>
-                          </select>
-                        ) : (
-                          <button
-                            type="button"
-                            className={`badge ${
-                              u.globalRole === 'SUPER_ADMIN' ? 'badge-cyan' :
-                              u.globalRole === 'ADMIN' ? 'badge-pass' : 'badge-draft'
-                            }`}
-                            title={isSelf ? 'Cannot change own role' : 'Click to change role'}
-                            onClick={() => { if (!isSelf) setChangingRoleId(u.id); }}
-                            style={{
-                              cursor: isSelf ? 'not-allowed' : 'pointer',
-                              border: 'none', background: 'none',
-                              opacity: isSelf ? 0.7 : 1,
-                            }}
-                          >
-                            {u.globalRole === 'SUPER_ADMIN' ? '⭐ SUPER_ADMIN' :
-                             u.globalRole === 'ADMIN' ? '🛡 ADMIN' :
-                             u.globalRole === 'SUPER_USER' ? '👤 SUPER_USER' : '👥 STANDARD_USER'}
-                            {!isSelf && ' ✎'}
-                          </button>
-                        )}
-                      </td>
+                  {/* Email */}
+                  <div style={{ flex: '2 1 180px', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-mid)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {u.email}
+                  </div>
 
-                      {/* Project count */}
-                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-mid)' }}>
-                        {u._count.memberships}
-                      </td>
+                  {/* Global Role */}
+                  <div style={{ width: '190px', flexShrink: 0 }}>
+                    {changingRoleId === u.id ? (
+                      <select
+                        className="input-field"
+                        defaultValue={u.globalRole}
+                        autoFocus
+                        onChange={(e) => void handleRoleChange(u.id, e.target.value)}
+                        onBlur={() => setChangingRoleId(null)}
+                        style={{ fontSize: '11px', padding: '3px 8px', width: '160px', fontFamily: 'var(--font-ui)' }}
+                      >
+                        <option value="SUPER_ADMIN">⭐ SUPER_ADMIN</option>
+                        <option value="ADMIN">🛡 ADMIN</option>
+                        <option value="SUPER_USER">👤 SUPER_USER</option>
+                        <option value="STANDARD_USER">👥 STANDARD_USER</option>
+                      </select>
+                    ) : (
+                      <button
+                        type="button"
+                        className={`badge ${
+                          u.globalRole === 'SUPER_ADMIN' ? 'badge-cyan' :
+                          u.globalRole === 'ADMIN' ? 'badge-pass' : 'badge-draft'
+                        }`}
+                        title={isSelf ? 'Cannot change own role' : 'Click to change role'}
+                        onClick={() => { if (!isSelf) setChangingRoleId(u.id); }}
+                        style={{
+                          cursor: isSelf ? 'not-allowed' : 'pointer',
+                          border: 'none', background: 'none',
+                          opacity: isSelf ? 0.7 : 1,
+                        }}
+                      >
+                        {u.globalRole === 'SUPER_ADMIN' ? '⭐ SUPER_ADMIN' :
+                         u.globalRole === 'ADMIN' ? '🛡 ADMIN' :
+                         u.globalRole === 'SUPER_USER' ? '👤 SUPER_USER' : '👥 STANDARD_USER'}
+                        {!isSelf && ' ✎'}
+                      </button>
+                    )}
+                  </div>
 
-                      {/* Joined date */}
-                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-dim)' }}>
-                        {new Date(u.createdAt).toLocaleDateString()}
-                      </td>
+                  {/* Project count */}
+                  <div style={{ width: '70px', flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-mid)' }}>
+                    {u._count.memberships}
+                  </div>
 
-                      {/* Actions */}
-                      <td>
-                        {deletingId === u.id ? (
-                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                            <span style={{ fontSize: '10px', color: 'var(--fail)' }}>Delete?</span>
-                            <button
-                              className="tb-btn tb-btn-ghost"
-                              style={{ padding: '3px 8px', fontSize: '10px', color: 'var(--rose)', borderColor: 'rgba(220,38,38,0.3)' }}
-                              onClick={() => void handleDelete(u.id)}
-                              disabled={deleteUser.isPending}
-                            >Yes</button>
-                            <button
-                              className="tb-btn tb-btn-ghost"
-                              style={{ padding: '3px 8px', fontSize: '10px' }}
-                              onClick={() => setDeletingId(null)}
-                            >No</button>
-                          </div>
-                        ) : (
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button
-                              className="tb-btn tb-btn-ghost"
-                              style={{ padding: '4px 10px', fontSize: '11px' }}
-                              onClick={() => { setResetTarget(u); setResetDialogOpen(true); }}
-                            >
-                              🔑 Reset PW
-                            </button>
-                            <button
-                              className="tb-btn tb-btn-ghost"
-                              style={{
-                                padding: '4px 10px', fontSize: '11px',
-                                color: isSelf ? 'var(--text-dim)' : 'var(--rose)',
-                                borderColor: isSelf ? 'var(--border)' : 'rgba(220,38,38,0.3)',
-                                cursor: isSelf ? 'not-allowed' : 'pointer',
-                              }}
-                              onClick={() => { if (!isSelf) setDeletingId(u.id); }}
-                              disabled={isSelf}
-                              title={isSelf ? 'Cannot delete your own account' : 'Remove user'}
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                  {/* Joined date */}
+                  <div style={{ width: '100px', flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-dim)' }}>
+                    {new Date(u.createdAt).toLocaleDateString()}
+                  </div>
+
+                  {/* Actions */}
+                  <div style={{ width: '190px', flexShrink: 0 }}>
+                    {deletingId === u.id ? (
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        <span style={{ fontSize: '10px', color: 'var(--fail)' }}>Delete?</span>
+                        <button
+                          className="tb-btn tb-btn-ghost"
+                          style={{ padding: '3px 8px', fontSize: '10px', color: 'var(--rose)', borderColor: 'rgba(220,38,38,0.3)' }}
+                          onClick={() => void handleDelete(u.id)}
+                          disabled={deleteUser.isPending}
+                        >Yes</button>
+                        <button
+                          className="tb-btn tb-btn-ghost"
+                          style={{ padding: '3px 8px', fontSize: '10px' }}
+                          onClick={() => setDeletingId(null)}
+                        >No</button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          className="tb-btn tb-btn-ghost"
+                          style={{ padding: '4px 10px', fontSize: '11px' }}
+                          onClick={() => { setResetTarget(u); setResetDialogOpen(true); }}
+                        >
+                          🔑 Reset PW
+                        </button>
+                        <button
+                          className="tb-btn tb-btn-ghost"
+                          style={{
+                            padding: '4px 10px', fontSize: '11px',
+                            color: isSelf ? 'var(--text-dim)' : 'var(--rose)',
+                            borderColor: isSelf ? 'var(--border)' : 'rgba(220,38,38,0.3)',
+                            cursor: isSelf ? 'not-allowed' : 'pointer',
+                          }}
+                          onClick={() => { if (!isSelf) setDeletingId(u.id); }}
+                          disabled={isSelf}
+                          title={isSelf ? 'Cannot delete your own account' : 'Remove user'}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
           {hiddenCount > 0 && (
             <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
               <button
