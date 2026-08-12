@@ -837,11 +837,17 @@ html[data-density="compact"] {
     top: 15%; bottom: 15%; left: 50%;
     width: 2px;
     transform: translateX(-50%);
-    background: transparent;
+    /* Always-on subtle divider so the drag grip is discoverable, not just
+       on hover — otherwise nothing on the row hints it's resizable. */
+    background: var(--border2);
     border-radius: 2px;
-    transition: background 0.12s;
+    transition: background 0.12s, width 0.12s;
   }
-  .col-resize-handle:hover::after { background: var(--cyan); }
+  .col-resize-handle:hover::after,
+  .col-resize-handle:active::after {
+    background: var(--cyan);
+    width: 3px;
+  }
 
   .tc-item { transition: background 0.12s; }
   .tc-item:hover { background: var(--surface2) !important; }
