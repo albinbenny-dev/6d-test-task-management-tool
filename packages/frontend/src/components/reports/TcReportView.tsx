@@ -151,7 +151,7 @@ export default function TcReportView({ projectId, runId, items, isLoading, query
               >
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)' }}>{item.tcId ?? '—'}</span>
                 <div style={{ minWidth: 0, overflow: 'hidden' }}>
-                  <div style={{ color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.title}</div>
+                  <div style={{ color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item.title}>{item.title}</div>
                   {item.errorMessage && (
                     <div title={item.errorMessage} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--fail)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {item.errorMessage.split('\n')[0]}

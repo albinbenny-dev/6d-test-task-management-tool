@@ -35,6 +35,8 @@ import { STATUS_BADGE, STATUS_COLOR, STATUS_LABEL, emptyStatusCounts } from '../
 import { isBugClosed, isBugOverdue } from '../lib/jiraBugStatus';
 import { groupColor, colorToRgba } from '../lib/featureGroupTheme';
 import { DAY_RANGE_OPTIONS, dayKeyOf, lastNDayKeys, formatShortDate } from '../lib/dailySeries';
+import { useResizableColumns, type ResizableColumnDef } from '../hooks/useResizableColumns';
+import { ColResizeHandle } from '../components/ui/ColResizeHandle';
 import type { TestCycleItem, TestCycleStatus, ManualResultStatus, TestCycle, JiraBugSummary, TestCycleItemHistoryEntry, ProjectMember } from '../types';
 
 // ── Status cards — computed client-side from already-fetched items + bugs ──
@@ -600,20 +602,26 @@ function VelocityTab({ projectId, cycleId, members, bugs }: {
 // no separate flat list anymore. Groups start collapsed; the header shows a
 // segmented status bar + pass rate, same as the page's own stat cards. ─────
 
-// Status column widened (130 -> 170) to fit the pill + a conditional
-// "Retested" badge without overflowing into the next column (Jira Keys and
-// Updated trimmed slightly to compensate — dates/short keys still fit fine).
+// The middle stretch of columns (TC ID through Updated) is user-resizable
+// and persisted (see useResizableColumns) — everything else (the leading
+// checkbox/expand-toggle columns and the trailing view/remove icon columns)
+// is fixed-width chrome, not a data column, so it's excluded from resizing.
 // The leading checkbox column only exists for managers (it drives bulk
 // delete, which is gated the same way as the per-row 🗑 button) — grid and
 // headers are computed per-viewer so read-only members don't get a dead
 // column of empty space.
-const FEATURE_GRID_TAIL = '90px minmax(140px, 1fr) 150px 170px 40px 90px 100px 32px 32px';
-const FEATURE_HEADERS_TAIL = ['TC ID', 'Test Case', 'Assignee', 'Status', 'Reason', 'Jira Keys', 'Updated', '', ''];
-function featureGrid(canManage: boolean): string {
-  return canManage ? `20px 24px ${FEATURE_GRID_TAIL}` : `24px ${FEATURE_GRID_TAIL}`;
-}
-function featureHeaders(canManage: boolean): string[] {
-  return canManage ? ['', '', ...FEATURE_HEADERS_TAIL] : ['', ...FEATURE_HEADERS_TAIL];
+const FEATURE_TAIL_COLUMNS: (ResizableColumnDef & { label: string })[] = [
+  { key: 'tcid', label: 'TC ID', width: 90, min: 70 },
+  { key: 'title', label: 'Test Case', width: 260, min: 140 },
+  { key: 'assignee', label: 'Assignee', width: 150, min: 100 },
+  { key: 'status', label: 'Status', width: 170, min: 120 },
+  { key: 'reason', label: 'Reason', width: 60, min: 40, max: 240 },
+  { key: 'jira', label: 'Jira Keys', width: 90, min: 70 },
+  { key: 'updated', label: 'Updated', width: 100, min: 80 },
+];
+function featureGrid(canManage: boolean, tailGridTemplateColumns: string): string {
+  const prefix = canManage ? '20px 24px ' : '24px ';
+  return `${prefix}${tailGridTemplateColumns} 32px 32px`;
 }
 
 function InlineResultEditor({ item, pendingStatus, onSave, onCancel }: {
@@ -653,7 +661,7 @@ function InlineResultEditor({ item, pendingStatus, onSave, onCancel }: {
   );
 }
 
-function FeatureItemRow({ item, canEdit, lockedReason, canManage, selected, onToggleSelect, onAssign, onStatusChange, onRemove, isEditingResult, pendingStatus, onSaveResult, onCancelResult, onViewTestCase }: {
+function FeatureItemRow({ item, canEdit, lockedReason, canManage, selected, onToggleSelect, onAssign, onStatusChange, onRemove, isEditingResult, pendingStatus, onSaveResult, onCancelResult, onViewTestCase, gridTemplateColumns }: {
   item: TestCycleItem;
   canEdit: boolean;
   lockedReason: string | null;
@@ -668,6 +676,7 @@ function FeatureItemRow({ item, canEdit, lockedReason, canManage, selected, onTo
   onSaveResult: (body: { status: ManualResultStatus; reason: string; jiraIssueKeys: string[] }) => void;
   onCancelResult: () => void;
   onViewTestCase: (itemId: string) => void;
+  gridTemplateColumns: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const tc = item.testCase;
@@ -677,7 +686,7 @@ function FeatureItemRow({ item, canEdit, lockedReason, canManage, selected, onTo
 
   return (
     <div style={{ borderBottom: '1px solid var(--border)', background: selected ? 'var(--cyan-dim)' : undefined }}>
-      <div style={{ display: 'grid', gridTemplateColumns: featureGrid(canManage), gap: '8px', padding: '8px 14px', alignItems: 'center' }}>
+      <div style={{ display: 'grid', gridTemplateColumns, gap: '8px', padding: '8px 14px', alignItems: 'center' }}>
         {canManage && (
           <input type="checkbox" checked={selected} onChange={onToggleSelect} style={{ cursor: 'pointer' }} />
         )}
@@ -687,7 +696,7 @@ function FeatureItemRow({ item, canEdit, lockedReason, canManage, selected, onTo
           style={{ width: '16px', height: '16px', borderRadius: '3px', background: expanded ? 'var(--cyan-dim)' : 'var(--surface2)', border: `1px solid ${expanded ? 'rgba(37,99,171,0.35)' : 'var(--border)'}`, color: expanded ? 'var(--cyan)' : hasDetail ? 'var(--text)' : 'var(--border)', fontSize: '8px', cursor: hasDetail ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
         >{expanded ? '▲' : '▼'}</button>
 
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--cyan)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tc?.srNo ?? '—'}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--cyan)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={tc?.srNo ?? ''}>{tc?.srNo ?? '—'}</span>
 
         <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={tc?.title}>{tc?.title}</span>
 
@@ -778,7 +787,7 @@ function FeatureItemRow({ item, canEdit, lockedReason, canManage, selected, onTo
   );
 }
 
-function FeatureGroup({ feature, color, items, canEditItem, statusLockedReason, canManage, selectedIds, onToggleSelect, onToggleGroupSelect, onAssign, onStatusChange, onRemove, editingItemId, editingStatus, onSaveResult, onCancelResult, onViewTestCase }: {
+function FeatureGroup({ feature, color, items, canEditItem, statusLockedReason, canManage, selectedIds, onToggleSelect, onToggleGroupSelect, onAssign, onStatusChange, onRemove, editingItemId, editingStatus, onSaveResult, onCancelResult, onViewTestCase, tailGridTemplateColumns, startResize }: {
   feature: string;
   color: string;
   items: TestCycleItem[];
@@ -796,6 +805,8 @@ function FeatureGroup({ feature, color, items, canEditItem, statusLockedReason, 
   onSaveResult: (itemId: string, body: { status: ManualResultStatus; reason: string; jiraIssueKeys: string[] }) => void;
   onCancelResult: () => void;
   onViewTestCase: (itemId: string) => void;
+  tailGridTemplateColumns: string;
+  startResize: (key: string) => (e: React.MouseEvent) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const counts = emptyStatusCounts();
@@ -839,11 +850,18 @@ function FeatureGroup({ feature, color, items, canEditItem, statusLockedReason, 
       </div>
 
       {isOpen && total > 0 && (
-        <div>
-          <div style={{ display: 'grid', gridTemplateColumns: featureGrid(canManage), gap: '8px', padding: '6px 14px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-            {featureHeaders(canManage).map((col, i) => (
-              <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-dim)', letterSpacing: '1px', fontWeight: 700 }}>{col}</div>
+        <div className="col-resize-scroll">
+          <div style={{ display: 'grid', gridTemplateColumns: featureGrid(canManage, tailGridTemplateColumns), gap: '8px', padding: '6px 14px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+            {canManage && <div />}
+            <div />
+            {FEATURE_TAIL_COLUMNS.map((col) => (
+              <div key={col.key} className="col-resizable-th" style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-dim)', letterSpacing: '1px', fontWeight: 700 }}>
+                {col.label}
+                <ColResizeHandle onMouseDown={startResize(col.key)} />
+              </div>
             ))}
+            <div />
+            <div />
           </div>
           {items.map((item) => (
             <FeatureItemRow
@@ -862,6 +880,7 @@ function FeatureGroup({ feature, color, items, canEditItem, statusLockedReason, 
               onSaveResult={(body) => onSaveResult(item.id, body)}
               onCancelResult={onCancelResult}
               onViewTestCase={onViewTestCase}
+              gridTemplateColumns={featureGrid(canManage, tailGridTemplateColumns)}
             />
           ))}
         </div>
@@ -888,6 +907,8 @@ function TestCasesTab({ items, groupBy, canEditItem, statusLockedReason, canMana
   onCancelResult: () => void;
   onViewTestCase: (itemId: string) => void;
 }) {
+  const { gridTemplateColumns: tailGridTemplateColumns, startResize } = useResizableColumns('test-cycle-items', FEATURE_TAIL_COLUMNS);
+
   const groups = new Map<string, TestCycleItem[]>();
   for (const item of items) {
     const key = groupBy === 'assignee'
@@ -924,6 +945,8 @@ function TestCasesTab({ items, groupBy, canEditItem, statusLockedReason, canMana
           onSaveResult={onSaveResult}
           onCancelResult={onCancelResult}
           onViewTestCase={onViewTestCase}
+          tailGridTemplateColumns={tailGridTemplateColumns}
+          startResize={startResize}
         />
       ))}
     </div>

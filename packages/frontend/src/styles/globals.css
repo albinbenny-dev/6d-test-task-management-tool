@@ -817,6 +817,32 @@ html[data-density="compact"] {
   }
   .tc-checkbox:hover { border-color: var(--cyan); }
 
+  /* ── Resizable table columns ──
+     Wrap a header row + its body rows in .col-resize-scroll so they scroll
+     horizontally as one unit once a table's columns outgrow the viewport.
+     Give each header cell .col-resizable-th (position: relative + right
+     padding) and drop a <ColResizeHandle> inside it as the drag grip. */
+  .col-resize-scroll { overflow-x: auto; }
+  .col-resizable-th { position: relative; padding-right: 10px; min-width: 0; }
+  .col-resize-handle {
+    position: absolute;
+    top: 0; bottom: 0; right: -5px;
+    width: 10px;
+    cursor: col-resize;
+    z-index: 2;
+  }
+  .col-resize-handle::after {
+    content: '';
+    position: absolute;
+    top: 15%; bottom: 15%; left: 50%;
+    width: 2px;
+    transform: translateX(-50%);
+    background: transparent;
+    border-radius: 2px;
+    transition: background 0.12s;
+  }
+  .col-resize-handle:hover::after { background: var(--cyan); }
+
   .tc-item { transition: background 0.12s; }
   .tc-item:hover { background: var(--surface2) !important; }
   .tc-item.selected {

@@ -98,7 +98,7 @@ function TaskRow({ task, readOnly, onToggleDone, onEdit, onDelete }: {
         style={{ cursor: readOnly ? 'default' : 'pointer', textDecoration: task.done ? 'line-through' : 'none', opacity: task.done ? 0.6 : 1 }}
         onClick={readOnly ? undefined : onEdit}
       >
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={task.title}>{task.title}</span>
       </div>
       <div>
         <span style={{ fontSize: '10.5px', fontWeight: 700, color: PRIORITY_ACCENT[task.priority] }}>{PRIORITY_LABEL[task.priority]}</span>

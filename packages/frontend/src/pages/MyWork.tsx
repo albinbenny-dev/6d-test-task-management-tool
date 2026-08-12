@@ -243,9 +243,9 @@ function TestCasesTab({ projectId, slug }: { projectId: string; slug: string }) 
                       >
                         <div className="tm-row-title">
                           <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-dim)', fontSize: 11, flexShrink: 0 }}>{item.testCase?.srNo ?? '—'}</span>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.testCase?.title}</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.testCase?.title}>{item.testCase?.title}</span>
                         </div>
-                        <div style={{ fontSize: 10.5, color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.testCycle.name}>
                           {item.testCycle.name}
                         </div>
                         <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: dueDateColor(dueDate, status === 'PASS') }}>
@@ -400,7 +400,7 @@ function TaskGroup({ title, tasks, onOpen, onStatusChange, accent, collapsed, on
               >
                 <div className="tm-row-title">
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: taskDotColor(task), flexShrink: 0 }} />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={task.title}>{task.title}</span>
                   {task.taskList && (
                     <span style={{ fontSize: 10, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>
                       {task.taskList.name}

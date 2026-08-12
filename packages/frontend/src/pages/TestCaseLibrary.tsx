@@ -22,11 +22,21 @@ import { groupColor, colorToRgba } from '../lib/featureGroupTheme';
 import { useTestCycles, useCreateTestCycle, useAddTestCycleItems } from '../hooks/useTestCycles';
 import { useClickOutside } from '../hooks/useClickOutside';
 import { FloatingPortal } from '../components/ui/FloatingPortal';
+import { useResizableColumns, type ResizableColumnDef } from '../hooks/useResizableColumns';
+import { ColResizeHandle } from '../components/ui/ColResizeHandle';
 import type { TestCycle } from '../types';
 
-// Grid shared between header row and data rows
-const GRID = '28px 100px 190px 1fr 150px 70px';
-const HEADERS = ['', 'TC ID', 'Test Case', 'Description', 'Labels', 'Actions'];
+// Columns shared between the header row and every feature group's data rows —
+// user-resizable and persisted (see useResizableColumns). The checkbox column
+// is fixed-width and not resizable.
+const TC_COLUMNS: (ResizableColumnDef & { label: string; resizable: boolean })[] = [
+  { key: 'check', label: '', width: 28, min: 28, max: 28, resizable: false },
+  { key: 'id', label: 'TC ID', width: 100, min: 70, resizable: true },
+  { key: 'title', label: 'Test Case', width: 190, min: 120, resizable: true },
+  { key: 'description', label: 'Description', width: 320, min: 150, resizable: true },
+  { key: 'labels', label: 'Labels', width: 150, min: 90, resizable: true },
+  { key: 'actions', label: 'Actions', width: 70, min: 60, max: 140, resizable: false },
+];
 
 function naturalCompare(a: string | null, b: string | null): number {
   if (!a && !b) return 0;
@@ -39,11 +49,12 @@ function naturalCompare(a: string | null, b: string | null): number {
 function FeatureGroup({
   feature, color, items, isOpen, onOpenChange,
   selectedIds, onToggle, onToggleAll,
-  onEdit, onDelete,
+  onEdit, onDelete, gridTemplateColumns, startResize,
 }: {
   feature: string; color: string; items: TcItem[]; isOpen: boolean; onOpenChange: (open: boolean) => void;
   selectedIds: Set<string>; onToggle: (id: string) => void; onToggleAll: (ids: string[]) => void;
   onEdit?: (item: TcItem) => void; onDelete?: (item: TcItem) => void;
+  gridTemplateColumns: string; startResize: (key: string) => (e: React.MouseEvent) => void;
 }) {
   const ids = items.map((i) => i.id);
   const selectedCount = ids.filter((id) => selectedIds.has(id)).length;
@@ -71,16 +82,17 @@ function FeatureGroup({
 
       {/* Table */}
       {isOpen && items.length > 0 && (
-        <div>
-          <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: '8px', padding: '6px 14px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-            {HEADERS.map((col, i) => (
-              <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-dim)', letterSpacing: '1px', fontWeight: 700 }}>
-                {col}
+        <div className="col-resize-scroll">
+          <div style={{ display: 'grid', gridTemplateColumns, gap: '8px', padding: '6px 14px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+            {TC_COLUMNS.map((col) => (
+              <div key={col.key} className={col.resizable ? 'col-resizable-th' : undefined} style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-dim)', letterSpacing: '1px', fontWeight: 700 }}>
+                {col.label}
+                {col.resizable && <ColResizeHandle onMouseDown={startResize(col.key)} />}
               </div>
             ))}
           </div>
           {items.map((item) => (
-            <TcItemRow key={item.id} item={item} selected={selectedIds.has(item.id)} onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} />
+            <TcItemRow key={item.id} item={item} selected={selectedIds.has(item.id)} onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} gridTemplateColumns={gridTemplateColumns} />
           ))}
         </div>
       )}
@@ -159,10 +171,11 @@ function LabelFilterDropdown({ allLabels, selected, mode, onChange, onModeChange
 }
 
 // ── TC Item row ────────────────────────────────────────────────────────────
-function TcItemRow({ item, selected, onToggle, onEdit, onDelete }: {
+function TcItemRow({ item, selected, onToggle, onEdit, onDelete, gridTemplateColumns }: {
   item: TcItem; selected: boolean;
   onToggle: (id: string) => void; onEdit?: (item: TcItem) => void;
   onDelete?: (item: TcItem) => void;
+  gridTemplateColumns: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasDetail = !!(item.steps || item.expectedResult || item.description);
@@ -170,7 +183,7 @@ function TcItemRow({ item, selected, onToggle, onEdit, onDelete }: {
   return (
     <div style={{ borderBottom: '1px solid var(--border)' }}>
       {/* Main row */}
-      <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: '8px', padding: '8px 14px', alignItems: 'center', background: selected ? 'var(--cyan-dim)' : 'transparent', borderLeft: selected ? '2px solid var(--cyan)' : '2px solid transparent', transition: 'background 0.15s' }}>
+      <div style={{ display: 'grid', gridTemplateColumns, gap: '8px', padding: '8px 14px', alignItems: 'center', background: selected ? 'var(--cyan-dim)' : 'transparent', borderLeft: selected ? '2px solid var(--cyan)' : '2px solid transparent', transition: 'background 0.15s' }}>
         <div className={`tc-checkbox${selected ? ' checked' : ''}`} style={{ fontSize: '10px', flexShrink: 0 }} onClick={() => onToggle(item.id)}>
           {selected ? '✓' : ''}
         </div>
@@ -185,7 +198,7 @@ function TcItemRow({ item, selected, onToggle, onEdit, onDelete }: {
         </div>
 
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</div>
+          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.title}>{item.title}</div>
         </div>
 
         <div style={{ fontSize: '10px', color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.description ?? ''}>
@@ -745,6 +758,7 @@ export default function TestCaseLibrary() {
   const { canManageTestCycles, canManageTcLibrary, canEditTcItems } = useRBAC();
 
   const { data: items = [], isLoading } = useTcItems(projectId);
+  const { gridTemplateColumns, startResize } = useResizableColumns('tc-library', TC_COLUMNS);
 
   const updateMutation = useUpdateTcItem(projectId);
   const deleteMutation = useDeleteTcItem(projectId);
@@ -990,6 +1004,8 @@ export default function TestCaseLibrary() {
                 onToggleAll={toggleSelectAll}
                 onEdit={canEditTcItems ? setEditingItem : undefined}
                 onDelete={canManageTcLibrary ? handleDelete : undefined}
+                gridTemplateColumns={gridTemplateColumns}
+                startResize={startResize}
               />
             ))}
           </div>

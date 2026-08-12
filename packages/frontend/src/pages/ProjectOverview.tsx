@@ -110,7 +110,7 @@ function ResourceWorkloadTable({ rows }: { rows: OverviewResourceRow[] }) {
         const load = LOAD_META[r.load];
         return (
           <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr 66px', alignItems: 'center', gap: 14 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: r.name === 'Unassigned' ? 'var(--amber)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</span>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: r.name === 'Unassigned' ? 'var(--amber)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.name}>{r.name}</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 10, color: 'var(--text-dim)', width: 32, flexShrink: 0 }}>Tasks</span>
               <span style={{ flex: 1, height: 8, borderRadius: 4, background: 'var(--surface2)', overflow: 'hidden' }}>

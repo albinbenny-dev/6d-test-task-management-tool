@@ -10,9 +10,19 @@ import {
 import { PriorityBadge } from './PriorityBadge';
 import { TaskStatusPicker } from './TaskStatusPicker';
 import { AssigneePicker } from './AssigneePicker';
+import { useResizableColumns, type ResizableColumnDef } from '../../hooks/useResizableColumns';
+import { ColResizeHandle } from '../ui/ColResizeHandle';
 import type { Task, TaskStatus } from '../../types';
 
-const GRID = '1fr 120px 100px 110px 140px';
+// User-resizable, persisted (see useResizableColumns) — shared between the
+// column header and every row, including nested subtask rows.
+const TASK_COLUMNS: (ResizableColumnDef & { label: string })[] = [
+  { key: 'name', label: 'Name', width: 320, min: 160 },
+  { key: 'assignee', label: 'Assignee', width: 120, min: 80 },
+  { key: 'due', label: 'Due date', width: 100, min: 80 },
+  { key: 'priority', label: 'Priority', width: 110, min: 80 },
+  { key: 'status', label: 'Status', width: 140, min: 90 },
+];
 
 function Row({
   task,
@@ -22,6 +32,7 @@ function Row({
   onStatusChange,
   onAssigneeChange,
   canWrite,
+  gridTemplateColumns,
 }: {
   task: Task;
   projectId: string;
@@ -30,6 +41,7 @@ function Row({
   onStatusChange: (id: string, status: TaskStatus) => void;
   onAssigneeChange: (id: string, userId: string | null) => void;
   canWrite: boolean;
+  gridTemplateColumns: string;
 }) {
   const [expanded, setExpanded] = useState(true);
   const hasSubtasks = (task.subtasks?.length ?? 0) > 0;
@@ -37,7 +49,7 @@ function Row({
 
   return (
     <>
-      <div className="tm-row" style={{ gridTemplateColumns: GRID, paddingLeft: 14 + depth * 22 }}>
+      <div className="tm-row" style={{ gridTemplateColumns, paddingLeft: 14 + depth * 22 }}>
         <div className="tm-row-title" onClick={() => onOpen(task)}>
           {hasSubtasks ? (
             <button
@@ -51,7 +63,7 @@ function Row({
             <span style={{ width: 16, flexShrink: 0 }} />
           )}
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: taskDotColor(task), flexShrink: 0 }} />
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={task.title}>{task.title}</span>
           {hasSubtasks && (
             <span style={{ fontSize: 10, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>
               🔗 {task.subtasks!.length} subtask{task.subtasks!.length === 1 ? '' : 's'}
@@ -85,6 +97,7 @@ function Row({
           onStatusChange={onStatusChange}
           onAssigneeChange={onAssigneeChange}
           canWrite={canWrite}
+          gridTemplateColumns={gridTemplateColumns}
         />
       ))}
     </>
@@ -122,6 +135,7 @@ export function TaskListView({
   const [assigneeFilters, setAssigneeFilters] = useState<string[]>([]);
   const [dueFilters, setDueFilters] = useState<string[]>([]);
   const [groupByStatus, setGroupByStatus] = useState(false);
+  const { gridTemplateColumns, startResize } = useResizableColumns('task-list', TASK_COLUMNS);
 
   const assigneeOptions = useMemo(
     () => [...new Set(tasks.map(assigneeName))].sort(),
@@ -193,26 +207,30 @@ export function TaskListView({
         </span>
       </div>
 
-      {/* ── Column header — sticky so it stays visible while the grouped
-          rows below scroll within this component's own bounded region,
-          independent of whatever the surrounding page layout does. ── */}
-      <div
-        className="tm-row"
-        style={{
-          gridTemplateColumns: GRID, paddingLeft: 14,
-          fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '0.6px',
-          textTransform: 'uppercase', color: 'var(--text-dim)', fontWeight: 600,
-          background: 'var(--surface2)', flexShrink: 0,
-        }}
-      >
-        <div>Name</div>
-        <div>Assignee</div>
-        <div>Due date</div>
-        <div>Priority</div>
-        <div>Status</div>
-      </div>
+      {/* ── Header + rows share one horizontal-scroll region so widening a
+          column never desyncs the two — the header itself doesn't scroll
+          vertically (that's the nested body div below), just horizontally
+          in lockstep with the rows. Columns are user-resizable
+          (see useResizableColumns). ── */}
+      <div className="col-resize-scroll" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+        <div
+          className="tm-row"
+          style={{
+            gridTemplateColumns, paddingLeft: 14,
+            fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '0.6px',
+            textTransform: 'uppercase', color: 'var(--text-dim)', fontWeight: 600,
+            background: 'var(--surface2)', flexShrink: 0,
+          }}
+        >
+          {TASK_COLUMNS.map((col) => (
+            <div key={col.key} className="col-resizable-th">
+              {col.label}
+              <ColResizeHandle onMouseDown={startResize(col.key)} />
+            </div>
+          ))}
+        </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {tasks.length === 0 && (
           <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-dim)', fontSize: 12 }}>
             No tasks yet.
@@ -257,6 +275,7 @@ export function TaskListView({
                 onStatusChange={onStatusChange}
                 onAssigneeChange={onAssigneeChange}
                 canWrite={canWrite}
+                gridTemplateColumns={gridTemplateColumns}
               />
             ))}
 
@@ -280,6 +299,7 @@ export function TaskListView({
                 onStatusChange={onStatusChange}
                 onAssigneeChange={onAssigneeChange}
                 canWrite={canWrite}
+                gridTemplateColumns={gridTemplateColumns}
               />
             ))}
 
@@ -290,6 +310,7 @@ export function TaskListView({
             )}
           </div>
         )}
+        </div>
       </div>
     </div>
   );
