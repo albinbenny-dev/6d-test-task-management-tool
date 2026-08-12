@@ -4,10 +4,11 @@ import { Minimize2, Maximize2, ChevronDown, FolderKanban } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
 import { AppMark } from '../ui/AppMark';
 import { getInitials, PROJECT_GRADIENTS } from '../../lib/utils';
+import { landingPath } from '../../lib/projectLanding';
 
 export default function BrandBanner() {
   const navigate = useNavigate();
-  const { theme, toggleTheme, compactMode, toggleCompactMode, activeProject, projects } = useProjectStore();
+  const { theme, toggleTheme, compactMode, toggleCompactMode, activeProject, projects, currentUser } = useProjectStore();
   const isLight = theme === 'light';
 
   function colorFor(id: string, color?: string | null) {
@@ -54,7 +55,7 @@ export default function BrandBanner() {
                   <DropdownMenu.Item
                     key={p.id}
                     className="project-switcher-item"
-                    onSelect={() => navigate(`/projects/${p.slug}/test-cycles`)}
+                    onSelect={() => navigate(landingPath(p, currentUser?.globalRole))}
                   >
                     <span className="project-switcher-avatar" style={{ background: colorFor(p.id, p.color) }}>
                       {getInitials(p.name)}
