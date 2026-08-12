@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import Topbar, { TbBtn } from '../components/layout/Topbar';
 import { useProject } from '../hooks/useProjects';
 import { useTaskLists } from '../hooks/useTaskLists';
-import { useTasks, useUpdateTaskStatus, useAssignTask } from '../hooks/useTasks';
+import { useTasks, useUpdateTaskStatus, useAssignTask, exportTasks } from '../hooks/useTasks';
 import { useRBAC } from '../hooks/useRBAC';
 import { KanbanBoard } from '../components/tasks/KanbanBoard';
 import { TaskListView } from '../components/tasks/TaskListView';
@@ -11,8 +12,16 @@ import { TaskDetailPanel } from '../components/tasks/TaskDetailPanel';
 import { CreateTaskModal } from '../components/tasks/CreateTaskModal';
 import { TaskListsSidebar } from '../components/tasks/TaskListsSidebar';
 import { ImportTasksModal } from '../components/tasks/ImportTasksModal';
-import { formatDueDate } from '../lib/taskMeta';
+import { TaskFilterBar, emptyTaskFilters, type TaskFilterState } from '../components/tasks/TaskFilterBar';
+import { formatDueDate, parseTags, STATUS_LABEL, PRIORITY_LABEL, taskDueBucket } from '../lib/taskMeta';
 import type { Task, TaskStatus } from '../types';
+
+function matchesMulti(selected: string[], value: string): boolean {
+  return selected.length === 0 || selected.includes(value);
+}
+function assigneeName(task: Task): string {
+  return task.assignee?.user.name ?? 'Unassigned';
+}
 
 type ViewMode = 'list' | 'board';
 
@@ -34,6 +43,47 @@ export default function TaskListDetail() {
   const [createFor, setCreateFor] = useState<TaskStatus | 'quick' | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [searchParams] = useSearchParams();
+
+  // ── Filters live here, not inside TaskListView, so they survive switching
+  // between Board and List — those are two independently-mounted trees, and
+  // whichever one used to own this state lost it the moment it unmounted. ──
+  const [filters, setFilters] = useState<TaskFilterState>(emptyTaskFilters);
+  const [groupByStatus, setGroupByStatus] = useState(false);
+
+  const assigneeOptions = useMemo(() => [...new Set(tasks.map(assigneeName))].sort(), [tasks]);
+  const tagOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of tasks) for (const tag of parseTags(t.tags)) set.add(tag);
+    return [...set].sort();
+  }, [tasks]);
+
+  const filteredTasks = useMemo(() => {
+    const q = filters.search.trim().toLowerCase();
+    return tasks.filter((t) => {
+      if (q && !t.title.toLowerCase().includes(q)) return false;
+      if (!matchesMulti(filters.statusFilters, STATUS_LABEL[t.status])) return false;
+      if (!matchesMulti(filters.priorityFilters, PRIORITY_LABEL[t.priority])) return false;
+      if (!matchesMulti(filters.assigneeFilters, assigneeName(t))) return false;
+      if (!matchesMulti(filters.dueFilters, taskDueBucket(t))) return false;
+      if (filters.tagFilters.length > 0) {
+        const taskTags = parseTags(t.tags);
+        if (!filters.tagFilters.some((tag) => taskTags.includes(tag))) return false;
+      }
+      return true;
+    });
+  }, [tasks, filters]);
+
+  const filteredTopLevelCount = useMemo(() => filteredTasks.filter((t) => !t.parentTaskId).length, [filteredTasks]);
+
+  async function handleExport() {
+    if (!projectId || !listId) return;
+    try {
+      const listName = list?.name ?? 'list';
+      await exportTasks(projectId, listName.toLowerCase().replace(/[^a-z0-9]+/g, '-'), { ids: filteredTasks.map((t) => t.id) });
+    } catch {
+      toast.error('Export failed');
+    }
+  }
 
   // Timeline roadmap header — min start / max due across top-level tasks
   // (same denominator as the "N task(s)" subtitle below), plus a completion
@@ -78,6 +128,7 @@ export default function TaskListDetail() {
               <button className={`tm-view-tab${view === 'list' ? ' active' : ''}`} onClick={() => setView('list')}>☰ List</button>
               <button className={`tm-view-tab${view === 'board' ? ' active' : ''}`} onClick={() => setView('board')}>▦ Board</button>
             </div>
+            <TbBtn variant="ghost" onClick={() => void handleExport()}>📤 Export</TbBtn>
             {canWrite && (
               <TbBtn variant="ghost" onClick={() => setShowImport(true)}>📥 Import</TbBtn>
             )}
@@ -125,12 +176,26 @@ export default function TaskListDetail() {
             )}
           </div>
 
+          {!isLoading && (
+            <TaskFilterBar
+              filters={filters}
+              onChange={setFilters}
+              assigneeOptions={assigneeOptions}
+              tagOptions={tagOptions}
+              groupByStatus={groupByStatus}
+              onGroupByStatusChange={setGroupByStatus}
+              showGroupToggle={view === 'list'}
+              filteredCount={filteredTopLevelCount}
+              totalCount={topLevelTasks.length}
+            />
+          )}
+
           {isLoading ? (
             <div style={{ color: 'var(--text-dim)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>Loading tasks…</div>
           ) : view === 'board' ? (
             <div style={{ flex: 1, minHeight: 0 }}>
               <KanbanBoard
-                tasks={tasks}
+                tasks={filteredTasks}
                 onOpenTask={handleOpenTask}
                 onMoveTask={(taskId, status) => updateStatus.mutate({ id: taskId, status })}
                 onQuickAdd={(status) => setCreateFor(status)}
@@ -139,8 +204,12 @@ export default function TaskListDetail() {
           ) : (
             <div style={{ flex: 1, minHeight: 0 }}>
               <TaskListView
-                tasks={tasks}
+                tasks={filteredTasks}
+                allTasksCount={tasks.length}
+                onClearFilters={() => setFilters(emptyTaskFilters())}
+                groupByStatus={groupByStatus}
                 projectId={projectId ?? ''}
+                taskListId={listId ?? ''}
                 onOpenTask={handleOpenTask}
                 onStatusChange={(id, status) => updateStatus.mutate({ id, status })}
                 onAssigneeChange={(id, userId) => assignTask.mutate({ id, assigneeUserId: userId })}

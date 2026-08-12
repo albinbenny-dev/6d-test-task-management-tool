@@ -174,6 +174,44 @@ export function useDeleteTask(projectId: string) {
   });
 }
 
+/** Moves tasks to another list — subtasks of any selected task ride along automatically. */
+export function useBulkMoveTasks(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { taskIds: string[]; taskListId: string }) => {
+      const res = await api.patch<{ moved: number }>(`/projects/${projectId}/tasks/bulk-move`, data);
+      return res.data;
+    },
+    onSuccess: () => invalidateAll(qc, projectId),
+  });
+}
+
+/** Clones tasks into another list — originals untouched, subtasks ride along automatically. */
+export function useBulkCopyTasks(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { taskIds: string[]; taskListId: string }) => {
+      const res = await api.post<{ copied: number }>(`/projects/${projectId}/tasks/bulk-copy`, data);
+      return res.data;
+    },
+    onSuccess: () => invalidateAll(qc, projectId),
+  });
+}
+
+/** Downloads tasks as Excel. Pass `ids` for a filtered/selected subset (an empty array exports an empty file — it does NOT fall back to "everything"), or `taskListId` for a whole list unfiltered. Omit both for every task in the project. */
+export async function exportTasks(projectId: string, filenameSuffix: string, opts?: { ids?: string[]; taskListId?: string }): Promise<void> {
+  const body: Record<string, unknown> = {};
+  if (opts?.ids !== undefined) body.ids = opts.ids;
+  else if (opts?.taskListId) body.taskListId = opts.taskListId;
+  const res = await api.post(`/projects/${projectId}/tasks/export`, body, { responseType: 'blob' });
+  const url = URL.createObjectURL(res.data as Blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `tasks-${filenameSuffix}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export function useAddTaskComment(projectId: string) {
   const qc = useQueryClient();
   return useMutation({

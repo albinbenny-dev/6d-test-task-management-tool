@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { useTaskLists, useDeleteTaskList, useUpdateTaskList } from '../../hooks/useTaskLists';
+import { useTaskLists, useDeleteTaskList, useUpdateTaskList, useDuplicateTaskList } from '../../hooks/useTaskLists';
 import { useRBAC } from '../../hooks/useRBAC';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { FloatingPortal } from '../ui/FloatingPortal';
@@ -40,7 +40,7 @@ const menuItemStyle: React.CSSProperties = {
 // kebab (revealed on hover) rather than always-visible icons, so the list
 // name gets almost the full row width to itself instead of permanently
 // giving up ~40-50px to two rarely-used buttons. ───────────────────────────
-function TaskListRow({ list, slug, active, canWrite, canDelete, isRenaming, renameValue, onRenameChange, onStartRename, onCommitRename, onCancelRename, onRequestDelete }: {
+function TaskListRow({ list, slug, active, canWrite, canDelete, isRenaming, renameValue, onRenameChange, onStartRename, onCommitRename, onCancelRename, onDuplicate, onRequestDelete }: {
   list: TaskList;
   slug: string;
   active: boolean;
@@ -52,6 +52,7 @@ function TaskListRow({ list, slug, active, canWrite, canDelete, isRenaming, rena
   onStartRename: () => void;
   onCommitRename: () => void;
   onCancelRename: () => void;
+  onDuplicate: () => void;
   onRequestDelete: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -116,6 +117,14 @@ function TaskListRow({ list, slug, active, canWrite, canDelete, isRenaming, rena
               ✎ Rename
             </button>
           )}
+          {canWrite && (
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); onDuplicate(); }}
+              style={menuItemStyle}
+            >
+              ⧉ Duplicate
+            </button>
+          )}
           {canDelete && (
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); onRequestDelete(); }}
@@ -144,6 +153,7 @@ export function TaskListsSidebar({ projectId, slug, activeListId }: {
   const { data: lists = [], isLoading } = useTaskLists(projectId);
   const deleteList = useDeleteTaskList(projectId ?? '');
   const updateList = useUpdateTaskList(projectId ?? '');
+  const duplicateList = useDuplicateTaskList(projectId ?? '');
   const [showCreate, setShowCreate] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<TaskList | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -191,6 +201,17 @@ export function TaskListsSidebar({ projectId, slug, activeListId }: {
       window.removeEventListener('mouseup', onMouseUp);
     };
   }, []);
+
+  async function handleDuplicate(list: TaskList) {
+    try {
+      const { list: newList, tasksCopied } = await duplicateList.mutateAsync(list.id);
+      toast.success(`"${newList.name}" created (${tasksCopied} task${tasksCopied === 1 ? '' : 's'} copied)`);
+      navigate(`/projects/${slug}/tasks/${newList.id}`);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Failed to duplicate list';
+      toast.error(msg);
+    }
+  }
 
   async function handleDelete() {
     if (!confirmDelete) return;
@@ -259,6 +280,7 @@ export function TaskListsSidebar({ projectId, slug, activeListId }: {
               onStartRename={() => startRename(list)}
               onCommitRename={() => void commitRename()}
               onCancelRename={() => setRenamingId(null)}
+              onDuplicate={() => void handleDuplicate(list)}
               onRequestDelete={() => setConfirmDelete(list)}
             />
           ))}

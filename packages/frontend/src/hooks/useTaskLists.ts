@@ -55,3 +55,18 @@ export function useDeleteTaskList(projectId: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['task-lists', projectId] }),
   });
 }
+
+/** Clones a list and every task inside it (literal snapshot — same statuses/assignees/dates/tags, not reset). */
+export function useDuplicateTaskList(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (listId: string) => {
+      const res = await api.post<{ list: TaskList; tasksCopied: number }>(`/projects/${projectId}/task-lists/${listId}/duplicate`);
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['task-lists', projectId] });
+      qc.invalidateQueries({ queryKey: ['tasks', projectId] });
+    },
+  });
+}

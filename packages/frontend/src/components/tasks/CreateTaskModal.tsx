@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { useCreateTask, useUpdateTaskStatus } from '../../hooks/useTasks';
+import { useCreateTask, useUpdateTaskStatus, useTasks } from '../../hooks/useTasks';
 import { useProjectMembers } from '../../hooks/useProjects';
-import { ALL_PRIORITIES, PRIORITY_LABEL } from '../../lib/taskMeta';
+import { ALL_PRIORITIES, PRIORITY_LABEL, parseTags } from '../../lib/taskMeta';
 import { AssigneePicker } from './AssigneePicker';
+import { TagChipInput } from '../ui/TagChipInput';
 import type { TaskPriority, TaskStatus } from '../../types';
 
 export function CreateTaskModal({
@@ -20,11 +21,18 @@ export function CreateTaskModal({
   const createTask = useCreateTask(projectId);
   const updateStatus = useUpdateTaskStatus(projectId);
   const { data: members = [] } = useProjectMembers(projectId);
+  const { data: allTasksForTags = [] } = useTasks(projectId);
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of allTasksForTags) for (const tag of parseTags(t.tags)) set.add(tag);
+    return [...set].sort();
+  }, [allTasksForTags]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('NORMAL');
   const [assigneeUserId, setAssigneeUserId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
 
   const selectedMember = members.find((m) => m.userId === assigneeUserId);
   const assigneeDisplay = selectedMember
@@ -41,6 +49,7 @@ export function CreateTaskModal({
         priority,
         assigneeUserId: assigneeUserId ?? undefined,
         dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
+        tags: tags.length ? tags : undefined,
       });
       // Board quick-add carries a target column — new tasks default to TO_DO
       // server-side, so nudge it into the column the user clicked "+" on.
@@ -107,6 +116,10 @@ export function CreateTaskModal({
                 onChange={setAssigneeUserId}
               />
             </div>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-dim)', display: 'block', marginBottom: 4 }}>Tags</label>
+            <TagChipInput tags={tags} suggestions={allTags} onChange={setTags} />
           </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 20px', borderTop: '1px solid var(--border)' }}>

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
-  useTask, useUpdateTask, useUpdateTaskStatus, useAssignTask, useDeleteTask,
+  useTask, useTasks, useUpdateTask, useUpdateTaskStatus, useAssignTask, useDeleteTask,
   useCreateTask, useAddTaskComment, useUpdateTaskComment, useDeleteTaskComment,
 } from '../../hooks/useTasks';
 import { useProjectStore } from '../../stores/projectStore';
@@ -11,6 +11,7 @@ import { TaskStatusPicker } from './TaskStatusPicker';
 import { PriorityPicker } from './PriorityPicker';
 import { AssigneePicker } from './AssigneePicker';
 import { TaskAvatar } from './TaskAvatar';
+import { TagChipInput } from '../ui/TagChipInput';
 import type { Task } from '../../types';
 
 function toDateInputValue(iso: string | null | undefined): string {
@@ -74,6 +75,15 @@ export function TaskDetailPanel({ projectId, taskId, onClose, onNavigateToTask }
 }) {
   const { currentUser } = useProjectStore();
   const { data: task, isLoading } = useTask(projectId, taskId);
+  // Every task in the project, purely to build the tag-suggestion vocabulary
+  // below — same "scan everything already loaded" approach TC Library uses
+  // for its label autocomplete.
+  const { data: allTasksForTags = [] } = useTasks(projectId);
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of allTasksForTags) for (const tag of parseTags(t.tags)) set.add(tag);
+    return [...set].sort();
+  }, [allTasksForTags]);
   const updateTask = useUpdateTask(projectId);
   const updateStatus = useUpdateTaskStatus(projectId);
   const assignTask = useAssignTask(projectId);
@@ -257,11 +267,17 @@ export function TaskDetailPanel({ projectId, taskId, onClose, onNavigateToTask }
             />
           </div>
 
-          {tags.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 16 }}>
-              {tags.map((t) => <span key={t} className="tag">{t}</span>)}
-            </div>
-          )}
+          <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-dim)', marginBottom: 6 }}>
+            Tags
+          </div>
+          <div style={{ marginBottom: 20 }}>
+            <TagChipInput
+              tags={tags}
+              suggestions={allTags}
+              placeholder="Add a tag…"
+              onChange={(next) => updateTask.mutate({ id: task.id, tags: next })}
+            />
+          </div>
 
           {/* Description */}
           <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-dim)', marginBottom: 6 }}>

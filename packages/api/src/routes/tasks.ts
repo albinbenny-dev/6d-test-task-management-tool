@@ -61,6 +61,21 @@ const ReorderTasksSchema = z.object({
   orderedIds: z.array(z.string()).min(1),
 });
 
+const BulkMoveTasksSchema = z.object({
+  taskIds:    z.array(z.string()).min(1),
+  taskListId: z.string().min(1),
+});
+
+const BulkCopyTasksSchema = z.object({
+  taskIds:    z.array(z.string()).min(1),
+  taskListId: z.string().min(1),
+});
+
+const ExportTasksSchema = z.object({
+  ids:        z.array(z.string()).optional(),
+  taskListId: z.string().optional(),
+});
+
 const CreateCommentSchema = z.object({
   body: z.string().min(1).max(5000),
 });
@@ -325,6 +340,161 @@ router.patch('/reorder', requireWrite as RequestHandler, (async (req, res) => {
       .map((id, i) => prisma.task.update({ where: { id }, data: { sortOrder: i } })),
   );
   res.json({ message: 'Reordered' });
+}) as RequestHandler);
+
+// ── PATCH /bulk-move — move selected tasks to another list, bringing each
+// one's subtasks along automatically so a hierarchy never splits across two
+// lists (a subtask left behind in the old list would dangle under a parent
+// it can no longer see). ───────────────────────────────────────────────────
+
+router.patch('/bulk-move', requireWrite as RequestHandler, (async (req, res) => {
+  const projectId = req.project.id;
+  const parsed = BulkMoveTasksSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Validation failed', issues: parsed.error.issues });
+  }
+  const { taskIds, taskListId } = parsed.data;
+
+  const targetList = await prisma.taskList.findFirst({ where: { id: taskListId, projectId } });
+  if (!targetList) return res.status(400).json({ error: 'That task list does not belong to this project' });
+
+  const selected = await prisma.task.findMany({ where: { projectId, id: { in: taskIds } }, select: { id: true } });
+  if (selected.length === 0) return res.status(400).json({ error: 'No matching tasks found' });
+  const selectedIds = selected.map((t) => t.id);
+
+  const children = await prisma.task.findMany({ where: { projectId, parentTaskId: { in: selectedIds } }, select: { id: true } });
+  const allIds = [...new Set([...selectedIds, ...children.map((t) => t.id)])];
+
+  const { count } = await prisma.task.updateMany({ where: { id: { in: allIds } }, data: { taskListId } });
+  res.json({ moved: count });
+}) as RequestHandler);
+
+// ── POST /bulk-copy — clone selected tasks into another list (originals
+// untouched). Same auto-include-subtasks rule as bulk-move; a subtask copied
+// without its parent (parent wasn't selected) lands as top-level in the
+// target list instead of losing its content. ──────────────────────────────
+
+router.post('/bulk-copy', requireWrite as RequestHandler, (async (req, res) => {
+  const projectId = req.project.id;
+  const parsed = BulkCopyTasksSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Validation failed', issues: parsed.error.issues });
+  }
+  const { taskIds, taskListId } = parsed.data;
+
+  const targetList = await prisma.taskList.findFirst({ where: { id: taskListId, projectId } });
+  if (!targetList) return res.status(400).json({ error: 'That task list does not belong to this project' });
+
+  const selected = await prisma.task.findMany({ where: { projectId, id: { in: taskIds } } });
+  if (selected.length === 0) return res.status(400).json({ error: 'No matching tasks found' });
+  const selectedIds = new Set(selected.map((t) => t.id));
+
+  const children = await prisma.task.findMany({ where: { projectId, parentTaskId: { in: [...selectedIds] } } });
+  const all = [...selected, ...children.filter((t) => !selectedIds.has(t.id))];
+  const allIds = new Set(all.map((t) => t.id));
+  const topLevel = all.filter((t) => !t.parentTaskId || !allIds.has(t.parentTaskId));
+  const nested = all.filter((t) => t.parentTaskId && allIds.has(t.parentTaskId));
+
+  const last = await prisma.task.findFirst({ where: { projectId, taskListId }, orderBy: { sortOrder: 'desc' } });
+  let nextSortOrder = (last?.sortOrder ?? -1) + 1;
+
+  const copyData = (t: (typeof all)[number], parentTaskId: string | null) => ({
+    projectId,
+    taskListId,
+    parentTaskId,
+    title: t.title,
+    description: t.description,
+    status: t.status,
+    priority: t.priority,
+    assigneeId: t.assigneeId,
+    startDate: t.startDate,
+    dueDate: t.dueDate,
+    tags: t.tags,
+    sortOrder: nextSortOrder++,
+    createdByUserId: req.user.id,
+    completedAt: t.completedAt,
+  });
+
+  const copied = await prisma.$transaction(async (tx) => {
+    const idMap = new Map<string, string>();
+    for (const t of topLevel) {
+      const c = await tx.task.create({ data: copyData(t, null) });
+      idMap.set(t.id, c.id);
+    }
+    for (const t of nested) {
+      const c = await tx.task.create({ data: copyData(t, idMap.get(t.parentTaskId!) ?? null) });
+      idMap.set(t.id, c.id);
+    }
+    return idMap.size;
+  });
+
+  res.status(201).json({ copied });
+}) as RequestHandler);
+
+// ── POST /export — download tasks as Excel. Body may include `ids` to
+// export a filtered/selected subset, or `taskListId` to export a whole list
+// unfiltered; omit both to export every task in the project. ─────────────
+
+const PRIORITY_DISPLAY: Record<string, string> = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
+const STATUS_DISPLAY: Record<string, string> = { TO_DO: 'To Do', IN_PROGRESS: 'In Progress', IN_REVIEW: 'In Review', DONE: 'Done' };
+
+router.post('/export', (async (req, res) => {
+  const projectId = req.project.id;
+  const parsed = ExportTasksSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Validation failed', issues: parsed.error.issues });
+  }
+  const { ids, taskListId } = parsed.data;
+
+  const tasks = await prisma.task.findMany({
+    where: {
+      projectId,
+      // `ids` present (even []) means "export exactly this set" — an empty
+      // array correctly yields zero rows rather than falling back to
+      // "everything," which would silently ignore an active filter that
+      // happens to match nothing right now.
+      ...(ids !== undefined ? { id: { in: ids } } : taskListId ? { taskListId } : {}),
+    },
+    include: {
+      assignee: { include: { user: { select: { email: true } } } },
+      taskList: { select: { name: true } },
+    },
+    orderBy: [{ taskListId: 'asc' }, { sortOrder: 'asc' }],
+  });
+
+  const parentIds = [...new Set(tasks.map((t) => t.parentTaskId).filter((id): id is string => !!id))];
+  const parents = parentIds.length
+    ? await prisma.task.findMany({ where: { id: { in: parentIds } }, select: { id: true, title: true } })
+    : [];
+  const parentTitleById = new Map(parents.map((t) => [t.id, t.title]));
+
+  const headers = ['Task List', 'Task Title', 'Description', 'Assignee Email', 'Priority', 'Status', 'Start Date', 'Due Date', 'Tags', 'Parent Task Title'];
+  const rows = tasks.map((t) => {
+    let tags: string[] = [];
+    try { tags = JSON.parse(t.tags); } catch { /* corrupted row — export blank */ }
+    return {
+      'Task List':          t.taskList.name,
+      'Task Title':         t.title,
+      'Description':        t.description ?? '',
+      'Assignee Email':     t.assignee?.user.email ?? '',
+      'Priority':           PRIORITY_DISPLAY[t.priority] ?? t.priority,
+      'Status':             STATUS_DISPLAY[t.status] ?? t.status,
+      'Start Date':         t.startDate ?? '',
+      'Due Date':           t.dueDate ?? '',
+      'Tags':               tags.join(', '),
+      'Parent Task Title':  t.parentTaskId ? (parentTitleById.get(t.parentTaskId) ?? '') : '',
+    };
+  });
+
+  const ws = xlsx.utils.json_to_sheet(rows, { header: headers });
+  ws['!cols'] = [20, 28, 40, 24, 12, 14, 14, 14, 20, 24].map((w) => ({ wch: w }));
+  const wb = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(wb, ws, 'Tasks');
+  const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="tasks-export.xlsx"');
+  res.send(buf);
 }) as RequestHandler);
 
 // ── GET /template — download a standard project-plan Excel template ───────

@@ -113,4 +113,89 @@ router.delete('/:listId', requireAdvancedFeatures as RequestHandler, (async (req
   res.json({ message: 'Task list deleted' });
 }) as RequestHandler);
 
+// ── POST /:listId/duplicate — clone a list and every task inside it ───────
+// A literal snapshot copy (same statuses/assignees/dates/tags as the
+// original right now, not reset to a blank template) — matches how
+// "duplicate" reads in Notion/Trello/Asana. Subtask hierarchy is preserved
+// by creating top-level tasks first, then subtasks against the new parent
+// ids. Gated at requireWrite (same tier as creating a list), not the
+// stricter requireAdvancedFeatures DELETE uses — duplicating can only add
+// data, never destroy it, so it doesn't carry that risk.
+
+router.post('/:listId/duplicate', requireWrite as RequestHandler, (async (req, res) => {
+  const projectId = req.project.id;
+  const { listId } = req.params;
+
+  const source = await prisma.taskList.findFirst({ where: { id: listId, projectId } });
+  if (!source) return res.status(404).json({ error: 'Task list not found' });
+
+  const sourceTasks = await prisma.task.findMany({ where: { taskListId: listId }, orderBy: { sortOrder: 'asc' } });
+
+  // Dedupe the copy's name against the project's @@unique([projectId, name])
+  // constraint: "X (Copy)", then "X (Copy 2)", "X (Copy 3)", ...
+  const existingNames = new Set((await prisma.taskList.findMany({ where: { projectId }, select: { name: true } })).map((l) => l.name));
+  let newName = `${source.name} (Copy)`;
+  for (let n = 2; existingNames.has(newName); n++) newName = `${source.name} (Copy ${n})`;
+
+  const lastList = await prisma.taskList.findFirst({ where: { projectId }, orderBy: { sortOrder: 'desc' } });
+
+  const newList = await prisma.$transaction(async (tx) => {
+    const list = await tx.taskList.create({
+      data: { projectId, name: newName, color: source.color, sortOrder: (lastList?.sortOrder ?? -1) + 1 },
+    });
+
+    const idMap = new Map<string, string>();
+    const topLevel = sourceTasks.filter((t) => !t.parentTaskId);
+    const subtasks = sourceTasks.filter((t) => t.parentTaskId);
+
+    for (const t of topLevel) {
+      const created = await tx.task.create({
+        data: {
+          projectId,
+          taskListId: list.id,
+          title: t.title,
+          description: t.description,
+          status: t.status,
+          priority: t.priority,
+          assigneeId: t.assigneeId,
+          startDate: t.startDate,
+          dueDate: t.dueDate,
+          tags: t.tags,
+          sortOrder: t.sortOrder,
+          createdByUserId: req.user.id,
+          completedAt: t.completedAt,
+        },
+      });
+      idMap.set(t.id, created.id);
+    }
+    for (const t of subtasks) {
+      const newParentId = t.parentTaskId ? idMap.get(t.parentTaskId) : undefined;
+      if (!newParentId) continue; // parent wasn't in this list — shouldn't happen, but skip defensively
+      const created = await tx.task.create({
+        data: {
+          projectId,
+          taskListId: list.id,
+          parentTaskId: newParentId,
+          title: t.title,
+          description: t.description,
+          status: t.status,
+          priority: t.priority,
+          assigneeId: t.assigneeId,
+          startDate: t.startDate,
+          dueDate: t.dueDate,
+          tags: t.tags,
+          sortOrder: t.sortOrder,
+          createdByUserId: req.user.id,
+          completedAt: t.completedAt,
+        },
+      });
+      idMap.set(t.id, created.id);
+    }
+
+    return list;
+  });
+
+  res.status(201).json({ list: newList, tasksCopied: sourceTasks.length });
+}) as RequestHandler);
+
 export default router;
