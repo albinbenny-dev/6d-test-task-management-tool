@@ -24,8 +24,10 @@ function CycleSummaryTable({ slug, summary }: { slug: string; summary: TestCycle
     // maxHeight + overflowY so a project with many cycles scrolls inside this
     // card instead of either cutting cycles off with no way to reach them
     // (overflow:hidden from .card) or pushing Resource-wise Summary far down
-    // the page.
-    <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '340px' }}>
+    // the page. 420px ≈ header + 10 data rows (34px + 10×38px) at the
+    // .data-table row metrics in globals.css, so at least 10 rows are visible
+    // before the scrollbar kicks in.
+    <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '420px' }}>
       <table className="data-table" style={{ minWidth: '640px' }}>
         <thead>
           <tr>
@@ -83,7 +85,11 @@ function ResourceSummaryTable({ slug, rows, isLoading }: { slug: string; rows: R
     );
   }
   return (
-    <div style={{ overflowX: 'auto' }}>
+    // Same fix as CycleSummaryTable above: without an explicit maxHeight +
+    // overflowY, rows beyond the card's natural height were being clipped by
+    // .card's overflow:hidden with no scrollbar to reach them. 420px ≈
+    // header + 10 data rows at the .data-table row metrics in globals.css.
+    <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '420px' }}>
       <table className="data-table" style={{ minWidth: '600px' }}>
         <thead>
           <tr>
