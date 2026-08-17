@@ -3,7 +3,7 @@ import toast from 'react-hot-toast';
 import { useCreateTask, useUpdateTaskStatus, useTasks } from '../../hooks/useTasks';
 import { useProjectMembers } from '../../hooks/useProjects';
 import { ALL_PRIORITIES, PRIORITY_LABEL, parseTags } from '../../lib/taskMeta';
-import { AssigneePicker } from './AssigneePicker';
+import { AssigneePicker, type AssigneeSelection } from './AssigneePicker';
 import { TagChipInput } from '../ui/TagChipInput';
 import type { TaskPriority, TaskStatus } from '../../types';
 
@@ -30,11 +30,11 @@ export function CreateTaskModal({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('NORMAL');
-  const [assigneeUserId, setAssigneeUserId] = useState<string | null>(null);
+  const [assignee, setAssignee] = useState<AssigneeSelection>({ assigneeUserId: null, assigneeExternalName: null });
   const [dueDate, setDueDate] = useState('');
   const [tags, setTags] = useState<string[]>([]);
 
-  const selectedMember = members.find((m) => m.userId === assigneeUserId);
+  const selectedMember = members.find((m) => m.userId === assignee.assigneeUserId);
   const assigneeDisplay = selectedMember
     ? { id: selectedMember.userId, user: selectedMember.user }
     : null;
@@ -47,7 +47,8 @@ export function CreateTaskModal({
         title: title.trim(),
         description: description.trim() || undefined,
         priority,
-        assigneeUserId: assigneeUserId ?? undefined,
+        assigneeUserId: assignee.assigneeUserId ?? undefined,
+        assigneeExternalName: assignee.assigneeExternalName ?? undefined,
         dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
         tags: tags.length ? tags : undefined,
       });
@@ -112,8 +113,9 @@ export function CreateTaskModal({
               <AssigneePicker
                 projectId={projectId}
                 value={assigneeDisplay}
+                externalName={assignee.assigneeExternalName}
                 size={28}
-                onChange={setAssigneeUserId}
+                onChange={setAssignee}
               />
             </div>
           </div>

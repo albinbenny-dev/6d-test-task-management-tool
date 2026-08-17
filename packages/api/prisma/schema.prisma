@@ -428,6 +428,10 @@ model JiraConfig {
 // four-stage status shared across every list (no per-list custom statuses).
 // "Overdue" is not a stored status — it's computed by the frontend from
 // dueDate vs. now for any task not yet DONE, so it can never go stale.
+// assigneeId (a ProjectMember) and assigneeExternalName (free text) are
+// mutually exclusive — a task is assigned to a registered member OR to
+// someone outside the tool (a client, a vendor), never both. Same free-text
+// escape hatch as JiraIssue.assigneeName/reporterName below.
 
 model TaskList {
   id        String   @id @default(cuid())
@@ -454,6 +458,7 @@ model Task {
   status          String    @default("TO_DO") // "TO_DO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE"
   priority        String    @default("NORMAL") // "LOW" | "NORMAL" | "HIGH" | "URGENT"
   assigneeId      String? // FK -> ProjectMember.id
+  assigneeExternalName String? // free-text assignee outside the tool — mutually exclusive with assigneeId
   startDate       DateTime?
   dueDate         DateTime?
   tags            String    @default("[]") // JSON: string[]

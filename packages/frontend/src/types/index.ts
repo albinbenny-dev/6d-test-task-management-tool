@@ -582,6 +582,7 @@ export interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   assigneeId?: string | null;
+  assigneeExternalName?: string | null; // free-text assignee outside the tool — mutually exclusive with assigneeId
   startDate?: string | null;
   dueDate?: string | null;
   tags: string; // JSON string — parse to string[]

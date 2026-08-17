@@ -41,7 +41,7 @@ export function ImportTasksModal({ projectId, taskListId, onClose, onImported }:
   const warningGroups = summary ? [
     { key: 'skippedEmpty', count: summary.skippedEmpty, label: `${summary.skippedEmpty} empty row${summary.skippedEmpty === 1 ? '' : 's'} skipped`, note: 'Rows with no Task Title were ignored.', items: null as string[] | null },
     { key: 'duplicateRows', count: summary.duplicateRows.length, label: `${summary.duplicateRows.length} duplicate task${summary.duplicateRows.length === 1 ? '' : 's'} skipped`, note: 'Later rows sharing a title with an earlier row in this file were ignored.', items: summary.duplicateRows },
-    { key: 'unmatchedAssignees', count: summary.unmatchedAssignees.length, label: `${summary.unmatchedAssignees.length} assignee email${summary.unmatchedAssignees.length === 1 ? '' : 's'} not found`, note: "These rows were imported unassigned — the email didn't match a project member.", items: summary.unmatchedAssignees },
+    { key: 'unmatchedAssignees', count: summary.unmatchedAssignees.length, label: `${summary.unmatchedAssignees.length} assignee email${summary.unmatchedAssignees.length === 1 ? '' : 's'} not found`, note: "These rows didn't match a project member, so the cell's text was stored as an external assignee instead.", items: summary.unmatchedAssignees },
     { key: 'unresolvedParents', count: summary.unresolvedParents.length, label: `${summary.unresolvedParents.length} parent link${summary.unresolvedParents.length === 1 ? '' : 's'} not applied`, note: "The declared parent title didn't resolve to a row in this file, or would create a second level of nesting.", items: summary.unresolvedParents },
   ].filter((g) => g.count > 0) : [];
   const hasWarnings = warningGroups.length > 0;

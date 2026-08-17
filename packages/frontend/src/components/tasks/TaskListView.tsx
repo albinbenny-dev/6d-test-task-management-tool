@@ -7,7 +7,7 @@ import {
 } from '../../lib/taskMeta';
 import { PriorityBadge } from './PriorityBadge';
 import { TaskStatusPicker } from './TaskStatusPicker';
-import { AssigneePicker } from './AssigneePicker';
+import { AssigneePicker, type AssigneeSelection } from './AssigneePicker';
 import { useResizableColumns, type ResizableColumnDef } from '../../hooks/useResizableColumns';
 import { ColResizeHandle } from '../ui/ColResizeHandle';
 import { FloatingPortal } from '../ui/FloatingPortal';
@@ -48,7 +48,7 @@ function Row({
   onToggleSelect: (id: string) => void;
   onOpen: (task: Task) => void;
   onStatusChange: (id: string, status: TaskStatus) => void;
-  onAssigneeChange: (id: string, userId: string | null) => void;
+  onAssigneeChange: (id: string, next: AssigneeSelection) => void;
   canWrite: boolean;
   gridTemplateColumns: string;
 }) {
@@ -93,8 +93,9 @@ function Row({
           <AssigneePicker
             projectId={projectId}
             value={task.assignee}
+            externalName={task.assigneeExternalName}
             disabled={!canWrite}
-            onChange={(userId) => onAssigneeChange(task.id, userId)}
+            onChange={(next) => onAssigneeChange(task.id, next)}
             size={22}
           />
         </div>
@@ -235,7 +236,7 @@ export function TaskListView({
   taskListId: string;
   onOpenTask: (task: Task) => void;
   onStatusChange: (id: string, status: TaskStatus) => void;
-  onAssigneeChange: (id: string, userId: string | null) => void;
+  onAssigneeChange: (id: string, next: AssigneeSelection) => void;
   onQuickAdd: (status?: TaskStatus) => void;
   canWrite: boolean;
 }) {

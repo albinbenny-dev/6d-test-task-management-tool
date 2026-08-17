@@ -11,21 +11,34 @@ interface AssigneeValue {
   user: { id: string; name: string; email: string };
 }
 
+// Field names deliberately match useAssignTask/useCreateTask's mutation input
+// (assigneeUserId/assigneeExternalName), so callers can spread `next` straight
+// into `mutate({ id, ...next })` without a remapping step.
+export interface AssigneeSelection {
+  assigneeUserId: string | null;
+  assigneeExternalName: string | null;
+}
+
 export function AssigneePicker({
   projectId,
   value,
+  externalName,
   disabled,
   onChange,
   size = 24,
 }: {
   projectId: string;
   value: AssigneeValue | null | undefined;
+  /** Free-text assignee outside the project — mutually exclusive with `value`. */
+  externalName?: string | null;
   disabled?: boolean;
-  onChange: (userId: string | null) => void;
+  onChange: (next: AssigneeSelection) => void;
   size?: number;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [showExternalInput, setShowExternalInput] = useState(false);
+  const [externalDraft, setExternalDraft] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   useClickOutside([rootRef, menuRef], () => setIsOpen(false), isOpen);
@@ -37,16 +50,33 @@ export function AssigneePicker({
     !query.trim() || m.user.name.toLowerCase().includes(query.toLowerCase()) || m.user.email.toLowerCase().includes(query.toLowerCase()),
   );
 
+  function close() {
+    setIsOpen(false);
+    setShowExternalInput(false);
+    setExternalDraft('');
+  }
+
+  function confirmExternal() {
+    const trimmed = externalDraft.trim();
+    if (!trimmed) return;
+    onChange({ assigneeUserId: null, assigneeExternalName: trimmed });
+    close();
+  }
+
   return (
     <div ref={rootRef} style={{ position: 'relative', display: 'inline-block' }}>
       <button
         type="button"
         disabled={disabled}
         onClick={() => setIsOpen((v) => !v)}
-        title={value ? value.user.name : 'Unassigned'}
+        title={value ? value.user.name : externalName ? `External: ${externalName}` : 'Unassigned'}
         style={{ background: 'none', border: 'none', padding: 0, cursor: disabled ? 'default' : 'pointer', display: 'inline-flex' }}
       >
-        {value ? <TaskAvatar name={value.user.name} userId={value.user.id} size={size} /> : <UnassignedAvatar size={size} />}
+        {value
+          ? <TaskAvatar name={value.user.name} userId={value.user.id} size={size} />
+          : externalName
+            ? <TaskAvatar name={externalName} userId={externalName} size={size} external />
+            : <UnassignedAvatar size={size} />}
       </button>
 
       <FloatingPortal anchorRef={rootRef} open={isOpen} align="end" portalRef={menuRef} width={220}>
@@ -69,10 +99,10 @@ export function AssigneePicker({
           <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
             <button
               type="button"
-              onClick={() => { onChange(null); setIsOpen(false); }}
+              onClick={() => { onChange({ assigneeUserId: null, assigneeExternalName: null }); close(); }}
               style={{
                 width: '100%', textAlign: 'left', padding: '7px 11px', border: 'none',
-                background: !value ? 'var(--surface2)' : 'transparent',
+                background: !value && !externalName ? 'var(--surface2)' : 'transparent',
                 color: 'var(--text-dim)', fontSize: '12px', fontWeight: 500,
                 cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
               }}
@@ -89,7 +119,7 @@ export function AssigneePicker({
                   type="button"
                   disabled={locked}
                   title={locked ? 'You can only assign tasks to yourself' : undefined}
-                  onClick={() => { onChange(m.userId); setIsOpen(false); }}
+                  onClick={() => { onChange({ assigneeUserId: m.userId, assigneeExternalName: null }); close(); }}
                   style={{
                     width: '100%', textAlign: 'left', padding: '7px 11px', border: 'none',
                     background: value?.user.id === m.userId ? 'var(--surface2)' : 'transparent',
@@ -107,6 +137,54 @@ export function AssigneePicker({
               <div style={{ padding: '10px 11px', fontSize: '11px', color: 'var(--text-dim)' }}>No members found</div>
             )}
           </div>
+
+          {/* A TEST_USER may only ever assign to themselves, so handing a
+              task to someone outside the project makes no sense for them
+              either — hide the whole affordance, matching the member lock above. */}
+          {!isTestUser && (
+            <div style={{ borderTop: '1px solid var(--border)', padding: '8px' }}>
+              {showExternalInput ? (
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <input
+                    autoFocus
+                    className="input-field"
+                    placeholder="External assignee's name…"
+                    value={externalDraft}
+                    onChange={(e) => setExternalDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') confirmExternal();
+                      if (e.key === 'Escape') { setShowExternalInput(false); setExternalDraft(''); }
+                    }}
+                    style={{ fontSize: '11.5px', padding: '6px 9px', flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={confirmExternal}
+                    disabled={!externalDraft.trim()}
+                    title="Assign"
+                    style={{
+                      border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--surface2)',
+                      color: 'var(--text)', fontSize: '11.5px', fontWeight: 600, padding: '0 10px',
+                      cursor: externalDraft.trim() ? 'pointer' : 'default',
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowExternalInput(true)}
+                  style={{
+                    width: '100%', textAlign: 'left', padding: '5px 3px', border: 'none', background: 'transparent',
+                    color: 'var(--text-dim)', fontSize: '11.5px', fontWeight: 500, cursor: 'pointer',
+                  }}
+                >
+                  + Assign to someone outside the team…
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </FloatingPortal>
     </div>

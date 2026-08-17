@@ -82,6 +82,7 @@ export function useCreateTask(projectId: string) {
       description?: string;
       priority?: TaskPriority;
       assigneeUserId?: string;
+      assigneeExternalName?: string;
       startDate?: string | null;
       dueDate?: string | null;
       tags?: string[];
@@ -128,9 +129,10 @@ export function useUpdateTaskStatus(projectId: string) {
 export function useAssignTask(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: { id: string; assigneeUserId: string | null }) => {
+    mutationFn: async (data: { id: string; assigneeUserId: string | null; assigneeExternalName?: string | null }) => {
       const res = await api.patch<{ task: Task }>(`/projects/${projectId}/tasks/${data.id}/assign`, {
         assigneeUserId: data.assigneeUserId,
+        assigneeExternalName: data.assigneeExternalName ?? null,
       });
       return res.data.task;
     },

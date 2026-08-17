@@ -56,11 +56,12 @@ function SubtaskRow({ projectId, subtask, onOpen, isLast }: {
         <AssigneePicker
           projectId={projectId}
           value={subtask.assignee}
+          externalName={subtask.assigneeExternalName}
           size={18}
-          onChange={(userId) => assignSubtask.mutate({ id: subtask.id, assigneeUserId: userId })}
+          onChange={(next) => assignSubtask.mutate({ id: subtask.id, ...next })}
         />
-        <span style={{ fontSize: 11, color: subtask.assignee ? 'var(--text-mid)' : 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {subtask.assignee?.user.name ?? 'Unassigned'}
+        <span style={{ fontSize: 11, color: subtask.assignee || subtask.assigneeExternalName ? 'var(--text-mid)' : 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {subtask.assignee?.user.name ?? subtask.assigneeExternalName ?? 'Unassigned'}
         </span>
       </div>
     </div>
@@ -239,10 +240,11 @@ export function TaskDetailPanel({ projectId, taskId, onClose, onNavigateToTask }
               <AssigneePicker
                 projectId={projectId}
                 value={task.assignee}
+                externalName={task.assigneeExternalName}
                 size={26}
-                onChange={(userId) => assignTask.mutate({ id: task.id, assigneeUserId: userId })}
+                onChange={(next) => assignTask.mutate({ id: task.id, ...next })}
               />
-              <span style={{ color: 'var(--text-mid)' }}>{task.assignee?.user.name ?? 'Unassigned'}</span>
+              <span style={{ color: 'var(--text-mid)' }}>{task.assignee?.user.name ?? task.assigneeExternalName ?? 'Unassigned'}</span>
             </div>
 
             <span style={{ color: 'var(--text-dim)' }}>Priority</span>

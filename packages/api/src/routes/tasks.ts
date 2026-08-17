@@ -27,15 +27,18 @@ const TASK_INCLUDE = {
 } as const;
 
 const CreateTaskSchema = z.object({
-  taskListId:     z.string().min(1),
-  parentTaskId:   z.string().min(1).optional(),
-  title:          z.string().min(1).max(300),
-  description:    z.string().max(10000).optional(),
-  priority:       z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).optional(),
-  assigneeUserId: z.string().min(1).optional(),
-  startDate:      z.string().datetime().optional().nullable(),
-  dueDate:        z.string().datetime().optional().nullable(),
-  tags:           z.array(z.string().min(1).max(40)).optional(),
+  taskListId:           z.string().min(1),
+  parentTaskId:         z.string().min(1).optional(),
+  title:                z.string().min(1).max(300),
+  description:          z.string().max(10000).optional(),
+  priority:             z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).optional(),
+  assigneeUserId:       z.string().min(1).optional(),
+  assigneeExternalName: z.string().trim().min(1).max(120).optional(),
+  startDate:            z.string().datetime().optional().nullable(),
+  dueDate:              z.string().datetime().optional().nullable(),
+  tags:                 z.array(z.string().min(1).max(40)).optional(),
+}).refine((d) => !(d.assigneeUserId && d.assigneeExternalName), {
+  message: 'Cannot set both a registered assignee and an external assignee name',
 });
 
 const UpdateTaskSchema = z.object({
@@ -53,7 +56,10 @@ const UpdateStatusSchema = z.object({
 });
 
 const AssignTaskSchema = z.object({
-  assigneeUserId: z.string().nullable(),
+  assigneeUserId:       z.string().nullable().optional(),
+  assigneeExternalName: z.string().trim().min(1).max(120).nullable().optional(),
+}).refine((d) => !(d.assigneeUserId && d.assigneeExternalName), {
+  message: 'Cannot set both a registered assignee and an external assignee name',
 });
 
 const ReorderTasksSchema = z.object({
@@ -206,7 +212,7 @@ router.get('/dashboard/summary', (async (req, res) => {
     prisma.task.findMany({
       where: { projectId },
       select: {
-        id: true, status: true, priority: true, assigneeId: true, taskListId: true,
+        id: true, status: true, priority: true, assigneeId: true, assigneeExternalName: true, taskListId: true,
         startDate: true, dueDate: true, createdAt: true, completedAt: true,
       },
     }),
@@ -235,7 +241,7 @@ router.get('/dashboard/summary', (async (req, res) => {
 
     if (isOpen) {
       priorityBreakdown[t.priority] = (priorityBreakdown[t.priority] ?? 0) + 1;
-      if (!t.assigneeId) unassignedOpenCount++;
+      if (!t.assigneeId && !t.assigneeExternalName) unassignedOpenCount++;
 
       if (t.dueDate) {
         if (t.dueDate < now) overdueCount++;
@@ -243,9 +249,17 @@ router.get('/dashboard/summary', (async (req, res) => {
         else if (t.dueDate < endOfNextWeek) dueNextWeek++;
       }
 
-      const key = t.assigneeId ?? 'unassigned';
+      // External assignees get their own bucket (keyed off the name, since
+      // there's no ProjectMember id) so they never collapse into "Unassigned".
+      const key = t.assigneeId ?? (t.assigneeExternalName ? `ext:${t.assigneeExternalName}` : 'unassigned');
       if (!byAssigneeMap.has(key)) {
-        byAssigneeMap.set(key, { assigneeId: t.assigneeId, assigneeUserId: null, assigneeName: t.assigneeId ?? 'Unassigned', total: 0, overdue: 0 });
+        byAssigneeMap.set(key, {
+          assigneeId: t.assigneeId ?? (t.assigneeExternalName ? key : null),
+          assigneeUserId: null,
+          assigneeName: t.assigneeExternalName ?? t.assigneeId ?? 'Unassigned',
+          total: 0,
+          overdue: 0,
+        });
       }
       const row = byAssigneeMap.get(key)!;
       row.total += 1;
@@ -273,7 +287,9 @@ router.get('/dashboard/summary', (async (req, res) => {
 
   const total = allTasks.length;
 
-  const assigneeIds = [...byAssigneeMap.keys()].filter((k) => k !== 'unassigned');
+  // "ext:"-prefixed keys are external-assignee buckets (see above) — they
+  // already carry their display name and have no ProjectMember row to look up.
+  const assigneeIds = [...byAssigneeMap.keys()].filter((k) => k !== 'unassigned' && !k.startsWith('ext:'));
   const members = assigneeIds.length
     ? await prisma.projectMember.findMany({ where: { id: { in: assigneeIds } }, include: { user: { select: { id: true, name: true } } } })
     : [];
@@ -282,7 +298,7 @@ router.get('/dashboard/summary', (async (req, res) => {
   // across projects (e.g. a portfolio dashboard) can actually merge on.
   const memberById = new Map(members.map((m) => [m.id, m.user]));
   for (const [key, row] of byAssigneeMap) {
-    if (key !== 'unassigned') {
+    if (key !== 'unassigned' && !key.startsWith('ext:')) {
       const user = memberById.get(key);
       row.assigneeName = user?.name ?? 'Unknown';
       row.assigneeUserId = user?.id ?? null;
@@ -691,16 +707,24 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
   const last = await prisma.task.findFirst({ where: { projectId, taskListId }, orderBy: { sortOrder: 'desc' } });
   let nextSortOrder = (last?.sortOrder ?? -1) + 1;
 
+  // A cell that doesn't match a project member's email falls back to being
+  // stored as a free-text external assignee (same escape hatch the assignee
+  // picker offers) rather than silently importing the row unassigned.
   const unmatchedAssigneesSet = new Set<string>();
   const resolved = await Promise.all(deduped.map(async (r) => {
     let assigneeId: string | null = null;
+    let assigneeExternalName: string | null = null;
     if (r.assigneeEmail) {
       assigneeId = await resolveAssigneeByEmail(projectId, r.assigneeEmail);
-      if (!assigneeId) unmatchedAssigneesSet.add(r.assigneeEmail);
+      if (!assigneeId) {
+        assigneeExternalName = r.assigneeEmail;
+        unmatchedAssigneesSet.add(r.assigneeEmail);
+      }
     }
     return {
       ...r,
       assigneeId,
+      assigneeExternalName,
       priority: normalizeEnumValue(r.priorityRaw, PRIORITY_VALUES),
       status: normalizeEnumValue(r.statusRaw, STATUS_VALUES),
     };
@@ -724,6 +748,7 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
           priority: r.priority ?? 'NORMAL',
           status: r.status ?? 'TO_DO',
           assigneeId: r.assigneeId,
+          assigneeExternalName: r.assigneeExternalName,
           startDate: r.startDate,
           dueDate: r.dueDate,
           tags: JSON.stringify(r.tagsRaw ? r.tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : []),
@@ -743,7 +768,7 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
     await prisma.$transaction(toUpdate.map((r) => {
       const data: Record<string, unknown> = {};
       if (r.description !== null) data.description = r.description;
-      if (r.assigneeEmail) data.assigneeId = r.assigneeId;
+      if (r.assigneeEmail) { data.assigneeId = r.assigneeId; data.assigneeExternalName = r.assigneeExternalName; }
       if (r.priority) data.priority = r.priority;
       if (r.status) {
         data.status = r.status;
@@ -815,7 +840,7 @@ router.post('/', requireWrite as RequestHandler, (async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: 'Validation failed', issues: parsed.error.issues });
   }
-  const { taskListId, parentTaskId, title, description, priority, assigneeUserId, startDate, dueDate, tags } = parsed.data;
+  const { taskListId, parentTaskId, title, description, priority, assigneeUserId, assigneeExternalName, startDate, dueDate, tags } = parsed.data;
 
   const list = await prisma.taskList.findFirst({ where: { id: taskListId, projectId } });
   if (!list) return res.status(400).json({ error: 'That task list does not belong to this project' });
@@ -825,8 +850,15 @@ router.post('/', requireWrite as RequestHandler, (async (req, res) => {
     if (!parent) return res.status(400).json({ error: 'Parent task does not belong to this project' });
   }
 
-  const resolved = await resolveAssigneeId(projectId, assigneeUserId);
-  if (!resolved.ok) return res.status(400).json({ error: 'That user is not a member of this project' });
+  let assigneeId: string | null = null;
+  if (assigneeExternalName) {
+    // An external name skips ProjectMember resolution entirely — see
+    // resolveAssigneeId below for the registered-user path.
+  } else {
+    const resolved = await resolveAssigneeId(projectId, assigneeUserId);
+    if (!resolved.ok) return res.status(400).json({ error: 'That user is not a member of this project' });
+    assigneeId = resolved.assigneeId;
+  }
 
   const last = await prisma.task.findFirst({ where: { projectId, taskListId }, orderBy: { sortOrder: 'desc' } });
 
@@ -838,7 +870,8 @@ router.post('/', requireWrite as RequestHandler, (async (req, res) => {
       title,
       description,
       priority: priority ?? 'NORMAL',
-      assigneeId: resolved.assigneeId,
+      assigneeId,
+      assigneeExternalName: assigneeExternalName ?? null,
       startDate: startDate ?? null,
       dueDate: dueDate ?? null,
       tags: JSON.stringify(tags ?? []),
@@ -905,7 +938,8 @@ router.patch('/:taskId/status', requireWrite as RequestHandler, (async (req, res
   res.json({ task });
 }) as RequestHandler);
 
-// ── PATCH /:taskId/assign — assign/unassign a project member ──────────────
+// ── PATCH /:taskId/assign — assign/unassign a project member, or hand the
+// task to someone outside the tool via assigneeExternalName ───────────────
 
 router.patch('/:taskId/assign', requireWrite as RequestHandler, (async (req, res) => {
   const projectId = req.project.id;
@@ -914,24 +948,30 @@ router.patch('/:taskId/assign', requireWrite as RequestHandler, (async (req, res
   if (!parsed.success) {
     return res.status(400).json({ error: 'Validation failed', issues: parsed.error.issues });
   }
+  const { assigneeUserId, assigneeExternalName } = parsed.data;
 
   const existing = await prisma.task.findFirst({ where: { id: taskId, projectId } });
   if (!existing) return res.status(404).json({ error: 'Task not found' });
 
-  // TEST_USER may only assign tasks to themselves — never to a peer. Global
-  // SUPER_ADMIN/ADMIN and project ADMIN/SUPER_USER are unaffected.
+  // TEST_USER may only assign tasks to themselves — never to a peer, and
+  // never to an external name either. Global SUPER_ADMIN/ADMIN and project
+  // ADMIN/SUPER_USER are unaffected.
   const isTestUser = req.projectMember?.role === 'TEST_USER'
     && req.user.globalRole !== 'SUPER_ADMIN' && req.user.globalRole !== 'ADMIN';
-  if (isTestUser && parsed.data.assigneeUserId && parsed.data.assigneeUserId !== req.user.id) {
+  if (isTestUser && ((assigneeUserId && assigneeUserId !== req.user.id) || assigneeExternalName)) {
     return res.status(403).json({ error: 'You can only assign tasks to yourself' });
   }
 
-  const resolved = await resolveAssigneeId(projectId, parsed.data.assigneeUserId);
-  if (!resolved.ok) return res.status(400).json({ error: 'That user is not a member of this project' });
+  let assigneeId: string | null = null;
+  if (!assigneeExternalName) {
+    const resolved = await resolveAssigneeId(projectId, assigneeUserId);
+    if (!resolved.ok) return res.status(400).json({ error: 'That user is not a member of this project' });
+    assigneeId = resolved.assigneeId;
+  }
 
   const task = await prisma.task.update({
     where: { id: taskId },
-    data: { assigneeId: resolved.assigneeId },
+    data: { assigneeId, assigneeExternalName: assigneeExternalName ?? null },
     include: TASK_INCLUDE,
   });
   res.json({ task });

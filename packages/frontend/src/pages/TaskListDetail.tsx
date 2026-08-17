@@ -20,7 +20,7 @@ function matchesMulti(selected: string[], value: string): boolean {
   return selected.length === 0 || selected.includes(value);
 }
 function assigneeName(task: Task): string {
-  return task.assignee?.user.name ?? 'Unassigned';
+  return task.assignee?.user.name ?? task.assigneeExternalName ?? 'Unassigned';
 }
 
 type ViewMode = 'list' | 'board';
@@ -212,7 +212,7 @@ export default function TaskListDetail() {
                 taskListId={listId ?? ''}
                 onOpenTask={handleOpenTask}
                 onStatusChange={(id, status) => updateStatus.mutate({ id, status })}
-                onAssigneeChange={(id, userId) => assignTask.mutate({ id, assigneeUserId: userId })}
+                onAssigneeChange={(id, next) => assignTask.mutate({ id, ...next })}
                 onQuickAdd={(status) => setCreateFor(status ?? 'quick')}
                 canWrite={canWrite}
               />

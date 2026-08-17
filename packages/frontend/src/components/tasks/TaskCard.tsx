@@ -47,7 +47,9 @@ export function TaskCard({
       <div className="tm-card-meta">
         {task.assignee
           ? <TaskAvatar name={task.assignee.user.name} userId={task.assignee.user.id} size={22} />
-          : <UnassignedAvatar size={22} />}
+          : task.assigneeExternalName
+            ? <TaskAvatar name={task.assigneeExternalName} userId={task.assigneeExternalName} size={22} external />
+            : <UnassignedAvatar size={22} />}
         {task.dueDate && (
           <span className={`tm-due-chip${overdue ? ' overdue' : ''}`}>
             {overdue ? '⏰' : '📅'} {formatDueDate(task.dueDate)}

@@ -13,21 +13,25 @@ export function TaskAvatar({
   userId,
   size = 24,
   title,
+  external,
 }: {
   name: string;
   userId: string;
   size?: number;
   title?: string;
+  /** Renders a dashed ring instead of a solid one — flags an assignee who isn't a registered project member. */
+  external?: boolean;
 }) {
   return (
     <div
       className="tm-avatar"
-      title={title ?? name}
+      title={title ?? (external ? `External: ${name}` : name)}
       style={{
         width: size,
         height: size,
         fontSize: Math.max(9, size * 0.4),
         background: gradientFor(userId),
+        ...(external ? { border: '1.5px dashed var(--text-dim)', boxSizing: 'border-box' as const } : {}),
       }}
     >
       {getInitials(name)}
