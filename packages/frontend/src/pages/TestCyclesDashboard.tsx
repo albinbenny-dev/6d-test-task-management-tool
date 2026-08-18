@@ -403,7 +403,21 @@ export default function TestCyclesDashboard() {
 
         {/* Per-cycle breakdown — one compact row per cycle, not a card stack,
             so this stays legible as the number of cycles grows. */}
-        <div className="card" style={{ padding: '16px' }}>
+        {/*
+          minHeight is explicit and synchronous on purpose, same reasoning as
+          DailyExecutionChart's card below: summary comes from an API call
+          (useTestCycleDashboardSummary), so this card renders a tiny
+          "Loading…" placeholder on first paint, then swaps in the full
+          table once data arrives. The surrounding CSS Grid sizes this row
+          from whatever's on screen at that first paint and doesn't fully
+          re-validate it once the real content lands — so the card visually
+          grows to fit its rows, but the grid still thinks the row is
+          Loading…-sized, and the next card starts too early, overlapping
+          this one. A fixed minHeight (heading + 2 rows + padding, with
+          buffer for a couple more) gives the grid a known value up front,
+          before the API response ever arrives.
+        */}
+        <div className="card" style={{ padding: '16px', minHeight: '210px' }}>
           <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', marginBottom: '12px' }}>Status by Cycle</div>
           {summaryLoading ? (
             <div style={{ color: 'var(--text-dim)', fontSize: '12px' }}>Loading…</div>
