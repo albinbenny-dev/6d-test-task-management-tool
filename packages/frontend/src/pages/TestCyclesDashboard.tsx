@@ -218,7 +218,17 @@ function DailyExecutionChart({ history, isLoading, summary, days, onDaysChange }
   const tickInterval = days <= 14 ? 0 : days <= 30 ? 2 : 6;
 
   return (
-    <div className="card" style={{ padding: '16px' }}>
+    // minHeight is an explicit, synchronous value on purpose — Recharts'
+    // ResponsiveContainer needs a ResizeObserver pass to measure its 100%
+    // width before it renders anything, so on the very first layout pass
+    // this card is briefly near-empty. If the surrounding CSS Grid sizes
+    // this row from that transient state and never fully re-validates it
+    // once the chart renders in at its real size, the next card ends up
+    // positioned using the stale, too-small height — overlapping this one.
+    // A fixed minHeight (heading ~40px + 224px chart + legend + padding,
+    // plus buffer) gives the grid a known value from the first paint, no
+    // async measurement required.
+    <div className="card" style={{ padding: '16px', minHeight: '340px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
         <div>
           <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>Daily Execution Count by Cycle</div>
