@@ -348,7 +348,7 @@ export default function TestCyclesDashboard() {
         or shrink depending on how much content is below, instead of every
         section just sitting at its natural height from the top.
       */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'grid', gridTemplateColumns: '1fr', alignContent: 'start', gap: '20px' }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px', display: 'grid', gridTemplateColumns: '1fr', alignContent: 'start', gap: '20px' }}>
         <div>
           <div className="page-eyebrow">Manual test management</div>
           <h1 className="page-title">Test Cycles Dashboard</h1>

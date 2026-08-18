@@ -52,6 +52,12 @@ export default function AppShell() {
         <main
           style={{
             flex: 1,
+            minHeight: 0, // without this, a flex item's automatic min-height
+            // defaults to its content's natural size — <main> would grow to
+            // fit a tall page (e.g. Test Cycles Dashboard's stacked cards)
+            // instead of clamping to the row's fixed height, so overflowY
+            // never actually engages and the excess is silently clipped by
+            // the outer row's overflow:hidden with no scrollbar anywhere.
             overflowY: 'auto',
             overflowX: 'hidden',
             display: 'flex',
