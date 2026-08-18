@@ -135,8 +135,17 @@ function AssignmentHistorySection({ history, isLoading, days, onDaysChange }: {
       {/* Card 1 — chart only. Kept separate from the drill-down below so
           clicking a day updates the second card in place instead of the
           chart's own card growing/shrinking and appearing to "replace" the
-          chart with the table. */}
-      <div className="card" style={{ padding: '16px' }}>
+          chart with the table.
+          minHeight is explicit and synchronous on purpose — same fix as
+          TestCyclesDashboard's Daily Execution chart card. Recharts'
+          ResponsiveContainer needs a ResizeObserver pass to measure its
+          100%-width parent, and this card also swaps from a small
+          "Loading…" placeholder to the real chart once data arrives; the
+          surrounding grid can size this row from whichever of those states
+          is on screen at first paint and not fully re-validate once the
+          real ~250px chart renders in, letting the next card start too
+          early and overlap this one. */}
+      <div className="card" style={{ padding: '16px', minHeight: '320px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
           <div>
             <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>Daily Run History</div>
@@ -160,7 +169,7 @@ function AssignmentHistorySection({ history, isLoading, days, onDaysChange }: {
           <div style={{ color: 'var(--text-dim)', fontSize: '12px' }}>Loading…</div>
         ) : (
           <div style={{ margin: '8px 0 4px' }}>
-            <ResponsiveContainer width="100%" height={180}>
+            <ResponsiveContainer width="100%" height={204}>
               <ComposedChart
                 data={series}
                 margin={{ top: 20, right: 4, bottom: 0, left: -20 }}
@@ -177,7 +186,14 @@ function AssignmentHistorySection({ history, isLoading, days, onDaysChange }: {
                 />
                 <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: 'var(--text-dim)' }} axisLine={false} tickLine={false} width={24} />
                 <Tooltip content={<VelocityTooltip />} cursor={{ fill: 'var(--surface2)' }} />
-                <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11, paddingTop: 4, cursor: 'default' }} />
+                {/* position:'relative' — same fix as TestCyclesDashboard's
+                    chart legend. Recharts defaults the legend to
+                    position:absolute, which is excluded from how the
+                    browser measures this card's content height, so it can
+                    visually paint past the chart's box into content below
+                    it once the card is sized correctly instead of being
+                    crushed by the earlier .card min-height fix. */}
+                <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11, paddingTop: 4, cursor: 'default', position: 'relative' }} />
                 {HISTORY_BAR_SERIES.map(({ key, label }, i) => (
                   <Bar
                     key={key}

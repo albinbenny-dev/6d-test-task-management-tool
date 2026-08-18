@@ -367,8 +367,18 @@ export default function ProjectOverview() {
             </div>
 
             {/* Payment Milestones */}
+            {/* minHeight is explicit and synchronous on purpose — this card
+                depends on useMilestones, a separate query from the `data`
+                gate above, so it renders PaymentMilestonesTable's empty-
+                state placeholder first and swaps to the real table once
+                milestones load. The surrounding grid can size this row from
+                whichever is on screen at first paint and not fully
+                re-validate once the real (often much taller) table renders
+                in, letting Task Health/Testing Health below start too early
+                and overlap this card. See TestCyclesDashboard.tsx for the
+                first confirmed instance of this bug class. */}
             <div style={{ display: 'grid' }}>
-              <div className="card" style={{ padding: 16 }}>
+              <div className="card" style={{ padding: 16, minHeight: '260px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
                   <span style={{ fontSize: 13, fontWeight: 700 }}>Payment Milestones</span>
                   <Link to={`/projects/${slug}/milestones`} style={{ fontSize: 11.5, color: 'var(--cyan)', textDecoration: 'none' }}>View all →</Link>
@@ -378,8 +388,16 @@ export default function ProjectOverview() {
             </div>
 
             {/* Task Health / Testing Health */}
+            {/* Both cards below get an explicit, synchronous minHeight —
+                each contains a Donut/HBarChart pair (Recharts
+                ResponsiveContainer), which needs a ResizeObserver pass to
+                measure its parent before it renders at real size. The
+                surrounding grid can size this row from the pre-measurement
+                paint and not fully re-validate once the charts render in,
+                letting Resource Workload below start too early and overlap.
+                See TestCyclesDashboard.tsx for the first confirmed instance. */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 16 }}>
-              <div className="card" style={{ padding: 16 }}>
+              <div className="card" style={{ padding: 16, minHeight: '370px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
                   <span style={{ fontSize: 13, fontWeight: 700 }}>Task Health</span>
                   <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{data.task.total} total</span>
@@ -396,7 +414,7 @@ export default function ProjectOverview() {
                 <HBarChart rows={(ALL_PRIORITIES as TaskPriority[]).map((p) => ({ label: PRIORITY_LABEL[p], value: data.priorityBreakdown[p] ?? 0, color: PRIORITY_ACCENT[p] }))} />
               </div>
 
-              <div className="card" style={{ padding: 16 }}>
+              <div className="card" style={{ padding: 16, minHeight: '400px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
                   <span style={{ fontSize: 13, fontWeight: 700 }}>Testing Health</span>
                   <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{data.execTotal} cases · active cycles</span>
