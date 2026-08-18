@@ -250,6 +250,17 @@ html[data-density="compact"] {
     border-radius: var(--radius-lg);
     overflow: hidden;
     box-shadow: var(--shadow-card);
+    /* overflow:hidden gives a grid/flex item an automatic minimum size of
+       0 (spec: any overflow other than visible zeroes it out), so once an
+       ancestor grid/flex container has a genuine bounded height (as
+       TestCyclesDashboard's content grid now does — see AppShell.tsx's
+       minHeight:0 fix), the layout algorithm is free to crush an
+       individual .card down toward that 0 instead of letting the
+       container scroll — clipping the card's own content via its own
+       overflow:hidden, with no scrollbar anywhere. min-height:min-content
+       pins every card to its natural content height so it can never be
+       silently squashed smaller than what it actually needs to show. */
+    min-height: min-content;
   }
   .card-header {
     padding: 14px 18px;
