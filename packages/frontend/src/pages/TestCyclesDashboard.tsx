@@ -246,7 +246,7 @@ function DailyExecutionChart({ history, isLoading, summary, days, onDaysChange }
         </div>
       ) : (
         <div style={{ margin: '8px 0 4px' }}>
-          <ResponsiveContainer width="100%" height={200}>
+          <ResponsiveContainer width="100%" height={224}>
             <ComposedChart data={series} margin={{ top: 8, right: 4, bottom: 0, left: -20 }}>
               <XAxis
                 dataKey="dayKey"
@@ -261,7 +261,16 @@ function DailyExecutionChart({ history, isLoading, summary, days, onDaysChange }
               <Legend
                 iconType="circle"
                 iconSize={7}
-                wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
+                // position:'relative' takes the legend out of Recharts'
+                // default absolute-overlay positioning, which is excluded
+                // from how the browser measures this card's natural content
+                // height (out-of-flow elements don't count toward it) — so
+                // once .card was fixed to respect its true content height
+                // (see globals.css .card min-height), the legend kept
+                // visually painting past the chart's fixed-height box into
+                // whatever card sits below it. Relative positioning makes it
+                // a normal flow child that actually reserves its own space.
+                wrapperStyle={{ fontSize: 11, paddingTop: 4, position: 'relative' }}
                 formatter={(value, entry) => nameByKey.get((entry as { dataKey?: string }).dataKey ?? '') ?? String(value)}
               />
               {cycleKeys.map((key, i) => (
