@@ -27,7 +27,13 @@ function CycleSummaryTable({ slug, summary }: { slug: string; summary: TestCycle
     // the page. 420px ≈ header + 10 data rows (34px + 10×38px) at the
     // .data-table row metrics in globals.css, so at least 10 rows are visible
     // before the scrollbar kicks in.
-    <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '420px' }}>
+    // minHeight:min-content matters here too, not just on .card: this div's
+    // own overflow≠visible gives IT an automatic minimum size of 0, which
+    // drags down .card's min-content calculation (.card's min-height is
+    // derived from its children) to near-zero regardless of the .card fix
+    // in globals.css — collapsing this card's grid row and letting whatever
+    // renders after it start too early, overlapping this table.
+    <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '420px', minHeight: 'min-content' }}>
       <table className="data-table" style={{ minWidth: '640px' }}>
         <thead>
           <tr>
@@ -89,7 +95,11 @@ function ResourceSummaryTable({ slug, rows, isLoading }: { slug: string; rows: R
     // overflowY, rows beyond the card's natural height were being clipped by
     // .card's overflow:hidden with no scrollbar to reach them. 420px ≈
     // header + 10 data rows at the .data-table row metrics in globals.css.
-    <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '420px' }}>
+    // minHeight:min-content: this card is currently last on the page so
+    // nothing can overlap below it, but without this it has the same
+    // automatic-minimum-size-zero collapse as CycleSummaryTable's wrapper —
+    // leaving it here defensively so this stays correct if that ever changes.
+    <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '420px', minHeight: 'min-content' }}>
       <table className="data-table" style={{ minWidth: '600px' }}>
         <thead>
           <tr>
