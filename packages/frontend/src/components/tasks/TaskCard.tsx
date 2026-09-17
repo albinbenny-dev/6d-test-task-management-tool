@@ -11,14 +11,20 @@ export function TaskCard({
   draggable,
   onDragStart,
   onDragEnd,
+  onDragOver,
+  onDrop,
   isDragging,
+  isDragOver,
 }: {
   task: Task;
   onOpen: () => void;
   draggable?: boolean;
   onDragStart?: (e: React.DragEvent) => void;
   onDragEnd?: () => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent) => void;
   isDragging?: boolean;
+  isDragOver?: boolean;
 }) {
   const overdue = isTaskOverdue(task);
   const tags = parseTags(task.tags);
@@ -26,11 +32,13 @@ export function TaskCard({
 
   return (
     <div
-      className={`tm-card${isDragging ? ' dragging' : ''}`}
+      className={`tm-card${isDragging ? ' dragging' : ''}${isDragOver ? ' drag-over' : ''}`}
       style={{ '--accent': PRIORITY_ACCENT[task.priority] } as CSSProperties}
       draggable={draggable}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
       onClick={onOpen}
     >
       <div className="tm-card-title">

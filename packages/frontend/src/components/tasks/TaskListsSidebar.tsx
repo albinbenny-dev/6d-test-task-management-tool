@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { useTaskLists, useDeleteTaskList, useUpdateTaskList, useDuplicateTaskList } from '../../hooks/useTaskLists';
+import { useTaskLists, useDeleteTaskList, useUpdateTaskList, useDuplicateTaskList, useReorderTaskLists } from '../../hooks/useTaskLists';
 import { useRBAC } from '../../hooks/useRBAC';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { FloatingPortal } from '../ui/FloatingPortal';
@@ -40,7 +40,7 @@ const menuItemStyle: React.CSSProperties = {
 // kebab (revealed on hover) rather than always-visible icons, so the list
 // name gets almost the full row width to itself instead of permanently
 // giving up ~40-50px to two rarely-used buttons. ───────────────────────────
-function TaskListRow({ list, slug, active, canWrite, canDelete, isRenaming, renameValue, onRenameChange, onStartRename, onCommitRename, onCancelRename, onDuplicate, onRequestDelete }: {
+function TaskListRow({ list, slug, active, canWrite, canDelete, isRenaming, renameValue, onRenameChange, onStartRename, onCommitRename, onCancelRename, onDuplicate, onRequestDelete, draggable, isDragging, isDragOver, onDragStart, onDragOver, onDrop, onDragEnd }: {
   list: TaskList;
   slug: string;
   active: boolean;
@@ -54,6 +54,13 @@ function TaskListRow({ list, slug, active, canWrite, canDelete, isRenaming, rena
   onCancelRename: () => void;
   onDuplicate: () => void;
   onRequestDelete: () => void;
+  draggable: boolean;
+  isDragging: boolean;
+  isDragOver: boolean;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -68,11 +75,16 @@ function TaskListRow({ list, slug, active, canWrite, canDelete, isRenaming, rena
     <Link
       ref={rowRef}
       to={`/projects/${slug}/tasks/${list.id}`}
-      className={`nav-item${active ? ' active' : ''}`}
-      style={{ position: 'relative', fontSize: 12.5 }}
+      className={`nav-item${active ? ' active' : ''}${isDragging ? ' dragging' : ''}${isDragOver ? ' drag-over' : ''}`}
+      style={{ position: 'relative', fontSize: 12.5, cursor: draggable ? 'grab' : undefined }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={(e) => { if (isRenaming) e.preventDefault(); }}
+      draggable={draggable && !isRenaming}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
     >
       <span style={{ width: 8, height: 8, borderRadius: '50%', background: list.color, flexShrink: 0 }} />
       {isRenaming ? (
@@ -154,10 +166,31 @@ export function TaskListsSidebar({ projectId, slug, activeListId }: {
   const deleteList = useDeleteTaskList(projectId ?? '');
   const updateList = useUpdateTaskList(projectId ?? '');
   const duplicateList = useDuplicateTaskList(projectId ?? '');
+  const reorderLists = useReorderTaskLists(projectId ?? '');
   const [showCreate, setShowCreate] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<TaskList | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+
+  // ── Drag-to-reorder lists — native HTML5 DnD (same mechanism as
+  // KanbanBoard's card dragging), reordering against the full `lists`
+  // array so a drop always resolves to a complete, unambiguous order. ───────
+  const [draggingListId, setDraggingListId] = useState<string | null>(null);
+  const [dragOverListId, setDragOverListId] = useState<string | null>(null);
+
+  function handleListDrop(targetId: string) {
+    const sourceId = draggingListId;
+    setDraggingListId(null);
+    setDragOverListId(null);
+    if (!sourceId || sourceId === targetId) return;
+    const ids = lists.map((l) => l.id);
+    const fromIdx = ids.indexOf(sourceId);
+    const toIdx = ids.indexOf(targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, sourceId);
+    reorderLists.mutate(ids);
+  }
 
   // ── Resizable panel — drag the right-edge divider, same mechanics as
   // Scripts.tsx's file-tree/editor split: mutate the DOM directly during the
@@ -282,6 +315,20 @@ export function TaskListsSidebar({ projectId, slug, activeListId }: {
               onCancelRename={() => setRenamingId(null)}
               onDuplicate={() => void handleDuplicate(list)}
               onRequestDelete={() => setConfirmDelete(list)}
+              draggable={canWrite}
+              isDragging={draggingListId === list.id}
+              isDragOver={dragOverListId === list.id && draggingListId !== list.id}
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = 'move';
+                setDraggingListId(list.id);
+              }}
+              onDragOver={(e) => {
+                if (!draggingListId) return;
+                e.preventDefault();
+                setDragOverListId(list.id);
+              }}
+              onDrop={(e) => { e.preventDefault(); handleListDrop(list.id); }}
+              onDragEnd={() => { setDraggingListId(null); setDragOverListId(null); }}
             />
           ))}
         </nav>

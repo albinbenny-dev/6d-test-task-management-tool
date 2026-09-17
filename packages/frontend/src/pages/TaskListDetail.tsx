@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import Topbar, { TbBtn } from '../components/layout/Topbar';
 import { useProject } from '../hooks/useProjects';
 import { useTaskLists } from '../hooks/useTaskLists';
-import { useTasks, useUpdateTaskStatus, useAssignTask, exportTasks } from '../hooks/useTasks';
+import { useTasks, useUpdateTaskStatus, useAssignTask, useReorderTasks, exportTasks } from '../hooks/useTasks';
 import { useRBAC } from '../hooks/useRBAC';
 import { KanbanBoard } from '../components/tasks/KanbanBoard';
 import { TaskListView } from '../components/tasks/TaskListView';
@@ -37,6 +37,7 @@ export default function TaskListDetail() {
   const { data: tasks = [], isLoading } = useTasks(projectId, { taskListId: listId });
   const updateStatus = useUpdateTaskStatus(projectId ?? '');
   const assignTask = useAssignTask(projectId ?? '');
+  const reorderTasks = useReorderTasks(projectId ?? '');
 
   const [view, setView] = useState<ViewMode>('board');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -198,6 +199,7 @@ export default function TaskListDetail() {
                 tasks={filteredTasks}
                 onOpenTask={handleOpenTask}
                 onMoveTask={(taskId, status) => updateStatus.mutate({ id: taskId, status })}
+                onReorderTasks={(orderedIds) => listId && reorderTasks.mutate({ taskListId: listId, orderedIds })}
                 onQuickAdd={(status) => setCreateFor(status)}
               />
             </div>

@@ -13,7 +13,7 @@ import { ColResizeHandle } from '../ui/ColResizeHandle';
 import { FloatingPortal } from '../ui/FloatingPortal';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { useTaskLists } from '../../hooks/useTaskLists';
-import { useBulkMoveTasks, useBulkCopyTasks, exportTasks } from '../../hooks/useTasks';
+import { useBulkMoveTasks, useBulkCopyTasks, useReorderTasks, exportTasks } from '../../hooks/useTasks';
 import type { Task, TaskList, TaskStatus } from '../../types';
 
 // User-resizable, persisted (see useResizableColumns) — shared between the
@@ -40,6 +40,13 @@ function Row({
   onAssigneeChange,
   canWrite,
   gridTemplateColumns,
+  draggable,
+  isDragging,
+  isDragOver,
+  onRowDragStart,
+  onRowDragOver,
+  onRowDrop,
+  onRowDragEnd,
 }: {
   task: Task;
   projectId: string;
@@ -51,6 +58,13 @@ function Row({
   onAssigneeChange: (id: string, next: AssigneeSelection) => void;
   canWrite: boolean;
   gridTemplateColumns: string;
+  draggable?: boolean;
+  isDragging?: boolean;
+  isDragOver?: boolean;
+  onRowDragStart?: (e: React.DragEvent) => void;
+  onRowDragOver?: (e: React.DragEvent) => void;
+  onRowDrop?: (e: React.DragEvent) => void;
+  onRowDragEnd?: () => void;
 }) {
   const [expanded, setExpanded] = useState(true);
   const hasSubtasks = (task.subtasks?.length ?? 0) > 0;
@@ -61,7 +75,15 @@ function Row({
 
   return (
     <>
-      <div className="tm-row" style={{ gridTemplateColumns, paddingLeft: 14 + depth * 22 }}>
+      <div
+        className={`tm-row${isDragging ? ' dragging' : ''}${isDragOver ? ' drag-over' : ''}`}
+        style={{ gridTemplateColumns, paddingLeft: 14 + depth * 22, cursor: draggable ? 'grab' : undefined }}
+        draggable={draggable}
+        onDragStart={onRowDragStart}
+        onDragOver={onRowDragOver}
+        onDrop={onRowDrop}
+        onDragEnd={onRowDragEnd}
+      >
         <input
           type="checkbox"
           checked={selectedIds.has(task.id)}
@@ -246,6 +268,15 @@ export function TaskListView({
   const otherLists = useMemo(() => allLists.filter((l) => l.id !== taskListId), [allLists, taskListId]);
   const bulkMove = useBulkMoveTasks(projectId);
   const bulkCopy = useBulkCopyTasks(projectId);
+  const reorderTasks = useReorderTasks(projectId);
+
+  // ── Drag-to-reorder rows — top-level tasks only (subtasks aren't
+  // draggable, same MVP limit as the Kanban board). Always resolved against
+  // the full `roots` array (every top-level task currently in view) rather
+  // than just the visible group, so a drop is always a complete,
+  // unambiguous order for the reorder endpoint to persist. ──────────────────
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
 
   // Drop any selected id that's no longer in view (filters changed, or the
   // task moved/was deleted) so a bulk action never silently acts on a stale,
@@ -263,6 +294,32 @@ export function TaskListView({
     () => ALL_TASK_STATUSES.map((status) => ({ status, items: roots.filter((t) => t.status === status) })),
     [roots],
   );
+
+  function dropOnRow(targetId: string) {
+    const sourceId = draggingTaskId;
+    setDraggingTaskId(null);
+    setDragOverTaskId(null);
+    if (!sourceId || sourceId === targetId) return;
+    const ids = roots.map((t) => t.id);
+    const fromIdx = ids.indexOf(sourceId);
+    const toIdx = ids.indexOf(targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, sourceId);
+    reorderTasks.mutate({ taskListId, orderedIds: ids });
+  }
+
+  function dragHandlers(task: Task) {
+    return canWrite ? {
+      draggable: true,
+      isDragging: draggingTaskId === task.id,
+      isDragOver: dragOverTaskId === task.id && draggingTaskId !== task.id,
+      onRowDragStart: (e: React.DragEvent) => { e.dataTransfer.effectAllowed = 'move'; setDraggingTaskId(task.id); },
+      onRowDragOver: (e: React.DragEvent) => { if (!draggingTaskId) return; e.preventDefault(); setDragOverTaskId(task.id); },
+      onRowDrop: (e: React.DragEvent) => { e.preventDefault(); dropOnRow(task.id); },
+      onRowDragEnd: () => { setDraggingTaskId(null); setDragOverTaskId(null); },
+    } : {};
+  }
 
   function toggleSelect(id: string) {
     setSelectedIds((prev) => {
@@ -385,6 +442,7 @@ export function TaskListView({
                 onAssigneeChange={onAssigneeChange}
                 canWrite={canWrite}
                 gridTemplateColumns={gridTemplateColumns}
+                {...dragHandlers(task)}
               />
             ))}
 
@@ -411,6 +469,7 @@ export function TaskListView({
                 onAssigneeChange={onAssigneeChange}
                 canWrite={canWrite}
                 gridTemplateColumns={gridTemplateColumns}
+                {...dragHandlers(task)}
               />
             ))}
 
