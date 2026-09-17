@@ -1114,7 +1114,7 @@ html[data-density="compact"] {
     color: var(--text-dim);
     margin-bottom: 6px;
   }
-  .tm-cal-unscheduled-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tm-cal-unscheduled-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 62px; overflow-y: auto; }
 
   .tm-cal-weekdays {
     display: grid;

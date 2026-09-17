@@ -1,10 +1,13 @@
+import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import Topbar, { TbBtn } from '../components/layout/Topbar';
 import { useProject } from '../hooks/useProjects';
-import { useTaskDashboard } from '../hooks/useTasks';
+import { useTaskDashboard, useTasks } from '../hooks/useTasks';
 import { StatCard } from '../components/testCycles/StatCards';
 import { STATUS_LABEL, formatDueDate } from '../lib/taskMeta';
 import { PriorityBadge } from '../components/tasks/PriorityBadge';
+import { CalendarView } from '../components/tasks/CalendarView';
+import { TaskDetailPanel } from '../components/tasks/TaskDetailPanel';
 import type { TaskListSummary, TaskAssigneeSummary, Task } from '../types';
 
 // ── Task Lists — one row per list (including empty ones), worst-behind
@@ -111,13 +114,53 @@ function OverdueTasksTable({ tasks }: { tasks: Task[] }) {
   );
 }
 
+// ── Calendar tab — project-wide, every task list combined. Its own
+// component so `useTasks(projectId)` (unfiltered — every task in the
+// project, no `taskListId`) only fires once this tab is actually mounted,
+// not on every dashboard visit. `CalendarView` is otherwise unchanged from
+// the per-list usage; the task's `taskList` relation (already present on
+// every fetched task) is what lets its chips/popover show which list each
+// task belongs to. Wrapped in a fixed height because this page scrolls
+// naturally (unlike TaskListDetail's fixed-height flex column that
+// CalendarView expects an ancestor of) — same idiom as the tables above
+// capping at `maxHeight: 340`, just taller for a month grid. ───────────────
+function TaskDashboardCalendar({ projectId }: { projectId: string }) {
+  const { data: tasks = [], isLoading } = useTasks(projectId);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
+  return (
+    <div className="card" style={{ padding: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 12 }}>Calendar — All Task Lists</div>
+      {isLoading ? (
+        <div style={{ color: 'var(--text-dim)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>Loading…</div>
+      ) : (
+        <div style={{ height: 700 }}>
+          <CalendarView tasks={tasks} onOpenTask={(task) => setSelectedTaskId(task.id)} />
+        </div>
+      )}
+
+      {selectedTaskId && (
+        <TaskDetailPanel
+          projectId={projectId}
+          taskId={selectedTaskId}
+          onClose={() => setSelectedTaskId(null)}
+          onNavigateToTask={(id) => setSelectedTaskId(id)}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────
+
+type DashboardView = 'overview' | 'calendar';
 
 export default function TaskDashboard() {
   const { slug } = useParams<{ slug: string }>();
   const { data: project } = useProject(slug);
   const projectId = project?.id;
   const { data, isLoading } = useTaskDashboard(projectId);
+  const [view, setView] = useState<DashboardView>('overview');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -127,7 +170,15 @@ export default function TaskDashboard() {
           { label: 'Task Management', href: `/projects/${slug}/tasks` },
           { label: 'Dashboard' },
         ]}
-        actions={<Link to={`/projects/${slug}/tasks`}><TbBtn variant="ghost">📋 All Lists</TbBtn></Link>}
+        actions={(
+          <>
+            <div className="tm-view-tabs">
+              <button className={`tm-view-tab${view === 'overview' ? ' active' : ''}`} onClick={() => setView('overview')}>📊 Overview</button>
+              <button className={`tm-view-tab${view === 'calendar' ? ' active' : ''}`} onClick={() => setView('calendar')}>📅 Calendar</button>
+            </div>
+            <Link to={`/projects/${slug}/tasks`}><TbBtn variant="ghost">📋 All Lists</TbBtn></Link>
+          </>
+        )}
       />
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'grid', gridTemplateColumns: '1fr', alignContent: 'start', gap: 20 }}>
@@ -137,7 +188,9 @@ export default function TaskDashboard() {
           <p className="page-sub">Workload, delivery quality, and progress across every task list in this project.</p>
         </div>
 
-        {isLoading || !data ? (
+        {view === 'calendar' ? (
+          projectId && <TaskDashboardCalendar projectId={projectId} />
+        ) : isLoading || !data ? (
           <div style={{ color: 'var(--text-dim)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>Loading…</div>
         ) : (
           <>

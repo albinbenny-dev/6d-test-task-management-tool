@@ -17,10 +17,14 @@ function dayKey(dateStr: string): string {
 }
 
 // A task chip — same small color-dot + truncated-title language used for
-// tags/labels elsewhere in Task Management, just scoped to a day cell.
+// tags/labels elsewhere in Task Management, just scoped to a day cell. The
+// tooltip includes the source list name — a no-op on the per-list page
+// (every task shares the same list there) but the only way to tell tasks
+// apart by list when this view is fed a whole project's tasks combined.
 function TaskChip({ task, onOpenTask }: { task: Task; onOpenTask: (task: Task) => void }) {
+  const title = task.taskList ? `${task.title} — ${task.taskList.name}` : task.title;
   return (
-    <div className="tm-cal-chip" title={task.title} onClick={() => onOpenTask(task)}>
+    <div className="tm-cal-chip" title={title} onClick={() => onOpenTask(task)}>
       <span className="tm-cal-chip-dot" style={{ background: taskDotColor(task) }} />
       <span className="tm-cal-chip-title">{task.title}</span>
     </div>
@@ -65,6 +69,7 @@ function DayCell({ date, inMonth, tasks, onOpenTask }: {
             >
               <span className="tm-cal-chip-dot" style={{ background: taskDotColor(task) }} />
               <span className="tm-cal-popover-title" title={task.title}>{task.title}</span>
+              {task.taskList && <span className="tag">{task.taskList.name}</span>}
               <PriorityBadge priority={task.priority} />
             </div>
           ))}
