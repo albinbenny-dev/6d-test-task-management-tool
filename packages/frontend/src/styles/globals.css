@@ -1062,6 +1062,151 @@ html[data-density="compact"] {
     flex-wrap: wrap;
   }
 
+  /* ── Calendar view ── */
+  .tm-cal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .tm-cal-nav { display: flex; align-items: center; gap: 10px; }
+  .tm-cal-nav-btn {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-mid);
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .tm-cal-nav-btn:hover { color: var(--text); border-color: var(--border2); }
+  .tm-cal-month-label { font-size: 13.5px; font-weight: 700; color: var(--text); min-width: 130px; text-align: center; }
+  .tm-cal-today-btn {
+    padding: 5px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-mid);
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .tm-cal-today-btn:hover { color: var(--cyan); border-color: var(--cyan); }
+
+  .tm-cal-unscheduled {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+    flex-shrink: 0;
+  }
+  .tm-cal-unscheduled-label {
+    display: block;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  .tm-cal-unscheduled-list { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  .tm-cal-weekdays {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .tm-cal-weekday {
+    padding: 8px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    text-align: center;
+  }
+  .tm-cal-grid {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    grid-auto-rows: minmax(96px, 1fr);
+  }
+  .tm-cal-day {
+    position: relative;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .tm-cal-day.outside-month { background: var(--surface2); }
+  .tm-cal-day.outside-month .tm-cal-day-num { color: var(--text-dim); opacity: 0.5; }
+  .tm-cal-day.today { background: var(--cyan-dim); }
+  .tm-cal-day.today .tm-cal-day-num { color: var(--cyan); font-weight: 700; }
+  .tm-cal-day-num { font-size: 11.5px; font-weight: 600; color: var(--text-mid); }
+  .tm-cal-day-chips { display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+  .tm-cal-chip {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: var(--surface2);
+    font-size: 10.5px;
+    color: var(--text);
+    cursor: pointer;
+    overflow: hidden;
+  }
+  .tm-cal-chip:hover { background: var(--cyan-dim); }
+  .tm-cal-chip-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .tm-cal-chip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tm-cal-more {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 2px 5px;
+  }
+  .tm-cal-more:hover { color: var(--cyan); }
+  .tm-cal-popover {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+  .tm-cal-popover-header {
+    padding: 8px 12px;
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+  .tm-cal-popover-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    font-size: 11.5px;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .tm-cal-popover-row:hover { background: var(--surface2); }
+  .tm-cal-popover-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
   /* ── Avatar ── */
   .tm-avatar {
     display: inline-flex;

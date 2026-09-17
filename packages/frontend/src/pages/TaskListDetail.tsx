@@ -8,6 +8,7 @@ import { useTasks, useUpdateTaskStatus, useAssignTask, useReorderTasks, exportTa
 import { useRBAC } from '../hooks/useRBAC';
 import { KanbanBoard } from '../components/tasks/KanbanBoard';
 import { TaskListView } from '../components/tasks/TaskListView';
+import { CalendarView } from '../components/tasks/CalendarView';
 import { TaskDetailPanel } from '../components/tasks/TaskDetailPanel';
 import { CreateTaskModal } from '../components/tasks/CreateTaskModal';
 import { TaskListsSidebar } from '../components/tasks/TaskListsSidebar';
@@ -23,7 +24,7 @@ function assigneeName(task: Task): string {
   return task.assignee?.user.name ?? task.assigneeExternalName ?? 'Unassigned';
 }
 
-type ViewMode = 'list' | 'board';
+type ViewMode = 'list' | 'board' | 'calendar';
 
 export default function TaskListDetail() {
   const { slug, listId } = useParams<{ slug: string; listId: string }>();
@@ -128,6 +129,7 @@ export default function TaskListDetail() {
             <div className="tm-view-tabs">
               <button className={`tm-view-tab${view === 'list' ? ' active' : ''}`} onClick={() => setView('list')}>☰ List</button>
               <button className={`tm-view-tab${view === 'board' ? ' active' : ''}`} onClick={() => setView('board')}>▦ Board</button>
+              <button className={`tm-view-tab${view === 'calendar' ? ' active' : ''}`} onClick={() => setView('calendar')}>📅 Calendar</button>
             </div>
             <TbBtn variant="ghost" onClick={() => void handleExport()}>📤 Export</TbBtn>
             {canWrite && (
@@ -201,6 +203,13 @@ export default function TaskListDetail() {
                 onMoveTask={(taskId, status) => updateStatus.mutate({ id: taskId, status })}
                 onReorderTasks={(orderedIds) => listId && reorderTasks.mutate({ taskListId: listId, orderedIds })}
                 onQuickAdd={(status) => setCreateFor(status)}
+              />
+            </div>
+          ) : view === 'calendar' ? (
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <CalendarView
+                tasks={filteredTasks}
+                onOpenTask={handleOpenTask}
               />
             </div>
           ) : (

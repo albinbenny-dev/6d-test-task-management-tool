@@ -7,11 +7,11 @@ export default defineConfig({
     port: parseInt(process.env.PORT ?? '3000'),
     proxy: {
       '/api': {
-        target: 'http://localhost:4000',
+        target: process.env.API_PROXY_TARGET ?? 'http://localhost:4000',
         changeOrigin: true,
       },
       '/socket.io': {
-        target: 'http://localhost:4000',
+        target: process.env.API_PROXY_TARGET ?? 'http://localhost:4000',
         changeOrigin: true,
         ws: true,
       },
