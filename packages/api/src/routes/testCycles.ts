@@ -5,6 +5,7 @@ import { verifyToken } from '../middleware/auth.js';
 import { requireProjectAccess } from '../middleware/projectAccess.js';
 import { requireAdvancedFeatures, requireWrite } from '../middleware/rbac.js';
 import { getJiraResolutionSummary } from '../services/jiraService.js';
+import { notifyCycleItemsAssigned } from '../services/taskNotificationService.js';
 
 // ── Manual test cycles ───────────────────────────────────────────────────────
 // Deliberately separate from the automation `Suite` model (which drives Robot
@@ -757,6 +758,7 @@ router.patch('/:cycleId/items/:itemId/assign', requireWrite as RequestHandler, (
     data: { assigneeId, lastUpdatedByUserId: req.user.id, lastUpdatedAt: new Date() },
     include: { assignee: { include: { user: { select: { id: true, name: true, email: true } } } } },
   });
+  if (assigneeId && assigneeId !== item.assigneeId) notifyCycleItemsAssigned([itemId], req.user.id);
   res.json({ item: updated });
 }) as RequestHandler);
 
@@ -786,10 +788,20 @@ router.patch('/:cycleId/items/assign', requireWrite as RequestHandler, (async (r
     assigneeId = member.id;
   }
 
+  // Only items that actually change hands get mentioned in the email — ones
+  // already assigned to this member are left out of the notification.
+  const newlyAssigned = assigneeId
+    ? await prisma.testCycleItem.findMany({
+        where: { id: { in: itemIds }, testCycleId: cycleId, projectId, OR: [{ assigneeId: null }, { assigneeId: { not: assigneeId } }] },
+        select: { id: true },
+      })
+    : [];
+
   const result = await prisma.testCycleItem.updateMany({
     where: { id: { in: itemIds }, testCycleId: cycleId, projectId },
     data: { assigneeId, lastUpdatedByUserId: req.user.id, lastUpdatedAt: new Date() },
   });
+  if (newlyAssigned.length > 0) notifyCycleItemsAssigned(newlyAssigned.map((i) => i.id), req.user.id);
   res.json({ updated: result.count });
 }) as RequestHandler);
 

@@ -17,6 +17,7 @@ import { startRunWorker, getRunWorker } from './jobs/runWorker.js';
 // separately by scripts/backup-db.sh via host cron, not by this job.
 // import { startRetentionSchedule } from './jobs/retentionWorker.js';
 import { startJiraPollSchedule } from './jobs/jiraPollWorker.js';
+import { startTaskReminderSchedule } from './jobs/taskReminderWorker.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -256,6 +257,9 @@ httpServer.listen(PORT, () => {
 
     // Start Jira issue poll (no-op if JIRA_HOST/JIRA_EMAIL/JIRA_API_TOKEN aren't set)
     startJiraPollSchedule();
+
+    // Daily task due-date reminder emails (no-op if SMTP_HOST isn't set)
+    startTaskReminderSchedule();
   })();
 });
 

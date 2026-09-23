@@ -6,6 +6,7 @@ import { prisma } from '../lib/prisma.js';
 import { verifyToken } from '../middleware/auth.js';
 import { requireProjectAccess } from '../middleware/projectAccess.js';
 import { requireWrite } from '../middleware/rbac.js';
+import { notifyTaskComment, notifyTaskDueDateChanged, notifyTasksAssigned } from '../services/taskNotificationService.js';
 
 // ── Task Management — Tasks ──────────────────────────────────────────────────
 // General project task tracking (ClickUp-style), deliberately separate from
@@ -698,8 +699,9 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
 
   const existingTasks = await prisma.task.findMany({
     where: { projectId, taskListId },
-    select: { id: true, title: true, parentTaskId: true, status: true },
+    select: { id: true, title: true, parentTaskId: true, status: true, assigneeId: true },
   });
+  const existingAssigneeById = new Map(existingTasks.map((t) => [t.id, t.assigneeId]));
   const existingByTitle = new Map(existingTasks.map((t) => [t.title, t.id]));
   const existingParentById = new Map(existingTasks.map((t) => [t.id, t.parentTaskId]));
   const existingStatusById = new Map(existingTasks.map((t) => [t.id, t.status]));
@@ -804,6 +806,14 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
     await prisma.$transaction(parentUpdates.map((p) => prisma.task.update({ where: { id: p.id }, data: { parentTaskId: p.parentTaskId } })));
   }
 
+  // One combined "assigned to you" email per person for the whole import —
+  // new rows with a member assignee, plus existing rows whose assignee changed.
+  const newlyAssignedIds = [
+    ...toInsert.filter((r) => r.assigneeId).map((r) => titleToId.get(r.title)!),
+    ...toUpdate.filter((r) => r.assigneeId && r.assigneeId !== existingAssigneeById.get(r._existingId)).map((r) => r._existingId),
+  ];
+  if (newlyAssignedIds.length > 0) notifyTasksAssigned(newlyAssignedIds, req.user.id);
+
   res.status(201).json({
     imported: toInsert.length,
     updated: toUpdate.length,
@@ -880,6 +890,7 @@ router.post('/', requireWrite as RequestHandler, (async (req, res) => {
     },
     include: TASK_INCLUDE,
   });
+  if (task.assigneeId) notifyTasksAssigned([task.id], req.user.id);
   res.status(201).json({ task });
 }) as RequestHandler);
 
@@ -911,6 +922,9 @@ router.put('/:taskId', requireWrite as RequestHandler, (async (req, res) => {
     },
     include: TASK_INCLUDE,
   });
+  if (rest.dueDate !== undefined && (existing.dueDate?.getTime() ?? null) !== (task.dueDate?.getTime() ?? null)) {
+    notifyTaskDueDateChanged(task.id, existing.dueDate, req.user.id);
+  }
   res.json({ task });
 }) as RequestHandler);
 
@@ -1019,6 +1033,7 @@ router.patch('/:taskId/assign', requireWrite as RequestHandler, (async (req, res
     data: { assigneeId, assigneeExternalName: assigneeExternalName ?? null },
     include: TASK_INCLUDE,
   });
+  if (assigneeId && assigneeId !== existing.assigneeId) notifyTasksAssigned([task.id], req.user.id);
   res.json({ task });
 }) as RequestHandler);
 
@@ -1051,6 +1066,7 @@ router.post('/:taskId/comments', requireWrite as RequestHandler, (async (req, re
     data: { taskId, userId: req.user.id, body: parsed.data.body },
     include: { user: { select: { id: true, name: true } } },
   });
+  notifyTaskComment(comment.id);
   res.status(201).json({ comment });
 }) as RequestHandler);
 

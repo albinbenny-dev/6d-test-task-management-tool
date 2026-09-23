@@ -9,8 +9,11 @@ interface ReportsAgentOutput {
 
 // ── Transporter factory ────────────────────────────────────────────────────
 
-function createTransporter() {
+export function createTransporter() {
   return nodemailer.createTransport({
+    // EHLO name — defaults to the container hostname otherwise, which Google's
+    // smtp-relay rejects; set SMTP_EHLO_NAME to the company domain.
+    ...(process.env.SMTP_EHLO_NAME ? { name: process.env.SMTP_EHLO_NAME } : {}),
     host: process.env.SMTP_HOST ?? 'localhost',
     port: parseInt(process.env.SMTP_PORT ?? '587', 10),
     secure: process.env.SMTP_SECURE === 'true',
@@ -199,7 +202,7 @@ function buildHtml(payload: RunReportEmailPayload): string {
 </html>`;
 }
 
-function escHtml(str: string): string {
+export function escHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

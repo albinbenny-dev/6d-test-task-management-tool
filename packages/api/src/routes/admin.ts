@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { verifyToken } from '../middleware/auth.js';
+import { sendDailyTaskReminders } from '../services/taskNotificationService.js';
 
 const router = Router();
 router.use(verifyToken as RequestHandler);
@@ -125,6 +126,19 @@ router.delete('/users/:uid', requireSuperAdmin as RequestHandler, async (req: Re
     }
     next(err);
   }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TASK NOTIFICATIONS (SUPER_ADMIN only)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// POST /admin/task-reminders/run — send today's reminder digests now instead
+// of waiting for TASK_REMINDER_CRON (for testing the SMTP setup end to end).
+router.post('/task-reminders/run', requireSuperAdmin as RequestHandler, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    await sendDailyTaskReminders();
+    res.json({ message: 'Task reminders sent — see API logs for details' });
+  } catch (err) { next(err); }
 });
 
 export default router;
