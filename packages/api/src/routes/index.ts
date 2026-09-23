@@ -6,6 +6,7 @@ import adminRouter from './admin.js';
 import tcItemsRouter from './tcItems.js';
 import testCyclesRouter from './testCycles.js';
 import jiraRouter from './jira.js';
+import notificationSettingsRouter from './notificationSettings.js';
 import defectsRouter from './defects.js';
 import taskListsRouter from './taskLists.js';
 import tasksRouter from './tasks.js';
@@ -64,6 +65,9 @@ router.use('/projects/:projectId/defects', defectsRouter);
 // ── Task Management — ClickUp-style project task tracking ─────────────────
 router.use('/projects/:projectId/task-lists', taskListsRouter);
 router.use('/projects/:projectId/tasks', tasksRouter);
+
+// ── Email notification switches (per project) ─────────────────────────────
+router.use('/projects/:projectId/notification-settings', notificationSettingsRouter);
 
 // ── Wiki — per-project living documentation ────────────────────────────────
 router.use('/projects/:projectId/wiki', wikiRouter);

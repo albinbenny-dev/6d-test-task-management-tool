@@ -36,6 +36,7 @@ model Project {
   color          String   @default("#22d3ee")
   reqLibraryPath String?
   videoEnabled   Boolean  @default(true)
+  notificationSettings String @default("{}") // JSON: per-trigger email switches — see lib/notificationSettings.ts; missing keys default to on
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   createdBy      String?

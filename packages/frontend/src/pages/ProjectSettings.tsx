@@ -24,6 +24,7 @@ import {
 import { useProjectStore } from '../stores/projectStore';
 import { useRBAC } from '../hooks/useRBAC';
 import { useJiraConfig, useUpdateJiraConfig, useTestJiraConnection, useSyncJiraNow } from '../hooks/useJira';
+import { useNotificationSettings, useUpdateNotificationSettings, type NotificationSettings } from '../hooks/useNotificationSettings';
 import { PROJECT_GRADIENTS, getInitials } from '../lib/utils';
 import { PROJECT_ROLES, getRoleMeta } from '../lib/roles';
 import {
@@ -1924,11 +1925,157 @@ function JiraSettingsTab() {
   );
 }
 
+// ── Notifications tab ──────────────────────────────────────────────────────
+
+type NotificationTrigger = Exclude<keyof NotificationSettings, 'enabled'>;
+
+const NOTIFICATION_GROUPS: Array<{ title: string; triggers: Array<{ key: NotificationTrigger; label: string; description: string }> }> = [
+  {
+    title: 'Tasks',
+    triggers: [
+      { key: 'taskAssigned',       label: 'Task assigned',      description: 'Email the assignee when a task is created for them, handed to them, or assigned via Excel import.' },
+      { key: 'taskComment',        label: 'New comment',        description: "Email the task's assignee, creator and earlier commenters when someone comments." },
+      { key: 'taskDueDateChanged', label: 'Due date changed',   description: 'Email the assignee when the due date of their task is changed or removed.' },
+      { key: 'taskReminder',       label: 'Daily due reminder', description: 'One daily digest per person listing their overdue, due-today and due-soon open tasks.' },
+    ],
+  },
+  {
+    title: 'Test Cycles',
+    triggers: [
+      { key: 'cycleItemAssigned',  label: 'Test case assigned', description: 'Email the tester when test cases in a cycle are assigned to them (one email per bulk assignment).' },
+    ],
+  },
+];
+
+function NotificationsTab() {
+  const { activeProject } = useProjectStore();
+  const projectId = activeProject?.id ?? '';
+  const { data, isLoading } = useNotificationSettings(projectId);
+  const updateSettings = useUpdateNotificationSettings(projectId);
+  const [draft, setDraft] = useState<NotificationSettings | null>(null);
+
+  useEffect(() => {
+    if (data?.settings) setDraft(data.settings);
+  }, [data]);
+
+  const dirty = !!draft && !!data && (Object.keys(draft) as Array<keyof NotificationSettings>).some((k) => draft[k] !== data.settings[k]);
+
+  async function handleSave() {
+    if (!draft) return;
+    try {
+      await updateSettings.mutateAsync(draft);
+      toast.success('Notification settings saved.');
+    } catch {
+      toast.error('Failed to save notification settings.');
+    }
+  }
+
+  if (isLoading || !draft) return <div style={{ color: 'var(--text-dim)', fontSize: '12px' }}>Loading…</div>;
+
+  const setAllTriggers = (value: boolean) =>
+    setDraft({ ...draft, ...Object.fromEntries(NOTIFICATION_GROUPS.flatMap((g) => g.triggers.map((t) => [t.key, value]))) });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '760px' }}>
+      <div className="card" style={{ padding: '16px' }}>
+        <div className="card-header">
+          <div className="card-title">Email Notifications</div>
+          <span className={`badge ${data?.serverEmailConfigured ? 'badge-pass' : 'badge-fail'}`}>
+            {data?.serverEmailConfigured ? 'Server email configured' : 'Server email not configured'}
+          </span>
+        </div>
+        {!data?.serverEmailConfigured && (
+          <p style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '12px' }}>
+            An administrator needs to set SMTP_HOST on the server (and TASK_NOTIFY_ENABLED must not be false) before any email is sent. These settings are saved either way.
+          </p>
+        )}
+
+        {/* Master switch */}
+        <label
+          style={{
+            display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px 14px', marginBottom: '16px',
+            border: '1px solid var(--border)', borderRadius: '8px', cursor: 'pointer',
+            background: draft.enabled ? 'rgba(5,150,105,0.06)' : 'rgba(148,163,184,0.08)',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={draft.enabled}
+            onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
+            style={{ marginTop: '2px' }}
+          />
+          <span>
+            <span style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+              Send email notifications for this project
+            </span>
+            <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>
+              {draft.enabled
+                ? 'On — the notifications ticked below are sent.'
+                : 'Off — no emails are sent for this project (useful for test or sandbox projects). Your selections below are kept for when you turn it back on.'}
+            </span>
+          </span>
+        </label>
+
+        {/* Individual triggers — greyed out while the master switch is off */}
+        <div style={{ opacity: draft.enabled ? 1 : 0.5, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', gap: '12px', fontSize: '11px' }}>
+            <button type="button" disabled={!draft.enabled} onClick={() => setAllTriggers(true)} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--6d-orange)', cursor: 'pointer', fontWeight: 600 }}>Select all</button>
+            <button type="button" disabled={!draft.enabled} onClick={() => setAllTriggers(false)} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--text-mid)', cursor: 'pointer', fontWeight: 600 }}>Clear all</button>
+          </div>
+          {NOTIFICATION_GROUPS.map((group) => (
+            <div key={group.title}>
+              <div style={LABEL_STYLE}>{group.title}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: '8px' }}>
+                {group.triggers.map((t, i) => (
+                  <label
+                    key={t.key}
+                    style={{
+                      display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 14px',
+                      cursor: draft.enabled ? 'pointer' : 'not-allowed',
+                      borderTop: i === 0 ? 'none' : '1px solid var(--border)',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={draft[t.key]}
+                      disabled={!draft.enabled}
+                      onChange={(e) => setDraft({ ...draft, [t.key]: e.target.checked })}
+                      style={{ marginTop: '2px' }}
+                    />
+                    <span>
+                      <span style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>{t.label}</span>
+                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>{t.description}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <p style={{ fontSize: '11px', color: 'var(--text-dim)', margin: '16px 0' }}>
+          Emails only go to registered users, and never to the person who made the change.
+        </p>
+
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <TbBtn variant="primary" onClick={() => void handleSave()} disabled={updateSettings.isPending || !dirty}>
+            {updateSettings.isPending ? 'Saving…' : 'Save Settings'}
+          </TbBtn>
+          {dirty && (
+            <TbBtn variant="ghost" onClick={() => setDraft(data!.settings)}>Discard changes</TbBtn>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────
 const TABS = [
   { value: 'details',     label: '🏗 Details' },
   { value: 'members',     label: '👥 Members' },
   { value: 'jira',        label: '🐛 Jira' },
+  { value: 'notifications', label: '🔔 Notifications' },
   { value: 'danger',      label: '⚠ Danger Zone' },
 ];
 
@@ -1939,10 +2086,11 @@ export default function ProjectSettings() {
   const { canManageMembers, canDeleteProject, canAccessSettings, canManageJiraConfig } = useRBAC();
   const [activeTab, setActiveTab] = useState('details');
 
-  // Filter tabs: Members, Jira, and Danger Zone are Admin-only
+  // Filter tabs: Members, Jira, Notifications, and Danger Zone are Admin-only
   const visibleTabs = TABS.filter((t) => {
     if (t.value === 'members') return canManageMembers;
     if (t.value === 'jira')    return canManageJiraConfig;
+    if (t.value === 'notifications') return canManageMembers;
     if (t.value === 'danger')  return canDeleteProject;
     return true;
   });
@@ -2033,6 +2181,9 @@ export default function ProjectSettings() {
           </Tabs.Content>
           <Tabs.Content value="jira">
             <JiraSettingsTab />
+          </Tabs.Content>
+          <Tabs.Content value="notifications">
+            <NotificationsTab />
           </Tabs.Content>
           <Tabs.Content value="danger">
             <DangerZoneTab />

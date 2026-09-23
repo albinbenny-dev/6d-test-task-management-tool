@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { createTransporter, escHtml } from './emailService.js';
+import { isTriggerOn, parseNotificationSettings, type NotificationTrigger } from '../lib/notificationSettings.js';
 
 // ── Task email notifications ────────────────────────────────────────────────
 // All mail goes to registered users only (an external free-text assignee has
@@ -10,8 +11,9 @@ import { createTransporter, escHtml } from './emailService.js';
 //   3. New comment — to the task's assignee, creator and earlier commenters.
 //   4. Due date changed — to the task's assignee.
 //   5. Test cycle item(s) assigned — to the new assignee, one email per batch.
-// Every send is best-effort: a mail failure is logged and never fails the
-// API request that triggered it.
+// Each trigger can be switched off per project in Project Settings →
+// Notifications (Project.notificationSettings). Every send is best-effort: a
+// mail failure is logged and never fails the API request that triggered it.
 
 function isEnabled(): boolean {
   return !!process.env.SMTP_HOST && process.env.TASK_NOTIFY_ENABLED !== 'false';
@@ -52,7 +54,7 @@ const NOTIFY_TASK_SELECT = {
   dueDate: true,
   taskListId: true,
   taskList: { select: { name: true } },
-  project: { select: { name: true, slug: true } },
+  project: { select: { name: true, slug: true, notificationSettings: true } },
   assignee: { select: { user: { select: { id: true, name: true, email: true } } } },
 } as const;
 
@@ -64,8 +66,12 @@ interface NotifyTask {
   dueDate: Date | null;
   taskListId: string;
   taskList: { name: string };
-  project: { name: string; slug: string };
+  project: { name: string; slug: string; notificationSettings: string };
   assignee: { user: { id: string; name: string; email: string } } | null;
+}
+
+function projectAllows(project: { notificationSettings: string }, trigger: NotificationTrigger): boolean {
+  return isTriggerOn(parseNotificationSettings(project.notificationSettings), trigger);
 }
 
 function taskLink(t: NotifyTask): string {
@@ -161,7 +167,7 @@ async function sendAssignedEmails(taskIds: string[], actorUserId: string): Promi
     where: { id: { in: taskIds }, assigneeId: { not: null }, status: { not: 'DONE' } },
     select: NOTIFY_TASK_SELECT,
   });
-  const groups = groupByAssignee(tasks.filter((t) => t.assignee?.user.id !== actorUserId));
+  const groups = groupByAssignee(tasks.filter((t) => t.assignee?.user.id !== actorUserId && projectAllows(t.project, 'taskAssigned')));
   if (groups.size === 0) return;
   const actor = await actorName(actorUserId);
 
@@ -211,7 +217,7 @@ async function sendCommentEmails(commentId: string): Promise<void> {
     where: { id: commentId },
     select: { body: true, userId: true, user: { select: { name: true } }, task: { select: { ...NOTIFY_TASK_SELECT, createdByUserId: true } } },
   });
-  if (!comment) return;
+  if (!comment || !projectAllows(comment.task.project, 'taskComment')) return;
   const { task } = comment;
 
   const earlier = await prisma.taskComment.findMany({
@@ -249,6 +255,7 @@ async function sendDueDateChangedEmail(taskId: string, previousDue: Date | null,
   const task = await prisma.task.findUnique({ where: { id: taskId }, select: NOTIFY_TASK_SELECT });
   const user = task?.assignee?.user;
   if (!task || !user?.email || user.id === actorUserId || task.status === 'DONE') return;
+  if (!projectAllows(task.project, 'taskDueDateChanged')) return;
 
   const from = previousDue ? formatDate(previousDue) : 'no due date';
   const to = task.dueDate ? formatDate(task.dueDate) : 'no due date';
@@ -274,7 +281,7 @@ async function sendCycleItemsAssignedEmail(itemIds: string[], actorUserId: strin
       manualStatus: true,
       testCase: { select: { srNo: true, module: true, title: true } },
       testCycle: { select: { id: true, name: true, dueDate: true } },
-      project: { select: { name: true, slug: true } },
+      project: { select: { name: true, slug: true, notificationSettings: true } },
       assignee: { select: { user: { select: { id: true, name: true, email: true } } } },
     },
     orderBy: { sortOrder: 'asc' },
@@ -283,6 +290,7 @@ async function sendCycleItemsAssignedEmail(itemIds: string[], actorUserId: strin
   const first = items[0];
   const user = first?.assignee?.user;
   if (!first || !user?.email || user.id === actorUserId) return;
+  if (!projectAllows(first.project, 'cycleItemAssigned')) return;
 
   const cycle = first.testCycle;
   const cycleLink = `${appUrl()}/projects/${encodeURIComponent(first.project.slug)}/test-cycles/${cycle.id}`;
@@ -339,7 +347,7 @@ export async function sendDailyTaskReminders(): Promise<void> {
     orderBy: { dueDate: 'asc' },
   });
 
-  const due = tasks.filter((t) => daysBetween(todayKey, dateKey(t.dueDate!)) <= daysBefore);
+  const due = tasks.filter((t) => projectAllows(t.project, 'taskReminder') && daysBetween(todayKey, dateKey(t.dueDate!)) <= daysBefore);
   const groups = groupByAssignee(due);
   let sent = 0;
 
