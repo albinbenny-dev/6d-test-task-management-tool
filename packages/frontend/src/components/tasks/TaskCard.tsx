@@ -8,6 +8,7 @@ import type { CSSProperties } from 'react';
 export function TaskCard({
   task,
   onOpen,
+  onDuplicate,
   draggable,
   onDragStart,
   onDragEnd,
@@ -18,6 +19,7 @@ export function TaskCard({
 }: {
   task: Task;
   onOpen: () => void;
+  onDuplicate?: () => void;
   draggable?: boolean;
   onDragStart?: (e: React.DragEvent) => void;
   onDragEnd?: () => void;
@@ -41,6 +43,16 @@ export function TaskCard({
       onDrop={onDrop}
       onClick={onOpen}
     >
+      {onDuplicate && (
+        <button
+          type="button"
+          className="tm-card-dup-btn"
+          title="Duplicate task"
+          onClick={(e) => { e.stopPropagation(); onDuplicate(); }}
+        >
+          ⧉
+        </button>
+      )}
       <div className="tm-card-title">
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: taskDotColor(task), flexShrink: 0, display: 'inline-block' }} />
         {task.title}

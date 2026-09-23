@@ -176,6 +176,18 @@ export function useDeleteTask(projectId: string) {
   });
 }
 
+/** Clones a task (+ its direct subtasks) into the same list, titled "<title> (Copy)". */
+export function useDuplicateTask(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (taskId: string) => {
+      const res = await api.post<{ task: Task }>(`/projects/${projectId}/tasks/${taskId}/duplicate`, {});
+      return res.data.task;
+    },
+    onSuccess: () => invalidateAll(qc, projectId),
+  });
+}
+
 /** Moves tasks to another list — subtasks of any selected task ride along automatically. */
 export function useBulkMoveTasks(projectId: string) {
   const qc = useQueryClient();

@@ -13,7 +13,7 @@ import { ColResizeHandle } from '../ui/ColResizeHandle';
 import { FloatingPortal } from '../ui/FloatingPortal';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { useTaskLists } from '../../hooks/useTaskLists';
-import { useBulkMoveTasks, useBulkCopyTasks, useReorderTasks, exportTasks } from '../../hooks/useTasks';
+import { useBulkMoveTasks, useBulkCopyTasks, useReorderTasks, useDuplicateTask, exportTasks } from '../../hooks/useTasks';
 import type { Task, TaskList, TaskStatus } from '../../types';
 
 // User-resizable, persisted (see useResizableColumns) — shared between the
@@ -27,6 +27,7 @@ const TASK_COLUMNS: (ResizableColumnDef & { label: string; resizable: boolean })
   { key: 'priority', label: 'Priority', width: 110, min: 80, resizable: true },
   { key: 'status', label: 'Status', width: 140, min: 90, resizable: true },
   { key: 'labels', label: 'Labels', width: 150, min: 90, resizable: true },
+  { key: 'actions', label: '', width: 32, min: 32, max: 32, resizable: false },
 ];
 
 function Row({
@@ -38,6 +39,7 @@ function Row({
   onOpen,
   onStatusChange,
   onAssigneeChange,
+  onDuplicate,
   canWrite,
   gridTemplateColumns,
   draggable,
@@ -56,6 +58,7 @@ function Row({
   onOpen: (task: Task) => void;
   onStatusChange: (id: string, status: TaskStatus) => void;
   onAssigneeChange: (id: string, next: AssigneeSelection) => void;
+  onDuplicate: (task: Task) => void;
   canWrite: boolean;
   gridTemplateColumns: string;
   draggable?: boolean;
@@ -132,6 +135,15 @@ function Row({
           {shownTags.map((t) => <span key={t} className="tag" style={{ fontSize: 8.5 }}>{t}</span>)}
           {extraTags > 0 && <span className="tag" style={{ fontSize: 8.5 }}>+{extraTags}</span>}
         </div>
+        <button
+          type="button"
+          className="tm-row-action-btn"
+          title="Duplicate task"
+          onClick={(e) => { e.stopPropagation(); onDuplicate(task); }}
+          style={{ visibility: canWrite ? 'visible' : 'hidden' }}
+        >
+          ⧉
+        </button>
       </div>
       {hasSubtasks && expanded && task.subtasks!.map((sub) => (
         <Row
@@ -144,6 +156,7 @@ function Row({
           onOpen={onOpen}
           onStatusChange={onStatusChange}
           onAssigneeChange={onAssigneeChange}
+          onDuplicate={onDuplicate}
           canWrite={canWrite}
           gridTemplateColumns={gridTemplateColumns}
         />
@@ -269,6 +282,7 @@ export function TaskListView({
   const bulkMove = useBulkMoveTasks(projectId);
   const bulkCopy = useBulkCopyTasks(projectId);
   const reorderTasks = useReorderTasks(projectId);
+  const duplicateTask = useDuplicateTask(projectId);
 
   // ── Drag-to-reorder rows — top-level tasks only (subtasks aren't
   // draggable, same MVP limit as the Kanban board). Always resolved against
@@ -356,6 +370,12 @@ export function TaskListView({
       await exportTasks(projectId, 'selected', { ids: [...selectedIds] });
     } catch { toast.error('Export failed'); }
   }
+  async function handleDuplicate(task: Task) {
+    try {
+      await duplicateTask.mutateAsync(task.id);
+      toast.success(`Duplicated "${task.title}"`);
+    } catch { toast.error('Failed to duplicate task'); }
+  }
 
   return (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -440,6 +460,7 @@ export function TaskListView({
                 onOpen={onOpenTask}
                 onStatusChange={onStatusChange}
                 onAssigneeChange={onAssigneeChange}
+                onDuplicate={(t) => void handleDuplicate(t)}
                 canWrite={canWrite}
                 gridTemplateColumns={gridTemplateColumns}
                 {...dragHandlers(task)}
@@ -467,6 +488,7 @@ export function TaskListView({
                 onOpen={onOpenTask}
                 onStatusChange={onStatusChange}
                 onAssigneeChange={onAssigneeChange}
+                onDuplicate={(t) => void handleDuplicate(t)}
                 canWrite={canWrite}
                 gridTemplateColumns={gridTemplateColumns}
                 {...dragHandlers(task)}

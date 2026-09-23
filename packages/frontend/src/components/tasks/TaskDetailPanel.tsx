@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
-  useTask, useTasks, useUpdateTask, useUpdateTaskStatus, useAssignTask, useDeleteTask,
+  useTask, useTasks, useUpdateTask, useUpdateTaskStatus, useAssignTask, useDeleteTask, useDuplicateTask,
   useCreateTask, useAddTaskComment, useUpdateTaskComment, useDeleteTaskComment,
 } from '../../hooks/useTasks';
 import { useProjectStore } from '../../stores/projectStore';
@@ -89,6 +89,7 @@ export function TaskDetailPanel({ projectId, taskId, onClose, onNavigateToTask }
   const updateStatus = useUpdateTaskStatus(projectId);
   const assignTask = useAssignTask(projectId);
   const deleteTask = useDeleteTask(projectId);
+  const duplicateTask = useDuplicateTask(projectId);
   const createSubtask = useCreateTask(projectId);
   const addComment = useAddTaskComment(projectId);
   const updateComment = useUpdateTaskComment(projectId);
@@ -178,6 +179,16 @@ export function TaskDetailPanel({ projectId, taskId, onClose, onNavigateToTask }
     }
   }
 
+  async function handleDuplicate() {
+    try {
+      const copy = await duplicateTask.mutateAsync(task!.id);
+      toast.success('Task duplicated');
+      onNavigateToTask(copy.id);
+    } catch {
+      toast.error('Failed to duplicate task');
+    }
+  }
+
   return (
     <>
       <div className="tm-panel-backdrop" onClick={onClose} />
@@ -193,6 +204,13 @@ export function TaskDetailPanel({ projectId, taskId, onClose, onNavigateToTask }
             </button>
           )}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            <button
+              onClick={() => void handleDuplicate()}
+              title="Duplicate task"
+              style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, width: 28, height: 28, cursor: 'pointer', color: 'var(--text-dim)' }}
+            >
+              ⧉
+            </button>
             <button
               onClick={() => setShowConfirmDelete(true)}
               title="Delete task"

@@ -24,12 +24,14 @@ export function KanbanBoard({
   onMoveTask,
   onReorderTasks,
   onQuickAdd,
+  onDuplicateTask,
 }: {
   tasks: Task[];
   onOpenTask: (task: Task) => void;
   onMoveTask: (taskId: string, status: TaskStatus) => void;
   onReorderTasks: (orderedIds: string[]) => void;
   onQuickAdd: (status: TaskStatus) => void;
+  onDuplicateTask?: (task: Task) => void;
 }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<TaskStatus | null>(null);
@@ -100,6 +102,7 @@ export function KanbanBoard({
                   }}
                   onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropOnCard(task); }}
                   onOpen={() => onOpenTask(task)}
+                  onDuplicate={onDuplicateTask ? () => onDuplicateTask(task) : undefined}
                 />
               ))}
               <div className="tm-quick-add" onClick={() => onQuickAdd(status)}>

@@ -914,6 +914,51 @@ router.put('/:taskId', requireWrite as RequestHandler, (async (req, res) => {
   res.json({ task });
 }) as RequestHandler);
 
+// ── POST /:taskId/duplicate — clone a task (+ its direct subtasks) into the
+// same list, appended at the end like bulk-copy. " (Copy)" is appended to
+// the title so the clone reads distinctly from the original in a flat list.
+
+router.post('/:taskId/duplicate', requireWrite as RequestHandler, (async (req, res) => {
+  const projectId = req.project.id;
+  const { taskId } = req.params;
+
+  const original = await prisma.task.findFirst({ where: { id: taskId, projectId } });
+  if (!original) return res.status(404).json({ error: 'Task not found' });
+
+  const subtasks = await prisma.task.findMany({ where: { projectId, parentTaskId: taskId } });
+
+  const last = await prisma.task.findFirst({ where: { projectId, taskListId: original.taskListId }, orderBy: { sortOrder: 'desc' } });
+  let nextSortOrder = (last?.sortOrder ?? -1) + 1;
+
+  const copyData = (t: typeof original, parentTaskId: string | null, title: string) => ({
+    projectId,
+    taskListId: original.taskListId,
+    parentTaskId,
+    title,
+    description: t.description,
+    status: t.status,
+    priority: t.priority,
+    assigneeId: t.assigneeId,
+    assigneeExternalName: t.assigneeExternalName,
+    startDate: t.startDate,
+    dueDate: t.dueDate,
+    tags: t.tags,
+    sortOrder: nextSortOrder++,
+    createdByUserId: req.user.id,
+    completedAt: t.completedAt,
+  });
+
+  const task = await prisma.$transaction(async (tx) => {
+    const clone = await tx.task.create({ data: copyData(original, null, `${original.title} (Copy)`) });
+    for (const sub of subtasks) {
+      await tx.task.create({ data: copyData(sub, clone.id, sub.title) });
+    }
+    return tx.task.findFirstOrThrow({ where: { id: clone.id }, include: TASK_INCLUDE });
+  });
+
+  res.status(201).json({ task });
+}) as RequestHandler);
+
 // ── PATCH /:taskId/status — move between TO_DO/IN_PROGRESS/IN_REVIEW/DONE ──
 
 router.patch('/:taskId/status', requireWrite as RequestHandler, (async (req, res) => {

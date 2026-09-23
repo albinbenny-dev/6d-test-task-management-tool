@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import Topbar, { TbBtn } from '../components/layout/Topbar';
 import { useProject } from '../hooks/useProjects';
 import { useTaskLists } from '../hooks/useTaskLists';
-import { useTasks, useUpdateTaskStatus, useAssignTask, useReorderTasks, exportTasks } from '../hooks/useTasks';
+import { useTasks, useUpdateTaskStatus, useAssignTask, useReorderTasks, useDuplicateTask, exportTasks } from '../hooks/useTasks';
 import { useRBAC } from '../hooks/useRBAC';
 import { KanbanBoard } from '../components/tasks/KanbanBoard';
 import { TaskListView } from '../components/tasks/TaskListView';
@@ -39,6 +39,7 @@ export default function TaskListDetail() {
   const updateStatus = useUpdateTaskStatus(projectId ?? '');
   const assignTask = useAssignTask(projectId ?? '');
   const reorderTasks = useReorderTasks(projectId ?? '');
+  const duplicateTask = useDuplicateTask(projectId ?? '');
 
   const [view, setView] = useState<ViewMode>('board');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -114,6 +115,15 @@ export default function TaskListDetail() {
 
   function handleOpenTask(task: Task) {
     setSelectedTaskId(task.id);
+  }
+
+  async function handleDuplicateTask(task: Task) {
+    try {
+      await duplicateTask.mutateAsync(task.id);
+      toast.success(`Duplicated "${task.title}"`);
+    } catch {
+      toast.error('Failed to duplicate task');
+    }
   }
 
   return (
@@ -203,6 +213,7 @@ export default function TaskListDetail() {
                 onMoveTask={(taskId, status) => updateStatus.mutate({ id: taskId, status })}
                 onReorderTasks={(orderedIds) => listId && reorderTasks.mutate({ taskListId: listId, orderedIds })}
                 onQuickAdd={(status) => setCreateFor(status)}
+                onDuplicateTask={(task) => void handleDuplicateTask(task)}
               />
             </div>
           ) : view === 'calendar' ? (
