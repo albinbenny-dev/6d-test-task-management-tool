@@ -10,6 +10,7 @@ export interface NotificationSettings {
   taskComment: boolean;
   taskDueDateChanged: boolean;
   taskReminder: boolean;
+  leadReminder: boolean;
   cycleItemAssigned: boolean;
 }
 

@@ -1937,6 +1937,7 @@ const NOTIFICATION_GROUPS: Array<{ title: string; triggers: Array<{ key: Notific
       { key: 'taskComment',        label: 'New comment',        description: "Email the task's assignee, creator and earlier commenters when someone comments." },
       { key: 'taskDueDateChanged', label: 'Due date changed',   description: 'Email the assignee when the due date of their task is changed or removed.' },
       { key: 'taskReminder',       label: 'Daily due reminder', description: 'One daily digest per person listing their overdue, due-today and due-soon open tasks.' },
+      { key: 'leadReminder',       label: 'Daily team report',  description: 'One combined daily report for project Admins and Super Users, grouped by project and resource. Super Admins get it for every project that has this on.' },
     ],
   },
   {

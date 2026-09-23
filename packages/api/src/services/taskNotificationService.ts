@@ -7,7 +7,9 @@ import { isTriggerOn, parseNotificationSettings, type NotificationTrigger } from
 // no email address), and never to the person whose action triggered it:
 //   1. "Assigned to you" — a task is created with / handed to a member.
 //   2. Daily reminder digest — one email per person listing their open tasks
-//      that are overdue, due today, or due within TASK_REMINDER_DAYS_BEFORE.
+//      that are overdue, due today, or due within TASK_REMINDER_DAYS_BEFORE,
+//      plus a combined team report (Project → Resource) for project leads
+//      (ADMIN / SUPER_USER) and every global SUPER_ADMIN.
 //   3. New comment — to the task's assignee, creator and earlier commenters.
 //   4. Due date changed — to the task's assignee.
 //   5. Test cycle item(s) assigned — to the new assignee, one email per batch.
@@ -54,7 +56,7 @@ const NOTIFY_TASK_SELECT = {
   dueDate: true,
   taskListId: true,
   taskList: { select: { name: true } },
-  project: { select: { name: true, slug: true, notificationSettings: true } },
+  project: { select: { id: true, name: true, slug: true, notificationSettings: true } },
   assignee: { select: { user: { select: { id: true, name: true, email: true } } } },
 } as const;
 
@@ -66,7 +68,7 @@ interface NotifyTask {
   dueDate: Date | null;
   taskListId: string;
   taskList: { name: string };
-  project: { name: string; slug: string; notificationSettings: string };
+  project: { id: string; name: string; slug: string; notificationSettings: string };
   assignee: { user: { id: string; name: string; email: string } } | null;
 }
 
@@ -80,14 +82,14 @@ function taskLink(t: NotifyTask): string {
 
 // ── HTML ────────────────────────────────────────────────────────────────────
 
-function taskRow(t: NotifyTask, dueNote?: { text: string; color: string }): string {
+function taskRow(t: NotifyTask, dueNote?: { text: string; color: string }, showProject = true): string {
   const pColor = PRIORITY_COLOR[t.priority] ?? '#94A3B8';
   const due = t.dueDate ? formatDate(t.dueDate) : '—';
   return `
     <tr>
       <td style="padding:10px 12px;border-top:1px solid #E2E8F0;">
         <a href="${taskLink(t)}" style="font-size:13px;font-weight:600;color:#0A2A57;text-decoration:none;">${escHtml(t.title)}</a>
-        <div style="font-size:11px;color:#6B7280;margin-top:2px;">${escHtml(t.project.name)} · ${escHtml(t.taskList.name)}</div>
+        <div style="font-size:11px;color:#6B7280;margin-top:2px;">${showProject ? `${escHtml(t.project.name)} · ` : ''}${escHtml(t.taskList.name)}</div>
       </td>
       <td style="padding:10px 12px;border-top:1px solid #E2E8F0;font-size:11px;font-weight:700;color:${pColor};white-space:nowrap;">${PRIORITY_LABEL[t.priority] ?? t.priority}</td>
       <td style="padding:10px 12px;border-top:1px solid #E2E8F0;font-size:12px;color:#475569;white-space:nowrap;">${STATUS_LABEL[t.status] ?? t.status}</td>
@@ -326,7 +328,177 @@ export function notifyCycleItemsAssigned(itemIds: string[], actorUserId: string)
   background('Test cycle assignment', sendCycleItemsAssignedEmail(itemIds, actorUserId));
 }
 
-// ── 2. Daily reminder digest ────────────────────────────────────────────────
+// ── 2. Daily reminder digests ───────────────────────────────────────────────
+// One run sends two kinds of digest from the same set of due tasks:
+//   a) to each assignee — their own tasks (trigger: taskReminder)
+//   b) to leads — one combined report per person, grouped Project → Resource
+//      (trigger: leadReminder). Recipients are each project's ADMIN and
+//      SUPER_USER members, who see only the projects they lead, plus every
+//      global SUPER_ADMIN, who gets all projects. Someone who is both gets
+//      one email covering the union.
+
+type DueBucket = 'overdue' | 'today' | 'upcoming';
+interface DueTask { task: NotifyTask; diff: number; bucket: DueBucket }
+
+const BUCKET_ORDER: Record<DueBucket, number> = { overdue: 0, today: 1, upcoming: 2 };
+
+function dueNote(diff: number): { text: string; color: string } {
+  if (diff < 0) return { text: `${-diff} day${diff === -1 ? '' : 's'} overdue`, color: '#DC2626' };
+  if (diff === 0) return { text: 'Due today', color: '#F47B20' };
+  return { text: `In ${diff} day${diff === 1 ? '' : 's'}`, color: '#2563AB' };
+}
+
+function countBuckets(items: DueTask[]): Record<DueBucket, number> {
+  const c = { overdue: 0, today: 0, upcoming: 0 };
+  for (const i of items) c[i.bucket]++;
+  return c;
+}
+
+function countsText(c: Record<DueBucket, number>): string {
+  return [
+    c.overdue ? `${c.overdue} overdue` : '',
+    c.today ? `${c.today} due today` : '',
+    c.upcoming ? `${c.upcoming} coming up` : '',
+  ].filter(Boolean).join(', ');
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+function groupBy<T>(items: T[], key: (item: T) => string): T[][] {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const k = key(item);
+    const list = map.get(k) ?? [];
+    list.push(item);
+    map.set(k, list);
+  }
+  return [...map.values()];
+}
+
+async function sendAssigneeDigests(due: DueTask[]): Promise<{ sent: number; total: number }> {
+  const groups = groupBy(due, (d) => d.task.assignee!.user.id);
+  let sent = 0;
+
+  for (const items of groups) {
+    const user = items[0].task.assignee!.user;
+    const rows = (bucket: DueBucket) => items.filter((i) => i.bucket === bucket).map((i) => taskRow(i.task, dueNote(i.diff)));
+    const overdue = rows('overdue');
+    const today = rows('today');
+    const upcoming = rows('upcoming');
+
+    const body = [
+      overdue.length ? sectionTitle(`Overdue (${overdue.length})`, '#DC2626') + taskTable(overdue.join('')) : '',
+      today.length ? sectionTitle(`Due today (${today.length})`, '#F47B20') + taskTable(today.join('')) : '',
+      upcoming.length ? sectionTitle(`Coming up (${upcoming.length})`, '#2563AB') + taskTable(upcoming.join('')) : '',
+    ].join('');
+
+    const subject = `[Task Reminder] ${countsText(countBuckets(items))}`;
+    const intro = `Hi ${escHtml(user.name)}, here are your open tasks that need attention.`;
+
+    try {
+      await send(user.email, subject, layout('Your task reminders', intro, body));
+      sent++;
+    } catch (err) {
+      console.error(`[task-notify] Failed to send reminder to ${user.email}:`, (err as Error).message);
+    }
+  }
+  return { sent, total: groups.length };
+}
+
+function statTile(value: number, label: string, color: string): string {
+  return `
+        <td style="width:33%;padding:0 6px;">
+          <div style="background:#F7F9FC;border:1px solid #E2E8F0;border-radius:8px;padding:14px;text-align:center;">
+            <div style="font-size:24px;font-weight:800;color:${color};">${value}</div>
+            <div style="font-size:10px;color:#6B7280;text-transform:uppercase;margin-top:4px;letter-spacing:0.05em;">${label}</div>
+          </div>
+        </td>`;
+}
+
+function leadReportBody(items: DueTask[]): string {
+  const totals = countBuckets(items);
+  const tiles = `
+    <table style="width:100%;border-collapse:collapse;margin-bottom:24px;"><tr>
+      ${statTile(totals.overdue, 'Overdue', '#DC2626')}
+      ${statTile(totals.today, 'Due today', '#F47B20')}
+      ${statTile(totals.upcoming, 'Coming up', '#2563AB')}
+    </tr></table>`;
+
+  const projects = groupBy(items, (i) => i.task.project.id)
+    .sort((a, b) => a[0].task.project.name.localeCompare(b[0].task.project.name));
+
+  const sections = projects.map((projectItems) => {
+    const project = projectItems[0].task.project;
+    // Resources with the most overdue work first, then by name.
+    const resources = groupBy(projectItems, (i) => i.task.assignee!.user.id).sort((a, b) => {
+      const d = countBuckets(b).overdue - countBuckets(a).overdue;
+      return d !== 0 ? d : a[0].task.assignee!.user.name.localeCompare(b[0].task.assignee!.user.name);
+    });
+
+    const resourceBlocks = resources.map((resItems) => {
+      const sorted = [...resItems].sort((a, b) => BUCKET_ORDER[a.bucket] - BUCKET_ORDER[b.bucket] || a.diff - b.diff);
+      return `
+      <div style="font-size:13px;font-weight:700;color:#334155;margin:0 0 6px;">
+        ${escHtml(resItems[0].task.assignee!.user.name)}
+        <span style="font-size:11px;font-weight:600;color:#6B7280;"> — ${countsText(countBuckets(resItems))}</span>
+      </div>
+      ${taskTable(sorted.map((i) => taskRow(i.task, dueNote(i.diff), false)).join(''))}`;
+    }).join('');
+
+    return `
+    <div style="margin-bottom:28px;">
+      <div style="background:#0F2D4A;border-radius:6px;padding:10px 14px;margin-bottom:14px;">
+        <span style="font-size:14px;font-weight:700;color:#FFFFFF;">${escHtml(project.name)}</span>
+        <span style="font-size:11px;color:#CBD5E1;"> · ${countsText(countBuckets(projectItems))} · ${plural(resources.length, 'resource')}</span>
+      </div>
+      ${resourceBlocks}
+    </div>`;
+  }).join('');
+
+  return tiles + sections;
+}
+
+async function sendLeadReports(due: DueTask[]): Promise<{ sent: number; total: number }> {
+  if (due.length === 0) return { sent: 0, total: 0 };
+  const projectIds = [...new Set(due.map((d) => d.task.project.id))];
+
+  const [leads, superAdmins] = await Promise.all([
+    prisma.projectMember.findMany({
+      where: { projectId: { in: projectIds }, role: { in: ['ADMIN', 'SUPER_USER'] } },
+      select: { projectId: true, user: { select: { id: true, name: true, email: true } } },
+    }),
+    prisma.user.findMany({ where: { globalRole: 'SUPER_ADMIN' }, select: { id: true, name: true, email: true } }),
+  ]);
+
+  // recipient → the projects their report covers
+  const recipients = new Map<string, { user: { name: string; email: string }; projects: Set<string> }>();
+  const add = (user: { id: string; name: string; email: string }, ids: string[]) => {
+    if (!user.email) return;
+    const entry = recipients.get(user.id) ?? { user, projects: new Set<string>() };
+    ids.forEach((id) => entry.projects.add(id));
+    recipients.set(user.id, entry);
+  };
+  for (const l of leads) add(l.user, [l.projectId]);
+  for (const sa of superAdmins) add(sa, projectIds);
+
+  let sent = 0;
+  for (const { user, projects } of recipients.values()) {
+    const items = due.filter((d) => projects.has(d.task.project.id));
+    if (items.length === 0) continue;
+    const projectCount = new Set(items.map((i) => i.task.project.id)).size;
+    const subject = `[Team Task Report] ${countsText(countBuckets(items))} — ${plural(projectCount, 'project')}`;
+    const intro = `Hi ${escHtml(user.name)}, here is today's summary of open tasks that need attention across your team, grouped by project and resource.`;
+    try {
+      await send(user.email, subject, layout('Team task report', intro, leadReportBody(items)));
+      sent++;
+    } catch (err) {
+      console.error(`[task-notify] Failed to send team report to ${user.email}:`, (err as Error).message);
+    }
+  }
+  return { sent, total: recipients.size };
+}
 
 export async function sendDailyTaskReminders(): Promise<void> {
   if (!isEnabled()) return;
@@ -347,42 +519,17 @@ export async function sendDailyTaskReminders(): Promise<void> {
     orderBy: { dueDate: 'asc' },
   });
 
-  const due = tasks.filter((t) => projectAllows(t.project, 'taskReminder') && daysBetween(todayKey, dateKey(t.dueDate!)) <= daysBefore);
-  const groups = groupByAssignee(due);
-  let sent = 0;
-
-  for (const { user, tasks: userTasks } of groups.values()) {
-    const overdue: string[] = [];
-    const today: string[] = [];
-    const upcoming: string[] = [];
-    for (const t of userTasks) {
-      const diff = daysBetween(todayKey, dateKey(t.dueDate!));
-      if (diff < 0) overdue.push(taskRow(t, { text: `${-diff} day${diff === -1 ? '' : 's'} overdue`, color: '#DC2626' }));
-      else if (diff === 0) today.push(taskRow(t, { text: 'Due today', color: '#F47B20' }));
-      else upcoming.push(taskRow(t, { text: `In ${diff} day${diff === 1 ? '' : 's'}`, color: '#2563AB' }));
-    }
-
-    const body = [
-      overdue.length ? sectionTitle(`Overdue (${overdue.length})`, '#DC2626') + taskTable(overdue.join('')) : '',
-      today.length ? sectionTitle(`Due today (${today.length})`, '#F47B20') + taskTable(today.join('')) : '',
-      upcoming.length ? sectionTitle(`Coming up (${upcoming.length})`, '#2563AB') + taskTable(upcoming.join('')) : '',
-    ].join('');
-
-    const parts = [
-      overdue.length ? `${overdue.length} overdue` : '',
-      today.length ? `${today.length} due today` : '',
-      upcoming.length ? `${upcoming.length} coming up` : '',
-    ].filter(Boolean);
-    const subject = `[Task Reminder] ${parts.join(', ')}`;
-    const intro = `Hi ${escHtml(user.name)}, here are your open tasks that need attention.`;
-
-    try {
-      await send(user.email, subject, layout('Your task reminders', intro, body));
-      sent++;
-    } catch (err) {
-      console.error(`[task-notify] Failed to send reminder to ${user.email}:`, (err as Error).message);
-    }
+  const due: DueTask[] = [];
+  for (const task of tasks) {
+    if (!task.assignee?.user.email) continue;
+    const diff = daysBetween(todayKey, dateKey(task.dueDate!));
+    if (diff > daysBefore) continue;
+    due.push({ task, diff, bucket: diff < 0 ? 'overdue' : diff === 0 ? 'today' : 'upcoming' });
   }
 
-  console.log(`[task-notify] Daily reminders: ${sent}/${groups.size} email(s) sent, ${due.length} task(s)`);
+  const assignee = await sendAssigneeDigests(due.filter((d) => projectAllows(d.task.project, 'taskReminder')));
+  console.log(`[task-notify] Daily reminders: ${assignee.sent}/${assignee.total} email(s) sent`);
+
+  const lead = await sendLeadReports(due.filter((d) => projectAllows(d.task.project, 'leadReminder')));
+  console.log(`[task-notify] Team reports: ${lead.sent}/${lead.total} email(s) sent`);
 }
