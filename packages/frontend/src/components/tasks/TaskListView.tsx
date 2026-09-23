@@ -170,11 +170,12 @@ function Row({
 // pick their target from an inline dropdown rather than a separate modal —
 // there's nothing to configure beyond which list, so a dropdown is one click
 // fewer than a modal for the same result. ──────────────────────────────────
-function TaskSelectionBar({ count, otherLists, onMoveTo, onCopyTo, onExport, onClear }: {
+function TaskSelectionBar({ count, otherLists, onMoveTo, onCopyTo, onDuplicate, onExport, onClear }: {
   count: number;
   otherLists: TaskList[];
   onMoveTo: (taskListId: string) => void;
   onCopyTo: (taskListId: string) => void;
+  onDuplicate: () => void;
   onExport: () => void;
   onClear: () => void;
 }) {
@@ -240,6 +241,10 @@ function TaskSelectionBar({ count, otherLists, onMoveTo, onCopyTo, onExport, onC
           </div>
         </FloatingPortal>
       </div>
+
+      <button onClick={onDuplicate} style={{ padding: '5px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+        ⧉ Duplicate
+      </button>
 
       <button onClick={onExport} style={{ padding: '5px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
         📤 Export ({count})
@@ -376,6 +381,14 @@ export function TaskListView({
       toast.success(`Duplicated "${task.title}"`);
     } catch { toast.error('Failed to duplicate task'); }
   }
+  async function handleDuplicateSelected() {
+    const ids = [...selectedIds];
+    try {
+      await Promise.all(ids.map((id) => duplicateTask.mutateAsync(id)));
+      toast.success(`${ids.length} task${ids.length === 1 ? '' : 's'} duplicated`);
+      setSelectedIds(new Set());
+    } catch { toast.error('Duplicate failed'); }
+  }
 
   return (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -406,7 +419,11 @@ export function TaskListView({
                 style={{ cursor: 'pointer' }}
               />
             ) : (
-              <div key={col.key} className={col.resizable ? 'col-resizable-th' : undefined}>
+              <div
+                key={col.key}
+                className={col.resizable ? 'col-resizable-th' : undefined}
+                style={col.key === 'actions' ? { position: 'sticky', right: 0, background: 'var(--surface2)' } : undefined}
+              >
                 {col.label}
                 {col.resizable && <ColResizeHandle onMouseDown={startResize(col.key)} />}
               </div>
@@ -511,6 +528,7 @@ export function TaskListView({
           otherLists={otherLists}
           onMoveTo={(id) => void handleMoveTo(id)}
           onCopyTo={(id) => void handleCopyTo(id)}
+          onDuplicate={() => void handleDuplicateSelected()}
           onExport={() => void handleExportSelected()}
           onClear={() => setSelectedIds(new Set())}
         />

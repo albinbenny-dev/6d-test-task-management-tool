@@ -1344,20 +1344,25 @@ html[data-density="compact"] {
     transition: transform 0.15s;
   }
   .tm-subtask-toggle.open { transform: rotate(90deg); }
+  /* `position: sticky` keeps this column's action pinned to the visible
+     right edge of .col-resize-scroll's horizontal scrollbar — without it,
+     the trailing "actions" column can end up scrolled out of view on
+     narrower screens (the row's fixed-width columns can add up to more
+     than the panel width), making the button look like it doesn't exist. */
   .tm-row-action-btn {
-    background: none;
-    border: none;
+    position: sticky;
+    right: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
     cursor: pointer;
     color: var(--text-dim);
     font-size: 13px;
     width: 24px;
     height: 24px;
     border-radius: 5px;
-    opacity: 0;
-    transition: opacity 0.12s, background 0.12s, color 0.12s;
+    transition: background 0.12s, color 0.12s;
   }
-  .tm-row:hover .tm-row-action-btn { opacity: 1; }
-  .tm-row-action-btn:hover { background: var(--surface); color: var(--cyan); }
+  .tm-row-action-btn:hover { background: var(--surface2); color: var(--cyan); }
 
   /* ── Slide-over detail panel ── */
   .tm-panel-backdrop {
