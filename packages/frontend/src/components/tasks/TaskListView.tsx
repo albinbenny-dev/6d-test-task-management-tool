@@ -22,13 +22,17 @@ import type { Task, TaskList, TaskStatus } from '../../types';
 const TASK_COLUMNS: (ResizableColumnDef & { label: string; resizable: boolean })[] = [
   { key: 'check', label: '', width: 28, min: 28, max: 28, resizable: false },
   { key: 'name', label: 'Name', width: 280, min: 160, resizable: true },
+  { key: 'actions', label: '', width: 36, min: 36, max: 36, resizable: false },
   { key: 'assignee', label: 'Assignee', width: 120, min: 80, resizable: true },
   { key: 'due', label: 'Due date', width: 100, min: 80, resizable: true },
   { key: 'priority', label: 'Priority', width: 110, min: 80, resizable: true },
   { key: 'status', label: 'Status', width: 140, min: 90, resizable: true },
   { key: 'labels', label: 'Labels', width: 150, min: 90, resizable: true },
-  { key: 'actions', label: '', width: 32, min: 32, max: 32, resizable: false },
 ];
+
+// Narrow, icon/badge-only columns read better centered than left-aligned —
+// matches the "actions" duplicate button's own centering.
+const CENTERED_COLUMNS = new Set(['actions', 'priority', 'status']);
 
 function Row({
   task,
@@ -114,6 +118,17 @@ function Row({
             </span>
           )}
         </div>
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <button
+            type="button"
+            className="tm-row-action-btn"
+            title="Duplicate task"
+            onClick={(e) => { e.stopPropagation(); onDuplicate(task); }}
+            style={{ visibility: canWrite ? 'visible' : 'hidden' }}
+          >
+            ⧉
+          </button>
+        </div>
         <div onClick={(e) => e.stopPropagation()}>
           <AssigneePicker
             projectId={projectId}
@@ -127,23 +142,14 @@ function Row({
         <div className={`tm-due-chip${overdue ? ' overdue' : ''}`}>
           {task.dueDate ? <>{overdue ? '⏰' : '📅'} {formatDueDate(task.dueDate)}</> : <span style={{ opacity: 0.4 }}>—</span>}
         </div>
-        <div><PriorityBadge priority={task.priority} /></div>
-        <div onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'center' }}><PriorityBadge priority={task.priority} /></div>
+        <div style={{ display: 'flex', justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
           <TaskStatusPicker task={task} disabled={!canWrite} onChange={(s) => onStatusChange(task.id, s)} />
         </div>
         <div style={{ display: 'flex', gap: 3, flexWrap: 'nowrap', overflow: 'hidden' }} title={tags.length > 0 ? tags.join(', ') : undefined}>
           {shownTags.map((t) => <span key={t} className="tag" style={{ fontSize: 8.5 }}>{t}</span>)}
           {extraTags > 0 && <span className="tag" style={{ fontSize: 8.5 }}>+{extraTags}</span>}
         </div>
-        <button
-          type="button"
-          className="tm-row-action-btn"
-          title="Duplicate task"
-          onClick={(e) => { e.stopPropagation(); onDuplicate(task); }}
-          style={{ visibility: canWrite ? 'visible' : 'hidden' }}
-        >
-          ⧉
-        </button>
       </div>
       {hasSubtasks && expanded && task.subtasks!.map((sub) => (
         <Row
@@ -422,7 +428,7 @@ export function TaskListView({
               <div
                 key={col.key}
                 className={col.resizable ? 'col-resizable-th' : undefined}
-                style={col.key === 'actions' ? { position: 'sticky', right: 0, background: 'var(--surface2)' } : undefined}
+                style={CENTERED_COLUMNS.has(col.key) ? { textAlign: 'center' } : undefined}
               >
                 {col.label}
                 {col.resizable && <ColResizeHandle onMouseDown={startResize(col.key)} />}
