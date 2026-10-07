@@ -338,11 +338,11 @@ export default function ResourceLoad() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Topbar breadcrumbs={[{ label: 'Resource Load' }]} />
+      <Topbar breadcrumbs={[{ label: 'Resource Overview' }]} />
       <div style={{ flex: 1, overflowY: 'auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 18 }}>
         <div>
           <div className="page-eyebrow">All projects</div>
-          <h1 className="page-title">Resource Load</h1>
+          <h1 className="page-title">Resource Overview</h1>
           <p className="page-sub">Open vs closed work per person, split into Tasks and Tests. Tests count active cycles only. Click any number to see the items.</p>
         </div>
 

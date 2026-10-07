@@ -77,7 +77,7 @@ export default function App() {
         <Route path="/personal-tasks"              element={<PersonalTasks />} />
         <Route path="/account"                     element={<MyAccount />} />
         <Route path="/portfolio"                   element={<Portfolio />} />
-        <Route path="/resource-load"               element={<ResourceLoad />} />
+        <Route path="/resource-overview"               element={<ResourceLoad />} />
       </Route>
 
       {/* Root redirect */}

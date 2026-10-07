@@ -271,12 +271,12 @@ export default function Sidebar({ slug }: SidebarProps) {
         )}
         {(currentUser?.globalRole === 'SUPER_ADMIN' || currentUser?.globalRole === 'ADMIN') && (
           <Link
-            to="/resource-load"
-            className={`nav-item${location.pathname === '/resource-load' ? ' active' : ''}${collapsed ? ' nav-item--collapsed' : ''}`}
-            title={collapsed ? 'Resource Load' : undefined}
+            to="/resource-overview"
+            className={`nav-item${location.pathname === '/resource-overview' ? ' active' : ''}${collapsed ? ' nav-item--collapsed' : ''}`}
+            title={collapsed ? 'Resource Overview' : undefined}
           >
             <span className="nav-icon"><Users size={16} /></span>
-            {!collapsed && 'Resource Load'}
+            {!collapsed && 'Resource Overview'}
           </Link>
         )}
 
