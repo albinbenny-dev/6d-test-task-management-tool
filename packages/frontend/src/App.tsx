@@ -6,6 +6,7 @@ import Register from './pages/Register';
 import GlobalProjects from './pages/GlobalProjects';
 import ProjectOverview from './pages/ProjectOverview';
 import Portfolio from './pages/Portfolio';
+import ResourceLoad from './pages/ResourceLoad';
 import ProjectSettings from './pages/ProjectSettings';
 import TestCaseLibrary from './pages/TestCaseLibrary';
 import TestCycles from './pages/TestCycles';
@@ -76,6 +77,7 @@ export default function App() {
         <Route path="/personal-tasks"              element={<PersonalTasks />} />
         <Route path="/account"                     element={<MyAccount />} />
         <Route path="/portfolio"                   element={<Portfolio />} />
+        <Route path="/resource-load"               element={<ResourceLoad />} />
       </Route>
 
       {/* Root redirect */}

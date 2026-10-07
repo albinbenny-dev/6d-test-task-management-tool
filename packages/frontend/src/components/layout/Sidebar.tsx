@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   LogOut, Globe, ShieldCheck, BookOpen, ClipboardList, FlaskConical,
   BarChart3, UserCheck, ListChecks, Settings, ChevronDown, ListTodo, FileText, Gauge, Bug,
-  PanelLeftClose, PanelLeftOpen, LayoutDashboard, Milestone,
+  PanelLeftClose, PanelLeftOpen, LayoutDashboard, Milestone, Users,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
@@ -269,6 +269,17 @@ export default function Sidebar({ slug }: SidebarProps) {
             {!collapsed && 'Portfolio'}
           </Link>
         )}
+        {(currentUser?.globalRole === 'SUPER_ADMIN' || currentUser?.globalRole === 'ADMIN') && (
+          <Link
+            to="/resource-load"
+            className={`nav-item${location.pathname === '/resource-load' ? ' active' : ''}${collapsed ? ' nav-item--collapsed' : ''}`}
+            title={collapsed ? 'Resource Load' : undefined}
+          >
+            <span className="nav-icon"><Users size={16} /></span>
+            {!collapsed && 'Resource Load'}
+          </Link>
+        )}
+
         {currentUser?.globalRole === 'SUPER_ADMIN' && (
           <Link
             to="/admin/users"

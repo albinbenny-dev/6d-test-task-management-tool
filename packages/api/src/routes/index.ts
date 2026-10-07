@@ -14,6 +14,7 @@ import personalTasksRouter from './personalTasks.js';
 import wikiRouter from './wiki.js';
 import milestonesRouter from './milestones.js';
 import milestoneListsRouter from './milestoneLists.js';
+import resourceLoadRouter from './resourceLoad.js';
 import { verifyToken } from '../middleware/auth.js';
 
 // Automation routers (scripts/runs/suites/reports/resources) are unmounted
@@ -78,5 +79,8 @@ router.use('/projects/:projectId/milestones', milestonesRouter);
 
 // ── Personal Tasks — private per-user to-do tracker, not project-scoped ───
 router.use('/personal-tasks', personalTasksRouter);
+
+// ── Resource Load — global cross-project workload (SUPER_ADMIN/ADMIN only) ─
+router.use('/resource-load', resourceLoadRouter);
 
 export default router;
