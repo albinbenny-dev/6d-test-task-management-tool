@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   LogOut, Globe, ShieldCheck, BookOpen, ClipboardList, FlaskConical,
   BarChart3, UserCheck, ListChecks, Settings, ChevronDown, ListTodo, FileText, Gauge, Bug,
-  PanelLeftClose, PanelLeftOpen, LayoutDashboard, Milestone, Users,
+  PanelLeftClose, PanelLeftOpen, LayoutDashboard, Milestone, Users, GanttChartSquare, LayoutTemplate,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useProjectStore } from '../../stores/projectStore';
@@ -90,6 +90,7 @@ export default function Sidebar({ slug }: SidebarProps) {
           label: 'Delivery Tracking',
           items: [
             { label: 'Milestones', path: `/projects/${slug}/milestones`, Icon: Milestone },
+            { label: 'Timelines', path: `/projects/${slug}/timelines`, Icon: GanttChartSquare },
           ],
         },
         ...(canAccessSettings
@@ -298,6 +299,16 @@ export default function Sidebar({ slug }: SidebarProps) {
                 </span>
               </>
             )}
+          </Link>
+        )}
+        {currentUser?.globalRole === 'SUPER_ADMIN' && (
+          <Link
+            to="/admin/timeline-templates"
+            className={`nav-item${location.pathname === '/admin/timeline-templates' ? ' active' : ''}${collapsed ? ' nav-item--collapsed' : ''}`}
+            title={collapsed ? 'Timeline Templates' : undefined}
+          >
+            <span className="nav-icon"><LayoutTemplate size={16} /></span>
+            {!collapsed && 'Timeline Templates'}
           </Link>
         )}
         {/* Disabled until the guide content is refreshed to match the

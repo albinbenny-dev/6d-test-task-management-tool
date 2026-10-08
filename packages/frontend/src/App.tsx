@@ -20,6 +20,9 @@ import TaskListDetail from './pages/TaskListDetail';
 import TaskDashboard from './pages/TaskDashboard';
 import Wiki from './pages/Wiki';
 import Milestones from './pages/Milestones';
+import Timelines from './pages/Timelines';
+import TimelineBuilder from './pages/TimelineBuilder';
+import TimelineTemplates from './pages/TimelineTemplates';
 import UserManagement from './pages/UserManagement';
 import PersonalTasks from './pages/PersonalTasks';
 import MyAccount from './pages/MyAccount';
@@ -72,8 +75,11 @@ export default function App() {
         <Route path="/projects/:slug/wiki"         element={<Wiki />} />
         <Route path="/projects/:slug/wiki/:pageId" element={<Wiki />} />
         <Route path="/projects/:slug/milestones"   element={<Milestones />} />
+        <Route path="/projects/:slug/timelines"    element={<Timelines />} />
+        <Route path="/projects/:slug/timelines/:timelineId" element={<TimelineBuilder />} />
         <Route path="/projects/:slug/settings"     element={<ProjectSettings />} />
         <Route path="/admin/users"                 element={<UserManagement />} />
+        <Route path="/admin/timeline-templates"    element={<TimelineTemplates />} />
         <Route path="/personal-tasks"              element={<PersonalTasks />} />
         <Route path="/account"                     element={<MyAccount />} />
         <Route path="/portfolio"                   element={<Portfolio />} />

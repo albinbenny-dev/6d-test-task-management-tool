@@ -40,6 +40,8 @@ interface RBACResult {
   canEditTcItems: boolean;
   /** canManageMilestones = SUPER_ADMIN | ADMIN | SUPER_USER — create/edit/reorder/delete Payment Milestones. Everyone may still view them (dashboard signal for the whole team); this is PM/lead-owned data, same tier as Test Cycle administration. */
   canManageMilestones: boolean;
+  /** canManageTimelines = SUPER_ADMIN | ADMIN | SUPER_USER — create/edit/import/delete Timeline Builder timelines. Everyone on the project may view and export them. Editing the platform-level *templates* is SUPER_ADMIN only (checked via isSuperAdmin). */
+  canManageTimelines: boolean;
 }
 
 /**
@@ -82,6 +84,7 @@ export function useRBAC(): RBACResult {
       canManageTcLibrary: true,
       canEditTcItems: true,
       canManageMilestones: true,
+      canManageTimelines: true,
     };
   }
 
@@ -107,5 +110,6 @@ export function useRBAC(): RBACResult {
     canManageTcLibrary: role === 'ADMIN' || role === 'SUPER_USER',
     canEditTcItems: role === 'ADMIN' || role === 'SUPER_USER' || role === 'STANDARD_USER',
     canManageMilestones: role === 'ADMIN' || role === 'SUPER_USER',
+    canManageTimelines: role === 'ADMIN' || role === 'SUPER_USER',
   };
 }

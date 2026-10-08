@@ -66,6 +66,7 @@ model Project {
   wikiPages            WikiPage[]
   milestones           Milestone[]
   milestoneLists       MilestoneList[]
+  timelines            Timeline[]
 
   @@index([createdBy])
 }
@@ -599,4 +600,93 @@ model PersonalTask {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+// ── Timeline Builder ────────────────────────────────────────────────────────
+// Office-Timeline-style project plan visuals. A project holds many Timelines;
+// each Timeline owns its own swimlanes + items (uploaded from Excel/CSV or
+// typed in directly — deliberately independent of Task/Milestone rows, which
+// can only be *copied* in). Duration is never stored: it is derived from
+// startDate/endDate as inclusive Mon–Fri working days (0 for milestones) —
+// see src/lib/timelineDates.ts. Dates are date-only, stored as UTC midnight.
+
+model Timeline {
+  id              String   @id @default(cuid())
+  projectId       String
+  name            String
+  description     String?
+  templateId      String?
+  styleOverrides  String   @default("{}") // JSON: partial template config applied on top of the chosen template
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  template  TimelineTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  swimlanes TimelineSwimlane[]
+  items     TimelineItem[]
+
+  @@index([projectId])
+  @@index([templateId])
+}
+
+model TimelineSwimlane {
+  id         String   @id @default(cuid())
+  timelineId String
+  name       String
+  color      String? // hex override; null = auto-assigned from the template palette (so switching template recolours lanes)
+  collapsed  Boolean  @default(false)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  timeline Timeline       @relation(fields: [timelineId], references: [id], onDelete: Cascade)
+  items    TimelineItem[]
+
+  @@index([timelineId])
+}
+
+model TimelineItem {
+  id              String    @id @default(cuid())
+  timelineId      String
+  swimlaneId      String? // null = ungrouped row shown above the first swimlane
+  title           String
+  type            String    @default("TASK") // "TASK" | "MILESTONE"
+  marker          String    @default("pill") // task: "pill"|"bar"|"chevron" · milestone: "diamond"|"flag"|"star"|"circle"|"triangle"
+  color           String? // hex override; null = inherit from swimlane / template palette
+  startDate       DateTime
+  endDate         DateTime // == startDate for milestones
+  percentComplete Int       @default(0)
+  assignee        String?
+  notes           String?
+  sortOrder       Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  timeline Timeline          @relation(fields: [timelineId], references: [id], onDelete: Cascade)
+  swimlane TimelineSwimlane? @relation(fields: [swimlaneId], references: [id], onDelete: SetNull)
+
+  @@index([timelineId])
+  @@index([swimlaneId])
+}
+
+// Platform-level (not project-scoped) visual template. Only SUPER_ADMIN may
+// create/edit/delete; every signed-in user may pick an active one. `config`
+// is a versioned JSON blob validated by the Zod schema in
+// src/lib/timelineTemplateConfig.ts. Built-ins are upserted on startup by
+// `builtInKey` and can be edited, then restored to their shipped default.
+model TimelineTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  category    String   @default("General")
+  builtInKey  String?  @unique
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  config      String   @default("{}") // JSON — TemplateConfig
+  createdByUserId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  timelines Timeline[]
 }

@@ -18,6 +18,7 @@ import { startRunWorker, getRunWorker } from './jobs/runWorker.js';
 // import { startRetentionSchedule } from './jobs/retentionWorker.js';
 import { startJiraPollSchedule } from './jobs/jiraPollWorker.js';
 import { startTaskReminderSchedule } from './jobs/taskReminderWorker.js';
+import { ensureBuiltInTemplates } from './lib/timelineTemplateConfig.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -247,6 +248,13 @@ httpServer.listen(PORT, () => {
       } catch (err) {
         console.warn('[qa-api] Workers failed to start (Redis may be unavailable):', (err as Error).message);
       }
+    }
+
+    // Seed the built-in Timeline Builder templates (idempotent — never overwrites edits)
+    try {
+      await ensureBuiltInTemplates();
+    } catch (err) {
+      console.warn('[qa-api] Timeline template seeding failed (non-fatal):', (err as Error).message);
     }
 
     // Load saved schedules from DB

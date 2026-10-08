@@ -15,6 +15,8 @@ import wikiRouter from './wiki.js';
 import milestonesRouter from './milestones.js';
 import milestoneListsRouter from './milestoneLists.js';
 import resourceLoadRouter from './resourceLoad.js';
+import timelinesRouter from './timelines.js';
+import timelineTemplatesRouter from './timelineTemplates.js';
 import { verifyToken } from '../middleware/auth.js';
 
 // Automation routers (scripts/runs/suites/reports/resources) are unmounted
@@ -76,6 +78,10 @@ router.use('/projects/:projectId/wiki', wikiRouter);
 // ── Payment Milestones — per-project delivery/invoicing milestone tracker ──
 router.use('/projects/:projectId/milestone-lists', milestoneListsRouter);
 router.use('/projects/:projectId/milestones', milestonesRouter);
+
+// ── Timeline Builder — per-project plan timelines + platform-level templates ─
+router.use('/projects/:projectId/timelines', timelinesRouter);
+router.use('/timeline-templates', timelineTemplatesRouter);
 
 // ── Personal Tasks — private per-user to-do tracker, not project-scoped ───
 router.use('/personal-tasks', personalTasksRouter);
