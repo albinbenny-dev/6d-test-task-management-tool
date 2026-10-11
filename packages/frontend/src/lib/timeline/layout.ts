@@ -238,7 +238,7 @@ function pctLabel(item: TLItem): string {
 }
 
 /** Draws the task bar (with progress) and returns its horizontal extent. */
-function drawTaskBar(out: Primitive[], ctx: Ctx, item: TLItem, cy: number, h: number, color: string) {
+function drawTaskBar(out: Primitive[], ctx: Ctx, item: TLItem, cy: number, h: number, color: string, reserveLeft = 0) {
   const x0 = ctx.x(parseYmd(item.startDate));
   const x1 = ctx.x(addDays(parseYmd(item.endDate), 1));
   const w = Math.max(x1 - x0, 3);
@@ -283,7 +283,14 @@ function drawTaskBar(out: Primitive[], ctx: Ctx, item: TLItem, cy: number, h: nu
     const tw = ctx.tw(txt, size);
     const fillEnd = x0 + (pct > 0 ? (item.marker === 'chevron' ? (w * pct) / 100 : fillW) : 0);
     const doneBg = pct > 0 ? (split ? done : color) : track;
-    if (pct > 0 && fillEnd - x0 >= tw + 12) {
+    if (reserveLeft > 0) {
+      // The title is drawn inside the bar's left end — keep the % out of its way, at the far right, or drop it.
+      if (pct > 0 && fillEnd - x0 - reserveLeft >= tw + 12) {
+        out.push({ kind: 'text', x: x0, y: cy - ctx.lineH / 2, w: fillEnd - x0 - 6, h: ctx.lineH, text: txt, size, color: readableOn(doneBg), align: 'right', itemId: item.id });
+      } else if (w - reserveLeft >= tw + 10) {
+        out.push({ kind: 'text', x: x0, y: cy - ctx.lineH / 2, w: w - 6, h: ctx.lineH, text: txt, size, color: readableOn(pct >= 100 ? doneBg : track), align: 'right', itemId: item.id });
+      }
+    } else if (pct > 0 && fillEnd - x0 >= tw + 12) {
       out.push({ kind: 'text', x: x0, y: cy - ctx.lineH / 2, w: fillEnd - x0 - 6, h: ctx.lineH, text: txt, size, color: readableOn(doneBg), align: 'right', itemId: item.id });
     } else {
       const tx = pct > 0 ? fillEnd + 4 : x0 + 8;
@@ -374,7 +381,10 @@ function planItem(ctx: Ctx, item: TLItem): Plan {
     else {
       lw = Math.min(lw, 180);
       lines = lines.map((l) => fitText(l, lw, ctx.base, ctx.fam));
-      left = cx - Math.max(size, lw) / 2; right = cx + Math.max(size, lw) / 2;
+      // Same box drawPlan uses (centred on the marker but kept inside the plot), so packing matches what is drawn.
+      const boxW = Math.max(lw, size) + 6;
+      left = Math.max(fr.plotX - 4, Math.min(cx - boxW / 2, fr.plotRight - boxW + 4));
+      right = left + boxW;
     }
     return { item, color, x0: cx, x1: cx, cx, side, lines, lw, left, right };
   }
@@ -447,7 +457,7 @@ function drawPlan(out: Primitive[], ctx: Ctx, p: Plan, cy: number, shapeH: numbe
   }
 
   const h = cfg.task.height;
-  const bar = drawTaskBar(out, ctx, p.item, cy, h, p.color);
+  const bar = drawTaskBar(out, ctx, p.item, cy, h, p.color, p.side === 'inside' ? p.lw + 16 : 0);
   const bold = cfg.task.boldLabels;
   if (p.dates && p.dw !== undefined) {
     const x = p.side === 'right' ? bar.x1 + 4 + p.lw + 8 : bar.x1 + 4;
