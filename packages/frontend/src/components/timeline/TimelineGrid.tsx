@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, GripVertical, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, GripVertical, Link2, Plus, Trash2, Unlink } from 'lucide-react';
 import type { TLItem, TLLane } from '../../lib/timeline/types';
 import { MILESTONE_MARKERS, TASK_MARKERS } from '../../lib/timeline/types';
 import { todayYmd } from '../../lib/timeline/dates';
@@ -69,6 +69,9 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, selected, checke
   const titleRef = useRef<HTMLInputElement>(null);
   const [menu, setMenu] = useState(false);
   const isMs = item.type === 'MILESTONE';
+  // Generated from a Task: the task owns title / dates / assignee / progress, so those cells are read-only here.
+  const linked = !!item.taskId;
+  const own = canEdit && !linked;
 
   useEffect(() => {
     if (focusMe && titleRef.current) { titleRef.current.focus(); titleRef.current.select(); onFocused(); }
@@ -87,6 +90,7 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, selected, checke
       onDragOver={onDragOver}
       onDrop={onDrop}
       className="tl-row"
+      title={linked ? 'Linked to a task — change title, dates, assignee and status in the Task List. % complete follows the task status (To Do 0 · In Progress 50 · In Review 75 · Done 100).' : undefined}
       style={{
         display: 'grid', gridTemplateColumns: compact ? COLS_COMPACT : COLS, alignItems: 'center', gap: 4, padding: '2px 6px',
         borderBottom: '1px solid var(--border)', opacity: dragging ? 0.4 : 1,
@@ -95,15 +99,15 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, selected, checke
       }}
     >
       <span
-        draggable={canEdit}
+        draggable={own}
         onDragStart={(e) => onDragStart(e, rowRef.current)}
         onDragEnd={onDragEnd}
-        title={canEdit ? 'Drag to reorder or move to another swimlane' : undefined}
-        style={{ cursor: canEdit ? 'grab' : 'default', color: 'var(--text-dim)', display: 'flex', opacity: canEdit ? 1 : 0.3 }}
+        title={own ? 'Drag to reorder or move to another swimlane' : undefined}
+        style={{ cursor: own ? 'grab' : 'default', color: 'var(--text-dim)', display: 'flex', opacity: own ? 1 : 0.3 }}
       ><GripVertical size={14} /></span>
       <input type="checkbox" checked={checked} onChange={(e) => onCheck(e.target.checked)} onClick={(e) => e.stopPropagation()} />
 
-      {canEdit ? (
+      {own ? (
         <input
           ref={titleRef} key={`t-${item.title}`} defaultValue={item.title} style={cellInput}
           onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.background = 'var(--surface)'; }}
@@ -115,7 +119,7 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, selected, checke
           }}
           onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
         />
-      ) : <Plain>{item.title}</Plain>}
+      ) : <Plain>{linked && <Link2 size={11} style={{ color: 'var(--cyan)', marginRight: 5, verticalAlign: -1 }} />}{item.title}</Plain>}
 
       <div style={{ position: 'relative' }}>
         <button
@@ -127,16 +131,24 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, selected, checke
           {canEdit && <ChevronDown size={11} style={{ color: 'var(--text-dim)' }} />}
         </button>
         <Popover open={menu} onClose={() => setMenu(false)}>
-          <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-dim)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.4 }}>Task bar</div>
-          {TASK_MARKERS.map((m) => (
-            <MarkerOption key={m} active={!isMs && item.marker === m} type="TASK" marker={m} color={color}
-              onPick={() => { setMenu(false); save(isMs ? { id: item.id, type: 'TASK', marker: m, durationDays: 5 } : { id: item.id, marker: m }); }} />
-          ))}
-          <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-dim)', margin: '8px 0 6px', textTransform: 'uppercase', letterSpacing: 0.4 }}>Milestone</div>
-          {MILESTONE_MARKERS.map((m) => (
-            <MarkerOption key={m} active={isMs && item.marker === m} type="MILESTONE" marker={m} color={color}
-              onPick={() => { setMenu(false); save({ id: item.id, type: 'MILESTONE', marker: m }); }} />
-          ))}
+          {(!linked || !isMs) && (
+            <>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-dim)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.4 }}>Task bar</div>
+              {TASK_MARKERS.map((m) => (
+                <MarkerOption key={m} active={!isMs && item.marker === m} type="TASK" marker={m} color={color}
+                  onPick={() => { setMenu(false); save(isMs ? { id: item.id, type: 'TASK', marker: m, durationDays: 5 } : { id: item.id, marker: m }); }} />
+              ))}
+            </>
+          )}
+          {(!linked || isMs) && (
+            <>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-dim)', margin: '8px 0 6px', textTransform: 'uppercase', letterSpacing: 0.4 }}>Milestone</div>
+              {MILESTONE_MARKERS.map((m) => (
+                <MarkerOption key={m} active={isMs && item.marker === m} type="MILESTONE" marker={m} color={color}
+                  onPick={() => { setMenu(false); save(linked ? { id: item.id, marker: m } : { id: item.id, type: 'MILESTONE', marker: m }); }} />
+              ))}
+            </>
+          )}
           <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0', paddingTop: 8 }}>
             <ColorPicker value={item.color} swatches={laneSwatches} autoLabel="Auto (from lane / template)" onChange={(c) => save({ id: item.id, color: c })} />
           </div>
@@ -144,7 +156,7 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, selected, checke
       </div>
 
       {/* Duration (working days) — editing it moves End; editing End/Start re-derives it. */}
-      {canEdit ? (
+      {own ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
           <input
             key={`d-${item.durationDays}-${item.type}`} type="number" min={0} defaultValue={item.durationDays}
@@ -163,20 +175,20 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, selected, checke
       ) : <Plain>{item.durationDays}{compact ? '' : ' days'}</Plain>}
 
       <div onClick={(e) => e.stopPropagation()}>
-        {canEdit ? (
+        {own ? (
           <input type="date" key={`s-${item.startDate}`} defaultValue={item.startDate} style={cellInput}
             onChange={(e) => { if (e.target.value && e.target.value !== item.startDate) save({ id: item.id, startDate: e.target.value }); }} />
         ) : <Plain>{fmt(item.startDate)}</Plain>}
       </div>
       <div onClick={(e) => e.stopPropagation()}>
-        {canEdit ? (
+        {own ? (
           <input type="date" key={`e-${item.endDate}`} defaultValue={item.endDate} disabled={isMs} min={item.startDate}
             style={{ ...cellInput, opacity: isMs ? 0.6 : 1 }}
             onChange={(e) => { if (e.target.value && e.target.value !== item.endDate) save({ id: item.id, endDate: e.target.value }); }} />
         ) : <Plain>{fmt(item.endDate)}</Plain>}
       </div>
 
-      {canEdit ? (
+      {own ? (
         <input
           key={`p-${item.percentComplete}`} type="number" min={0} max={100} defaultValue={item.percentComplete}
           style={{ ...cellInput, textAlign: 'right' }}
@@ -191,7 +203,7 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, selected, checke
         />
       ) : <Plain>{item.percentComplete}%</Plain>}
 
-      {compact ? null : canEdit ? (
+      {compact ? null : own ? (
         <input
           key={`a-${item.assignee ?? ''}`} defaultValue={item.assignee ?? ''} placeholder="Assign…" style={cellInput}
           onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.background = 'var(--surface)'; }}
@@ -204,7 +216,7 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, selected, checke
         />
       ) : <Plain>{item.assignee ?? ''}</Plain>}
 
-      {canEdit ? (
+      {own ? (
         <button onClick={(e) => { e.stopPropagation(); a.deleteItems.mutate([item.id]); }} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', display: 'flex', padding: 4 }}>
           <Trash2 size={14} />
         </button>
@@ -228,7 +240,7 @@ function MarkerOption({ type, marker, color, active, onPick }: { type: 'TASK' | 
 }
 
 // ── Grid ────────────────────────────────────────────────────────────────────
-export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, milestoneColor, selectedItemId, onSelectItem, actions: a }: {
+export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, milestoneColor, selectedItemId, onSelectItem, actions: a, granularity, onGranularity }: {
   items: TLItem[];
   lanes: TLLane[];
   canEdit: boolean;
@@ -239,6 +251,9 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
   selectedItemId: string | null;
   onSelectItem: (id: string | null) => void;
   actions: Actions;
+  /** For lanes linked to Task Lists: one bar per task, or one per subtask. */
+  granularity: 'TASKS' | 'SUBTASKS';
+  onGranularity: (g: 'TASKS' | 'SUBTASKS') => void;
 }) {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [focusItemId, setFocusItemId] = useState<string | null>(null);
@@ -353,6 +368,7 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
   ));
 
   const allChecked = items.length > 0 && checked.size === items.length;
+  const anyLinked = lanes.some((l) => !!l.taskListId);
 
   return (
     <div>
@@ -371,10 +387,26 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
             <Trash2 size={12} style={{ marginRight: 4, verticalAlign: -1 }} />Delete {checked.size}
           </button>
         )}
+        {anyLinked && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-mid)' }} title="How lanes linked to Task Lists are drawn">
+            Linked lists show
+            <select className="input-field" value={granularity} disabled={!canEdit} onChange={(e) => onGranularity(e.target.value as 'TASKS' | 'SUBTASKS')} style={{ fontSize: 12, padding: '3px 6px', width: 'auto' }}>
+              <option value="TASKS">Tasks</option>
+              <option value="SUBTASKS">Subtasks</option>
+            </select>
+          </label>
+        )}
         <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-dim)' }}>
           {items.length} item{items.length === 1 ? '' : 's'} · duration counts working days (Mon–Fri)
         </span>
       </div>
+      {anyLinked && (
+        <div style={{ fontSize: 11.5, color: 'var(--text-mid)', background: 'var(--cyan-dim)', border: '1px solid rgba(2,132,199,0.25)', borderRadius: 8, padding: '7px 10px', marginBottom: 10, lineHeight: 1.5 }}>
+          <Link2 size={12} style={{ verticalAlign: -2, marginRight: 5, color: 'var(--cyan)' }} />
+          Lanes marked <b>Live</b> follow their Task List and refresh automatically — change status, dates and assignees in the Task List.
+          % complete comes from status only: To Do 0 · In Progress 50 · In Review 75 · Done 100 (a task with subtasks shows their average).
+        </div>
+      )}
 
       <div ref={wrapRef} style={{ border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', overflowX: 'auto' }}>
         <div style={{ minWidth: compact ? 560 : 820 }}>
@@ -419,8 +451,19 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
                     {lane.collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
                   </button>
                   <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{count} item{count === 1 ? '' : 's'}</span>
+                  {lane.taskListId && (
+                    <span title="Generated from a Task List and refreshed automatically" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, color: 'var(--cyan)', background: 'var(--cyan-dim)', borderRadius: 10, padding: '2px 8px' }}>
+                      <Link2 size={11} /> Live
+                    </span>
+                  )}
                   {canEdit && (
                     <span style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
+                      {lane.taskListId && (
+                        <IconBtn
+                          title="Stop following the Task List — keeps the items as an editable copy"
+                          onClick={() => { if (window.confirm(`Unlink "${lane.name}" from its Task List?\n\nThe items stay, but become a plain copy that no longer updates when tasks change.`)) a.updateLane.mutate({ id: lane.id, unlink: true }); }}
+                        ><Unlink size={14} /></IconBtn>
+                      )}
                       <IconBtn title="Move up" disabled={idx === 0} onClick={() => moveLane(lane.id, -1)}><ArrowUp size={14} /></IconBtn>
                       <IconBtn title="Move down" disabled={idx === sortedLanes.length - 1} onClick={() => moveLane(lane.id, 1)}><ArrowDown size={14} /></IconBtn>
                       <IconBtn title="Delete swimlane" onClick={() => deleteLane(lane)}><Trash2 size={14} /></IconBtn>
@@ -428,7 +471,7 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
                   )}
                 </div>
                 {renderItems(lane.id)}
-                {addRow(lane.id)}
+                {lane.taskListId ? null : addRow(lane.id)}
               </div>
             );
           })}

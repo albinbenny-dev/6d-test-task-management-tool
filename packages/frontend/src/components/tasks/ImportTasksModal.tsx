@@ -73,6 +73,15 @@ export function ImportTasksModal({ projectId, taskListId, onClose, onImported }:
               ))}
             </div>
 
+            {summary.listsCreated && summary.listsCreated.length > 0 && (
+              <div style={{ background: 'var(--cyan-dim)', border: '1px solid rgba(2,132,199,0.25)', borderRadius: '8px', padding: '10px 14px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--cyan)', marginBottom: '4px' }}>{summary.listsCreated.length} task list{summary.listsCreated.length === 1 ? '' : 's'} created</div>
+                <div style={{ maxHeight: '90px', overflowY: 'auto', fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-dim)' }}>
+                  {summary.listsCreated.map((n) => <div key={n}>• {n}</div>)}
+                </div>
+              </div>
+            )}
+
             {warningGroups.map((g) => (
               <div key={g.key} style={{ background: 'rgba(217,119,6,0.07)', border: '1px solid rgba(217,119,6,0.25)', borderRadius: '8px', padding: '10px 14px' }}>
                 <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--amber)', marginBottom: g.items ? '6px' : '2px' }}>⚠ {g.label}</div>
@@ -101,6 +110,7 @@ export function ImportTasksModal({ projectId, taskListId, onClose, onImported }:
           <div style={{ padding: '20px 18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-mid)', lineHeight: 1.6 }}>
               Upload an Excel file with columns: <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--cyan)' }}>Task Title, Description, Assignee Email, Priority, Status, Start Date, Due Date, Tags, Parent Task Title</span>
+              {' '}and, optionally, <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--cyan)' }}>Task List</span> — a row with a Task List value goes into that list (created if it doesn&apos;t exist yet), so one file can fill many lists. Re-importing a file updates existing tasks by title.
             </p>
             <button onClick={handleDownloadTemplate} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-dim)', fontSize: '11px', cursor: 'pointer', width: 'fit-content' }}>📄 Download template</button>
             <div

@@ -189,6 +189,8 @@ export default function TimelineBuilder() {
                 items={items} lanes={lanes} canEdit={canManageTimelines}
                 lanePalette={config.palette.laneColors} taskColor={config.palette.taskDefault} milestoneColor={config.palette.milestoneDefault}
                 selectedItemId={selectedItemId} onSelectItem={setSelectedItemId} actions={actions}
+                granularity={detail.timeline.taskGranularity ?? 'TASKS'}
+                onGranularity={(g) => actions.updateTimeline.mutate({ taskGranularity: g }, { onError: () => toast.error('Could not change the setting') })}
               />
             </div>
           )}

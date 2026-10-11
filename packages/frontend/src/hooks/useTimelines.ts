@@ -19,6 +19,9 @@ export function useTimeline(projectId: string | undefined, timelineId: string | 
     queryKey: ['timeline', projectId, timelineId],
     queryFn: async () => (await api.get<TimelineDetail>(`/projects/${projectId}/timelines/${timelineId}`)).data,
     enabled: !!projectId && !!timelineId,
+    // A timeline following Task Lists re-syncs on the server each time it is fetched, so polling keeps an open
+    // timeline current when someone changes a task status elsewhere (it also refreshes on window focus).
+    refetchInterval: (q) => (q.state.data?.swimlanes.some((l) => l.taskListId) ? 30_000 : false),
   });
 }
 
@@ -75,13 +78,13 @@ export function useTimelineEditor(projectId: string, timelineId: string) {
   const patchCache = (fn: (d: TimelineDetail) => TimelineDetail) => qc.setQueryData<TimelineDetail>(key, (d) => (d ? fn(d) : d));
 
   const updateTimeline = useMutation({
-    mutationFn: async (data: { name?: string; description?: string | null; templateId?: string | null; styleOverrides?: StyleOverrides }) => {
+    mutationFn: async (data: { name?: string; description?: string | null; templateId?: string | null; styleOverrides?: StyleOverrides; taskGranularity?: 'TASKS' | 'SUBTASKS' }) => {
       await api.put(base, data);
     },
     onMutate: (data) => {
       patchCache((d) => ({
         ...d,
-        timeline: { ...d.timeline, ...(data.name !== undefined ? { name: data.name } : {}), ...(data.styleOverrides !== undefined ? { styleOverrides: data.styleOverrides } : {}), ...(data.templateId !== undefined ? { templateId: data.templateId } : {}) },
+        timeline: { ...d.timeline, ...(data.name !== undefined ? { name: data.name } : {}), ...(data.styleOverrides !== undefined ? { styleOverrides: data.styleOverrides } : {}), ...(data.templateId !== undefined ? { templateId: data.templateId } : {}), ...(data.taskGranularity !== undefined ? { taskGranularity: data.taskGranularity } : {}) },
       }));
     },
     onSettled: refresh,
@@ -120,10 +123,14 @@ export function useTimelineEditor(projectId: string, timelineId: string) {
   });
 
   const updateLane = useMutation({
-    mutationFn: async ({ id, ...data }: { id: string; name?: string; color?: string | null; collapsed?: boolean }) => {
+    mutationFn: async ({ id, ...data }: { id: string; name?: string; color?: string | null; collapsed?: boolean; unlink?: boolean }) => {
       await api.put(`${base}/swimlanes/${id}`, data);
     },
-    onMutate: ({ id, ...data }) => patchCache((d) => ({ ...d, swimlanes: d.swimlanes.map((l) => (l.id === id ? { ...l, ...data } : l)) })),
+    onMutate: ({ id, unlink, ...data }) => patchCache((d) => ({
+      ...d,
+      swimlanes: d.swimlanes.map((l) => (l.id === id ? { ...l, ...data, ...(unlink ? { taskListId: null } : {}) } : l)),
+      items: unlink ? d.items.map((i) => (i.swimlaneId === id ? { ...i, taskId: null } : i)) : d.items,
+    })),
     onSettled: refresh,
   });
 
@@ -151,8 +158,8 @@ export function useTimelineEditor(projectId: string, timelineId: string) {
   });
 
   const importFromProject = useMutation({
-    mutationFn: async (data: { taskListIds: string[]; milestoneListIds: string[] }) =>
-      (await api.post<{ itemsImported: number; swimlanesCreated: number }>(`${base}/import-from-project`, data)).data,
+    mutationFn: async (data: { taskListIds: string[]; milestoneListIds: string[]; taskGranularity?: 'TASKS' | 'SUBTASKS' }) =>
+      (await api.post<{ itemsImported: number; swimlanesCreated: number; linkedLists?: number }>(`${base}/import-from-project`, data)).data,
     onSettled: refresh,
   });
 

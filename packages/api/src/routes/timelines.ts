@@ -12,6 +12,7 @@ import {
 } from '../lib/timelineDates.js';
 import { parseTimelineRows, validMarker, defaultMarker } from '../lib/timelineImport.js';
 import { StyleOverridesSchema, parseConfig } from '../lib/timelineTemplateConfig.js';
+import { syncTimelineFromTasks } from '../lib/timelineTaskSync.js';
 
 // ── Timeline Builder — per-project timelines ────────────────────────────────
 // Everyone on the project can read; building (create/edit/import/delete) is
@@ -40,6 +41,7 @@ const UpdateTimelineSchema = z.object({
   description: z.string().max(1000).optional().nullable(),
   templateId: z.string().optional().nullable(),
   styleOverrides: StyleOverridesSchema.optional(),
+  taskGranularity: z.enum(['TASKS', 'SUBTASKS']).optional(), // for lanes linked to Task Lists
 });
 
 const SwimlaneCreateSchema = z.object({ name: z.string().min(1).max(100), color: hex.optional().nullable() });
@@ -47,6 +49,7 @@ const SwimlaneUpdateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   color: hex.optional().nullable(), // null = back to the template's palette
   collapsed: z.boolean().optional(),
+  unlink: z.boolean().optional(), // task-linked lane → static lane; its items become plain editable copies
 });
 
 const ItemFields = {
@@ -95,8 +98,13 @@ function serializeItem(i: ItemRow) {
     percentComplete: i.percentComplete,
     assignee: i.assignee,
     notes: i.notes,
+    taskId: i.taskId, // set = generated from a Task (read-only here)
     sortOrder: i.sortOrder,
   };
+}
+
+function serializeLane(l: { id: string; name: string; color: string | null; collapsed: boolean; sortOrder: number; taskListId: string | null }) {
+  return { id: l.id, name: l.name, color: l.color, collapsed: l.collapsed, sortOrder: l.sortOrder, taskListId: l.taskListId };
 }
 
 function parseOverrides(raw: string): Record<string, unknown> {
@@ -244,6 +252,13 @@ router.post('/', requireAdvancedFeatures as RequestHandler, (async (req, res) =>
 // ── GET /:timelineId — full timeline (lanes, items, resolved template) ──────
 
 router.get('/:timelineId', (async (req, res) => {
+  // Task-linked lanes are re-generated from their Task Lists on every open, so a status/date change
+  // made in the task list shows up here without any manual refresh.
+  const known = await loadTimeline(req.project.id, req.params.timelineId);
+  if (known) {
+    try { await syncTimelineFromTasks(known.id); }
+    catch (err) { console.warn('[timelines] task sync failed (serving last synced data):', (err as Error).message); }
+  }
   const timeline = await prisma.timeline.findFirst({
     where: { id: req.params.timelineId, projectId: req.project.id },
     include: {
@@ -259,12 +274,11 @@ router.get('/:timelineId', (async (req, res) => {
       id: timeline.id, name: timeline.name, description: timeline.description,
       templateId: timeline.templateId,
       styleOverrides: parseOverrides(timeline.styleOverrides),
+      taskGranularity: timeline.taskGranularity,
       createdAt: timeline.createdAt, updatedAt: timeline.updatedAt,
     },
     template: serializeTemplate(timeline.template),
-    swimlanes: timeline.swimlanes.map((l) => ({
-      id: l.id, name: l.name, color: l.color, collapsed: l.collapsed, sortOrder: l.sortOrder,
-    })),
+    swimlanes: timeline.swimlanes.map(serializeLane),
     items: timeline.items.map(serializeItem),
   });
 }) as RequestHandler);
@@ -317,13 +331,13 @@ router.post('/:timelineId/duplicate', requireAdvancedFeatures as RequestHandler,
     const t = await tx.timeline.create({
       data: {
         projectId: src.projectId, name: `${src.name} (copy)`.slice(0, 150), description: src.description,
-        templateId: src.templateId, styleOverrides: src.styleOverrides, createdByUserId: req.user.id,
+        templateId: src.templateId, styleOverrides: src.styleOverrides, taskGranularity: src.taskGranularity, createdByUserId: req.user.id,
       },
     });
     const laneMap = new Map<string, string>();
     for (const l of src.swimlanes) {
       const nl = await tx.timelineSwimlane.create({
-        data: { timelineId: t.id, name: l.name, color: l.color, collapsed: l.collapsed, sortOrder: l.sortOrder },
+        data: { timelineId: t.id, name: l.name, color: l.color, collapsed: l.collapsed, sortOrder: l.sortOrder, taskListId: l.taskListId },
       });
       laneMap.set(l.id, nl.id);
     }
@@ -331,7 +345,7 @@ router.post('/:timelineId/duplicate', requireAdvancedFeatures as RequestHandler,
       data: src.items.map((i) => ({
         timelineId: t.id, swimlaneId: i.swimlaneId ? laneMap.get(i.swimlaneId) ?? null : null,
         title: i.title, type: i.type, marker: i.marker, color: i.color, startDate: i.startDate, endDate: i.endDate,
-        percentComplete: i.percentComplete, assignee: i.assignee, notes: i.notes, sortOrder: i.sortOrder,
+        percentComplete: i.percentComplete, assignee: i.assignee, notes: i.notes, taskId: i.taskId, sortOrder: i.sortOrder,
       })),
     });
     return t;
@@ -355,7 +369,7 @@ router.post('/:timelineId/swimlanes', requireAdvancedFeatures as RequestHandler,
       sortOrder: (last?.sortOrder ?? -1) + 1,
     },
   });
-  res.status(201).json({ swimlane: { id: lane.id, name: lane.name, color: lane.color, collapsed: lane.collapsed, sortOrder: lane.sortOrder } });
+  res.status(201).json({ swimlane: serializeLane(lane) });
 }) as RequestHandler);
 
 // Registered ahead of /:laneId so "reorder" isn't swallowed as a literal id.
@@ -383,8 +397,18 @@ router.put('/:timelineId/swimlanes/:laneId', requireAdvancedFeatures as RequestH
     where: { id: req.params.laneId, timelineId: req.params.timelineId, timeline: { projectId: req.project.id } },
   });
   if (!lane) return res.status(404).json({ error: 'Swimlane not found' });
-  const updated = await prisma.timelineSwimlane.update({ where: { id: lane.id }, data: parsed.data });
-  res.json({ swimlane: { id: updated.id, name: updated.name, color: updated.color, collapsed: updated.collapsed, sortOrder: updated.sortOrder } });
+  const { unlink, ...data } = parsed.data;
+  if (unlink && lane.taskListId) {
+    // Stop following the Task List: keep the items as plain copies the user can now edit/delete.
+    await prisma.$transaction([
+      prisma.timelineItem.updateMany({ where: { swimlaneId: lane.id }, data: { taskId: null } }),
+      prisma.timelineSwimlane.update({ where: { id: lane.id }, data: { ...data, taskListId: null } }),
+    ]);
+  } else if (Object.keys(data).length > 0) {
+    await prisma.timelineSwimlane.update({ where: { id: lane.id }, data });
+  }
+  const updated = await prisma.timelineSwimlane.findUniqueOrThrow({ where: { id: lane.id } });
+  res.json({ swimlane: serializeLane(updated) });
 }) as RequestHandler);
 
 // ?deleteItems=true removes the lane's items too; otherwise they drop to the
@@ -405,7 +429,8 @@ router.delete('/:timelineId/swimlanes/:laneId', requireAdvancedFeatures as Reque
       });
       const moving = await tx.timelineItem.findMany({ where: { swimlaneId: lane.id }, orderBy: { sortOrder: 'asc' }, select: { id: true } });
       let n = (base?.sortOrder ?? -1) + 1;
-      for (const m of moving) await tx.timelineItem.update({ where: { id: m.id }, data: { swimlaneId: null, sortOrder: n++ } });
+      // taskId cleared too: with the lane gone nothing would keep them in sync, and the sync prunes unknown links.
+      for (const m of moving) await tx.timelineItem.update({ where: { id: m.id }, data: { swimlaneId: null, sortOrder: n++, taskId: null } });
     }
     await tx.timelineSwimlane.delete({ where: { id: lane.id } });
   });
@@ -449,15 +474,18 @@ router.patch('/:timelineId/items/reorder', requireAdvancedFeatures as RequestHan
   if (!timeline) return res.status(404).json({ error: 'Timeline not found' });
 
   const [items, lanes] = await Promise.all([
-    prisma.timelineItem.findMany({ where: { timelineId: timeline.id, id: { in: parsed.data.moves.map((m) => m.id) } }, select: { id: true } }),
+    prisma.timelineItem.findMany({ where: { timelineId: timeline.id, id: { in: parsed.data.moves.map((m) => m.id) } }, select: { id: true, taskId: true, swimlaneId: true } }),
     prisma.timelineSwimlane.findMany({ where: { timelineId: timeline.id }, select: { id: true } }),
   ]);
   const validItems = new Set(items.map((i) => i.id));
+  const linked = new Map(items.filter((i) => i.taskId).map((i) => [i.id, i.swimlaneId]));
   const validLanes = new Set(lanes.map((l) => l.id));
 
   await prisma.$transaction(
     parsed.data.moves
       .filter((m) => validItems.has(m.id) && (m.swimlaneId === null || validLanes.has(m.swimlaneId)))
+      // Items generated from tasks belong to their task list's lane: they can be re-ordered inside it, never moved out.
+      .filter((m) => !linked.has(m.id) || linked.get(m.id) === m.swimlaneId)
       .map((m) => prisma.timelineItem.update({ where: { id: m.id }, data: { swimlaneId: m.swimlaneId, sortOrder: m.sortOrder } })),
   );
   res.json({ message: 'Reordered' });
@@ -468,8 +496,9 @@ router.post('/:timelineId/items/bulk-delete', requireAdvancedFeatures as Request
   if (!parsed.success) return res.status(400).json({ error: 'Validation failed', issues: parsed.error.issues });
   const timeline = await loadTimeline(req.project.id, req.params.timelineId);
   if (!timeline) return res.status(404).json({ error: 'Timeline not found' });
-  const r = await prisma.timelineItem.deleteMany({ where: { timelineId: timeline.id, id: { in: parsed.data.ids } } });
-  res.json({ deleted: r.count });
+  // Task-generated items can't be deleted here (they'd just be re-created); remove the task or unlink the lane.
+  const r = await prisma.timelineItem.deleteMany({ where: { timelineId: timeline.id, id: { in: parsed.data.ids }, taskId: null } });
+  res.json({ deleted: r.count, skippedLinked: parsed.data.ids.length - r.count });
 }) as RequestHandler);
 
 router.put('/:timelineId/items/:itemId', requireAdvancedFeatures as RequestHandler, (async (req, res) => {
@@ -482,6 +511,12 @@ router.put('/:timelineId/items/:itemId', requireAdvancedFeatures as RequestHandl
   if (!existing) return res.status(404).json({ error: 'Item not found' });
 
   const d = parsed.data;
+  if (existing.taskId) {
+    // Generated from a Task: the task owns title / dates / assignee / progress. Only the look can be changed here.
+    const lockedField = (['title', 'type', 'startDate', 'endDate', 'durationDays', 'percentComplete', 'assignee', 'swimlaneId'] as const)
+      .find((k) => d[k] !== undefined && !(k === 'swimlaneId' && d.swimlaneId === existing.swimlaneId));
+    if (lockedField) return res.status(400).json({ error: 'This item is linked to a task — change it in the Task List (only marker and colour can be changed here)' });
+  }
   if (d.swimlaneId !== undefined && !(await assertLaneInTimeline(existing.timelineId, d.swimlaneId))) {
     return res.status(400).json({ error: 'Swimlane does not belong to this timeline' });
   }
@@ -538,9 +573,10 @@ router.put('/:timelineId/items/:itemId', requireAdvancedFeatures as RequestHandl
 router.delete('/:timelineId/items/:itemId', requireAdvancedFeatures as RequestHandler, (async (req, res) => {
   const existing = await prisma.timelineItem.findFirst({
     where: { id: req.params.itemId, timelineId: req.params.timelineId, timeline: { projectId: req.project.id } },
-    select: { id: true },
+    select: { id: true, taskId: true },
   });
   if (!existing) return res.status(404).json({ error: 'Item not found' });
+  if (existing.taskId) return res.status(400).json({ error: 'This item is linked to a task — delete the task, or unlink the swimlane, instead' });
   await prisma.timelineItem.delete({ where: { id: existing.id } });
   res.json({ message: 'Item deleted' });
 }) as RequestHandler);
@@ -621,14 +657,16 @@ router.post('/:timelineId/import', requireAdvancedFeatures as RequestHandler, up
   });
 }) as RequestHandler);
 
-// ── POST /:timelineId/import-from-project — copy existing Tasks / Milestones in ──
-// Copies, never links: later edits to the project's tasks don't move the
-// timeline (a presentation artifact shouldn't shift under a PM mid-review).
-// Top-level tasks only; a task with only a due date becomes a milestone.
+// ── POST /:timelineId/import-from-project ───────────────────────────────────
+// · Task Lists  → LIVE-linked swimlanes. Their items are generated from the tasks and re-synced
+//   whenever the timeline is opened (lib/timelineTaskSync.ts), so status/date changes in the Task
+//   List flow through. % complete comes from task status only.
+// · Milestone Lists → a one-time copy (the payment-milestone model has no status to follow).
 
 const ImportFromProjectSchema = z.object({
   taskListIds: z.array(z.string()).optional(),
   milestoneListIds: z.array(z.string()).optional(),
+  taskGranularity: z.enum(['TASKS', 'SUBTASKS']).optional(),
 });
 
 router.post('/:timelineId/import-from-project', requireAdvancedFeatures as RequestHandler, (async (req, res) => {
@@ -640,11 +678,7 @@ router.post('/:timelineId/import-from-project', requireAdvancedFeatures as Reque
 
   const [taskLists, milestoneLists] = await Promise.all([
     parsed.data.taskListIds?.length
-      ? prisma.taskList.findMany({
-          where: { projectId, id: { in: parsed.data.taskListIds } },
-          include: { tasks: { where: { parentTaskId: null }, orderBy: { sortOrder: 'asc' }, include: { assignee: { include: { user: { select: { name: true } } } } } } },
-          orderBy: { sortOrder: 'asc' },
-        })
+      ? prisma.taskList.findMany({ where: { projectId, id: { in: parsed.data.taskListIds } }, select: { id: true, name: true }, orderBy: { sortOrder: 'asc' } })
       : Promise.resolve([]),
     parsed.data.milestoneListIds?.length
       ? prisma.milestoneList.findMany({
@@ -654,28 +688,15 @@ router.post('/:timelineId/import-from-project', requireAdvancedFeatures as Reque
         })
       : Promise.resolve([]),
   ]);
+  if (taskLists.length === 0 && milestoneLists.length === 0) return res.status(400).json({ error: 'Select at least one list' });
 
-  const laneRows: { name: string; color: string; items: Prisma.TimelineItemCreateManyInput[] }[] = [];
-  const blank = { timelineId: timeline.id, swimlaneId: null as string | null };
+  const linkedAlready = new Set(
+    (await prisma.timelineSwimlane.findMany({ where: { timelineId: timeline.id, taskListId: { in: taskLists.map((l) => l.id) } }, select: { taskListId: true } }))
+      .map((l) => l.taskListId),
+  );
+  const newLists = taskLists.filter((l) => !linkedAlready.has(l.id));
 
-  for (const list of taskLists) {
-    const items: Prisma.TimelineItemCreateManyInput[] = [];
-    for (const t of list.tasks) {
-      const start = t.startDate ?? t.dueDate;
-      const end = t.dueDate ?? t.startDate;
-      if (!start || !end) continue;
-      const s = parseDateOnly(start); const e = parseDateOnly(end);
-      const isMilestone = !t.startDate; // due date only
-      items.push({
-        ...blank, title: t.title.slice(0, 200), type: isMilestone ? 'MILESTONE' : 'TASK',
-        marker: defaultMarker(isMilestone ? 'MILESTONE' : 'TASK'),
-        startDate: isMilestone ? e : s, endDate: e.getTime() < s.getTime() ? s : e,
-        percentComplete: t.status === 'DONE' ? 100 : 0,
-        assignee: t.assignee?.user?.name ?? t.assigneeExternalName ?? null, sortOrder: items.length,
-      });
-    }
-    if (items.length) laneRows.push({ name: list.name, color: list.color, items });
-  }
+  const milestoneLanes: { name: string; items: Prisma.TimelineItemCreateManyInput[] }[] = [];
   for (const list of milestoneLists) {
     const items: Prisma.TimelineItemCreateManyInput[] = [];
     for (const m of list.milestones) {
@@ -683,28 +704,40 @@ router.post('/:timelineId/import-from-project', requireAdvancedFeatures as Reque
       if (!d) continue;
       const day = parseDateOnly(d);
       items.push({
-        ...blank, title: m.name.slice(0, 200), type: 'MILESTONE', marker: 'diamond',
+        timelineId: timeline.id, swimlaneId: null, title: m.name.slice(0, 200), type: 'MILESTONE', marker: 'diamond',
         startDate: day, endDate: day, percentComplete: m.isCompleted ? 100 : 0, sortOrder: items.length,
       });
     }
-    if (items.length) laneRows.push({ name: list.name, color: list.color, items });
+    if (items.length) milestoneLanes.push({ name: list.name, items });
+  }
+  if (newLists.length === 0 && milestoneLanes.length === 0) {
+    return res.status(400).json({ error: taskLists.length ? 'Those task lists are already linked to this timeline' : 'None of the selected milestone lists have dates to import' });
   }
 
-  const total = laneRows.reduce((n, l) => n + l.items.length, 0);
-  if (total === 0) return res.status(400).json({ error: 'None of the selected lists have items with dates to import' });
-  if ((await prisma.timelineItem.count({ where: { timelineId: timeline.id } })) + total > MAX_ITEMS_PER_TIMELINE) {
+  const taskCount = newLists.length ? await prisma.task.count({ where: { projectId, taskListId: { in: newLists.map((l) => l.id) } } }) : 0;
+  const milestoneCount = milestoneLanes.reduce((n, l) => n + l.items.length, 0);
+  if ((await prisma.timelineItem.count({ where: { timelineId: timeline.id } })) + taskCount + milestoneCount > MAX_ITEMS_PER_TIMELINE) {
     return res.status(400).json({ error: `A timeline can hold at most ${MAX_ITEMS_PER_TIMELINE} items` });
   }
 
   await prisma.$transaction(async (tx) => {
     const last = await tx.timelineSwimlane.findFirst({ where: { timelineId: timeline.id }, orderBy: { sortOrder: 'desc' } });
     let sort = (last?.sortOrder ?? -1) + 1;
-    for (const l of laneRows) {
-      const lane = await tx.timelineSwimlane.create({ data: { timelineId: timeline.id, name: l.name.slice(0, 100), color: l.color, sortOrder: sort++ } });
+    for (const l of newLists) {
+      await tx.timelineSwimlane.create({ data: { timelineId: timeline.id, name: l.name.slice(0, 100), taskListId: l.id, sortOrder: sort++ } });
+    }
+    for (const l of milestoneLanes) {
+      const lane = await tx.timelineSwimlane.create({ data: { timelineId: timeline.id, name: l.name.slice(0, 100), sortOrder: sort++ } });
       await tx.timelineItem.createMany({ data: l.items.map((i) => ({ ...i, swimlaneId: lane.id })) });
     }
+    if (parsed.data.taskGranularity) await tx.timeline.update({ where: { id: timeline.id }, data: { taskGranularity: parsed.data.taskGranularity } });
   });
-  res.json({ itemsImported: total, swimlanesCreated: laneRows.length });
+  await syncTimelineFromTasks(timeline.id);
+
+  const linkedItems = newLists.length
+    ? await prisma.timelineItem.count({ where: { timelineId: timeline.id, swimlane: { taskListId: { in: newLists.map((l) => l.id) } } } })
+    : 0;
+  res.json({ itemsImported: linkedItems + milestoneCount, swimlanesCreated: newLists.length + milestoneLanes.length, linkedLists: newLists.length });
 }) as RequestHandler);
 
 // ── GET /:timelineId/export-xlsx — round-trips through /import ──────────────

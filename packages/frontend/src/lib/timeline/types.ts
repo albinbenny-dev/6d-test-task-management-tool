@@ -20,6 +20,8 @@ export interface TLItem {
   percentComplete: number;
   assignee: string | null;
   notes: string | null;
+  /** Set = generated from a Task: title, dates, assignee and % (from status) are read-only here. */
+  taskId: string | null;
   sortOrder: number;
 }
 
@@ -29,6 +31,8 @@ export interface TLLane {
   color: string | null; // null = auto from template palette
   collapsed: boolean;
   sortOrder: number;
+  /** Set = this lane is live-linked to that Task List. */
+  taskListId: string | null;
 }
 
 export type LayoutKind = 'gantt' | 'swimlane' | 'milestone-line';
@@ -136,7 +140,7 @@ export interface TimelineSummary {
 export interface TimelineDetail {
   timeline: {
     id: string; name: string; description: string | null; templateId: string | null;
-    styleOverrides: StyleOverrides; createdAt: string; updatedAt: string;
+    styleOverrides: StyleOverrides; taskGranularity: 'TASKS' | 'SUBTASKS'; createdAt: string; updatedAt: string;
   };
   template: { id: string; name: string; isActive: boolean; config: TemplateConfig } | null;
   swimlanes: TLLane[];

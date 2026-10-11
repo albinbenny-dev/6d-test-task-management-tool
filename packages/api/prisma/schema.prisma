@@ -617,6 +617,9 @@ model Timeline {
   description     String?
   templateId      String?
   styleOverrides  String   @default("{}") // JSON: partial template config applied on top of the chosen template
+  // For swimlanes linked to a Task List (see TimelineSwimlane.taskListId): "TASKS" = one bar per
+  // top-level task (progress averaged from its subtasks) · "SUBTASKS" = one bar per subtask.
+  taskGranularity String   @default("TASKS")
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -635,6 +638,10 @@ model TimelineSwimlane {
   timelineId String
   name       String
   color      String? // hex override; null = auto-assigned from the template palette (so switching template recolours lanes)
+  // Set = this lane is LIVE-linked to that Task List: its items are generated from the list's tasks
+  // and re-synced whenever the timeline is opened (see lib/timelineTaskSync.ts). Plain id, no FK —
+  // a deleted list just unlinks the lane on the next sync.
+  taskListId String?
   collapsed  Boolean  @default(false)
   sortOrder  Int      @default(0)
   createdAt  DateTime @default(now())
@@ -644,6 +651,7 @@ model TimelineSwimlane {
   items    TimelineItem[]
 
   @@index([timelineId])
+  @@index([taskListId])
 }
 
 model TimelineItem {
@@ -659,6 +667,9 @@ model TimelineItem {
   percentComplete Int       @default(0)
   assignee        String?
   notes           String?
+  // Set = generated from this Task (title/dates/% /assignee are read-only here — edit them in the
+  // Task List). % is derived from task status only. Plain id, no FK; the sync prunes dead links.
+  taskId          String?
   sortOrder       Int       @default(0)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -666,6 +677,7 @@ model TimelineItem {
   timeline Timeline          @relation(fields: [timelineId], references: [id], onDelete: Cascade)
   swimlane TimelineSwimlane? @relation(fields: [swimlaneId], references: [id], onDelete: SetNull)
 
+  @@unique([timelineId, taskId])
   @@index([timelineId])
   @@index([swimlaneId])
 }

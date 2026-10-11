@@ -9,6 +9,8 @@ export interface ImportTasksResult {
   duplicateRows: string[];
   unmatchedAssignees: string[];
   unresolvedParents: string[];
+  /** Task Lists that did not exist and were created from the file's "Task List" column. */
+  listsCreated?: string[];
   totalRows: number;
 }
 

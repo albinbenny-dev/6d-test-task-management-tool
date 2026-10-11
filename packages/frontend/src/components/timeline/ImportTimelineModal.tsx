@@ -20,7 +20,8 @@ export function ImportTimelineModal({ projectId, hasData, actions, onClose }: {
 }) {
   const [tab, setTab] = useState<'file' | 'project'>('file');
   const [mode, setMode] = useState<'append' | 'replace'>('append');
-  const [result, setResult] = useState<ImportResult | { itemsImported: number; swimlanesCreated: number; skippedEmpty?: number; warnings?: string[] } | null>(null);
+  const [result, setResult] = useState<ImportResult | { itemsImported: number; swimlanesCreated: number; linkedLists?: number; skippedEmpty?: number; warnings?: string[] } | null>(null);
+  const [granularity, setGranularity] = useState<'TASKS' | 'SUBTASKS'>('TASKS');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { data: taskLists = [] } = useTaskLists(projectId);
@@ -50,7 +51,10 @@ export function ImportTimelineModal({ projectId, hasData, actions, onClose }: {
 
   async function handleFromProject() {
     try {
-      setResult(await actions.importFromProject.mutateAsync({ taskListIds: [...pickedTaskLists], milestoneListIds: [...pickedMilestoneLists] }));
+      setResult(await actions.importFromProject.mutateAsync({
+        taskListIds: [...pickedTaskLists], milestoneListIds: [...pickedMilestoneLists],
+        ...(pickedTaskLists.size > 0 ? { taskGranularity: granularity } : {}),
+      }));
     } catch (err) {
       toast.error(errMsg(err, 'Import failed'));
     }
@@ -82,6 +86,7 @@ export function ImportTimelineModal({ projectId, hasData, actions, onClose }: {
             <div style={{ fontSize: 13, marginBottom: 10 }}>
               ✅ Imported <b>{result.itemsImported}</b> item{result.itemsImported === 1 ? '' : 's'}
               {result.swimlanesCreated > 0 && <> and created <b>{result.swimlanesCreated}</b> swimlane{result.swimlanesCreated === 1 ? '' : 's'}</>}.
+              {'linkedLists' in result && result.linkedLists ? <span style={{ color: 'var(--cyan)' }}> {result.linkedLists} task list{result.linkedLists === 1 ? ' is' : 's are'} now live-linked and will keep updating.</span> : null}
               {'skippedEmpty' in result && result.skippedEmpty ? <span style={{ color: 'var(--text-dim)' }}> {result.skippedEmpty} empty row(s) skipped.</span> : null}
             </div>
             {warnings.length > 0 && (
@@ -98,7 +103,7 @@ export function ImportTimelineModal({ projectId, hasData, actions, onClose }: {
           <>
             <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
               {tabBtn('file', 'Excel / CSV file', <FileSpreadsheet size={14} />)}
-              {tabBtn('project', 'From project tasks', <ListChecks size={14} />)}
+              {tabBtn('project', 'Link task lists', <ListChecks size={14} />)}
             </div>
 
             {tab === 'file' ? (
@@ -129,9 +134,18 @@ export function ImportTimelineModal({ projectId, hasData, actions, onClose }: {
             ) : (
               <div style={{ padding: 18, overflowY: 'auto' }}>
                 <p style={{ fontSize: 12, color: 'var(--text-mid)', marginTop: 0, lineHeight: 1.55 }}>
-                  Copies items into this timeline, one swimlane per list. It's a snapshot — later edits to the project's tasks won't move the timeline.
-                  Top-level tasks with dates only; a task with just a due date becomes a milestone.
+                  Each Task List becomes a <b>live swimlane</b>: when a task's status, dates or assignee change, the timeline updates itself.
+                  Progress comes from task status only (To Do 0 · In Progress 50 · In Review 75 · Done 100; a task with subtasks shows their average).
+                  A task with only a due date becomes a milestone; tasks with no dates are left out. Milestone lists are copied once (they have no status to follow).
                 </p>
+                <div style={{ display: 'flex', gap: 14, fontSize: 12.5, margin: '0 0 12px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                    <input type="radio" checked={granularity === 'TASKS'} onChange={() => setGranularity('TASKS')} /> One bar per task
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                    <input type="radio" checked={granularity === 'SUBTASKS'} onChange={() => setGranularity('SUBTASKS')} /> One bar per subtask
+                  </label>
+                </div>
                 <PickList title="Task lists" lists={taskLists.map((l) => ({ id: l.id, name: l.name }))} picked={pickedTaskLists} onToggle={(id) => toggle(pickedTaskLists, id, setPickedTaskLists)} />
                 <PickList title="Milestone lists" lists={milestoneLists.map((l) => ({ id: l.id, name: l.name }))} picked={pickedMilestoneLists} onToggle={(id) => toggle(pickedMilestoneLists, id, setPickedMilestoneLists)} />
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>

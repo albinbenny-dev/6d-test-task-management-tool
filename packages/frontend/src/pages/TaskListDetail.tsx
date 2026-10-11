@@ -161,7 +161,10 @@ export default function TaskListDetail() {
               {list && <span style={{ width: 10, height: 10, borderRadius: '50%', background: list.color }} />}
               <h1 className="page-title" style={{ fontSize: 20 }}>{list?.name ?? 'Loading…'}</h1>
             </div>
-            <p className="page-sub">{tasks.filter((t) => !t.parentTaskId).length} task(s)</p>
+            <p className="page-sub">
+              {topLevelTasks.length} task(s)
+              {tasks.length > topLevelTasks.length && ` · ${tasks.length - topLevelTasks.length} subtask(s)`}
+            </p>
 
             {timeline && (
               <div style={{ marginTop: 10, maxWidth: 420 }}>

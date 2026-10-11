@@ -517,11 +517,12 @@ router.post('/export', (async (req, res) => {
 // ── GET /template — download a standard project-plan Excel template ───────
 
 router.get('/template', (_req, res) => {
-  const headers = ['Task Title', 'Description', 'Assignee Email', 'Priority', 'Status', 'Start Date', 'Due Date', 'Tags', 'Parent Task Title'];
+  const headers = ['Task List', 'Task Title', 'Description', 'Assignee Email', 'Priority', 'Status', 'Start Date', 'Due Date', 'Tags', 'Parent Task Title'];
   const today = new Date();
   const inAWeek = new Date(today.getTime() + 7 * 86_400_000);
   const samples = [
     {
+      'Task List': 'Discovery',
       'Task Title': 'Requirement Gathering',
       'Description': 'Collect and finalize requirements from stakeholders',
       'Assignee Email': 'lead@example.com',
@@ -533,6 +534,7 @@ router.get('/template', (_req, res) => {
       'Parent Task Title': '',
     },
     {
+      'Task List': 'Discovery',
       'Task Title': 'Stakeholder Interviews',
       'Description': 'Interview key stakeholders to validate scope',
       'Assignee Email': 'tester@example.com',
@@ -546,7 +548,7 @@ router.get('/template', (_req, res) => {
   ];
 
   const ws = xlsx.utils.json_to_sheet(samples, { header: headers });
-  ws['!cols'] = [28, 45, 24, 12, 14, 14, 14, 20, 24].map((w) => ({ wch: w }));
+  ws['!cols'] = [22, 28, 45, 24, 12, 14, 14, 14, 20, 24].map((w) => ({ wch: w }));
   const wb = xlsx.utils.book_new();
   xlsx.utils.book_append_sheet(wb, ws, 'Task Plan');
   const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
@@ -602,12 +604,15 @@ function parseDateCell(raw: unknown): Date | null {
 
 router.post('/import', requireWrite as RequestHandler, upload.single('file'), (async (req, res) => {
   const projectId = req.project.id;
-  const taskListId = (req.body?.taskListId as string | undefined)?.trim();
-  if (!taskListId) return res.status(400).json({ error: 'taskListId is required' });
+  const fallbackListId = (req.body?.taskListId as string | undefined)?.trim() || null;
   if (!req.file) return res.status(400).json({ error: 'Excel file required (field: file)' });
 
-  const list = await prisma.taskList.findFirst({ where: { id: taskListId, projectId } });
-  if (!list) return res.status(400).json({ error: 'That task list does not belong to this project' });
+  // taskListId is the default list for rows without a "Task List" cell. A file whose every row names its
+  // list ("Task List" column) needs no taskListId at all — that is how one file fills many lists.
+  if (fallbackListId) {
+    const list = await prisma.taskList.findFirst({ where: { id: fallbackListId, projectId } });
+    if (!list) return res.status(400).json({ error: 'That task list does not belong to this project' });
+  }
 
   // cellDates intentionally omitted (defaults to false) — parseDateCell
   // above now converts the raw Excel serial itself; see its comment.
@@ -636,9 +641,11 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
   const dueKeys      = ['due date', 'due', 'end date', 'finish date', 'finish'];
   const tagsKeys     = ['tags', 'labels'];
   const parentKeys   = ['parent task title', 'parent task', 'parent'];
+  const listKeys     = ['task list', 'list', 'task list name'];
 
   const allRows: Record<string, unknown>[] = [];
   for (const sheetName of wb.SheetNames) {
+    if (sheetName.trim().toLowerCase() === 'instructions') continue; // a notes tab, not data — would only show up as "empty rows"
     const ws = wb.Sheets[sheetName];
     allRows.push(...xlsx.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' }));
   }
@@ -656,6 +663,7 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
     tagsRaw: string;
     hasTagsCell: boolean;
     parentTitleRaw: string;
+    listName: string;
   };
 
   let skippedEmpty = 0;
@@ -679,8 +687,27 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
       tagsRaw,
       hasTagsCell: tagsRaw !== '',
       parentTitleRaw: findVal(row, parentKeys),
+      listName: findVal(row, listKeys).slice(0, 100),
     });
   }
+
+  // Resolve every row's target list (creating lists named in the file that don't exist yet).
+  const projectLists = await prisma.taskList.findMany({ where: { projectId }, orderBy: { sortOrder: 'asc' } });
+  const listByName = new Map(projectLists.map((l) => [l.name.toLowerCase(), l.id]));
+  const listsCreated: string[] = [];
+  let nextListSort = (projectLists.reduce((mx, l) => Math.max(mx, l.sortOrder), -1)) + 1;
+  for (const r of mapped) {
+    if (!r.listName || listByName.has(r.listName.toLowerCase())) continue;
+    const created = await prisma.taskList.create({ data: { projectId, name: r.listName, sortOrder: nextListSort++ } });
+    listByName.set(r.listName.toLowerCase(), created.id);
+    listsCreated.push(created.name);
+  }
+  const listIdOf = (r: { listName: string }): string | null => (r.listName ? listByName.get(r.listName.toLowerCase()) ?? null : fallbackListId);
+  if (mapped.some((r) => !listIdOf(r))) {
+    return res.status(400).json({ error: 'Some rows have no "Task List" value and no default task list was chosen' });
+  }
+  // A title only needs to be unique within its own list; this key also scopes parent links.
+  const keyOf = (r: { listName: string; title: string }) => `${listIdOf(r)}::${r.title}`;
 
   // Dedup by title — scoped to this one taskListId (the whole import targets
   // a single list), so two different lists reusing a title never collide.
@@ -688,8 +715,8 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
   const duplicateRows: string[] = [];
   const deduped: MappedRow[] = [];
   for (const r of mapped) {
-    if (seen.has(r.title)) { duplicateRows.push(r.title); continue; }
-    seen.add(r.title);
+    if (seen.has(keyOf(r))) { duplicateRows.push(r.title); continue; }
+    seen.add(keyOf(r));
     deduped.push(r);
   }
 
@@ -697,17 +724,22 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
     return res.status(400).json({ error: 'No valid rows found. Check that "Task Title" column is present.' });
   }
 
+  const involvedListIds = [...new Set(deduped.map((r) => listIdOf(r) as string))];
   const existingTasks = await prisma.task.findMany({
-    where: { projectId, taskListId },
-    select: { id: true, title: true, parentTaskId: true, status: true, assigneeId: true },
+    where: { projectId, taskListId: { in: involvedListIds } },
+    select: { id: true, title: true, parentTaskId: true, status: true, assigneeId: true, taskListId: true },
   });
   const existingAssigneeById = new Map(existingTasks.map((t) => [t.id, t.assigneeId]));
-  const existingByTitle = new Map(existingTasks.map((t) => [t.title, t.id]));
+  const existingByTitle = new Map(existingTasks.map((t) => [`${t.taskListId}::${t.title}`, t.id]));
   const existingParentById = new Map(existingTasks.map((t) => [t.id, t.parentTaskId]));
   const existingStatusById = new Map(existingTasks.map((t) => [t.id, t.status]));
 
-  const last = await prisma.task.findFirst({ where: { projectId, taskListId }, orderBy: { sortOrder: 'desc' } });
-  let nextSortOrder = (last?.sortOrder ?? -1) + 1;
+  const nextSortByList = new Map<string, number>();
+  for (const lid of involvedListIds) {
+    const last = await prisma.task.findFirst({ where: { projectId, taskListId: lid }, orderBy: { sortOrder: 'desc' } });
+    nextSortByList.set(lid, (last?.sortOrder ?? -1) + 1);
+  }
+  const takeSort = (lid: string) => { const n = nextSortByList.get(lid) ?? 0; nextSortByList.set(lid, n + 1); return n; };
 
   // A cell that doesn't match a project member's email falls back to being
   // stored as a free-text external assignee (same escape hatch the assignee
@@ -732,10 +764,10 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
     };
   }));
 
-  const toInsert = resolved.filter((r) => !existingByTitle.has(r.title));
+  const toInsert = resolved.filter((r) => !existingByTitle.has(keyOf(r)));
   const toUpdate = resolved
-    .filter((r) => existingByTitle.has(r.title))
-    .map((r) => ({ ...r, _existingId: existingByTitle.get(r.title)! }));
+    .filter((r) => existingByTitle.has(keyOf(r)))
+    .map((r) => ({ ...r, _existingId: existingByTitle.get(keyOf(r))! }));
 
   const titleToId = new Map<string, string>();
 
@@ -744,7 +776,7 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
       toInsert.map((r) => prisma.task.create({
         data: {
           projectId,
-          taskListId,
+          taskListId: listIdOf(r) as string,
           title: r.title,
           description: r.description ?? undefined,
           priority: r.priority ?? 'NORMAL',
@@ -754,13 +786,13 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
           startDate: r.startDate,
           dueDate: r.dueDate,
           tags: JSON.stringify(r.tagsRaw ? r.tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : []),
-          sortOrder: nextSortOrder++,
+          sortOrder: takeSort(listIdOf(r) as string),
           createdByUserId: req.user.id,
           completedAt: r.status === 'DONE' ? new Date() : null,
         },
       })),
     );
-    created.forEach((t, i) => titleToId.set(toInsert[i].title, t.id));
+    created.forEach((t, i) => titleToId.set(keyOf(toInsert[i]), t.id));
   }
 
   // On UPDATE, a blank cell means "no change," not "clear the field" — a
@@ -782,7 +814,7 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
       if (r.hasTagsCell) data.tags = JSON.stringify(r.tagsRaw.split(',').map((t) => t.trim()).filter(Boolean));
       return prisma.task.update({ where: { id: r._existingId }, data });
     }));
-    toUpdate.forEach((r) => titleToId.set(r.title, r._existingId));
+    toUpdate.forEach((r) => titleToId.set(keyOf(r), r._existingId));
   }
 
   // Parent linking — one level only, matching only within this same import
@@ -793,11 +825,12 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
   const parentUpdates: Array<{ id: string; parentTaskId: string }> = [];
   for (const r of resolved) {
     if (!r.parentTitleRaw) continue;
-    const childId = titleToId.get(r.title);
+    const childId = titleToId.get(keyOf(r));
     if (!childId || r.parentTitleRaw === r.title) { unresolvedParents.push(r.title); continue; }
-    const parentId = titleToId.get(r.parentTitleRaw);
+    const parentKey = `${listIdOf(r)}::${r.parentTitleRaw}`;
+    const parentId = titleToId.get(parentKey);
     if (!parentId) { unresolvedParents.push(r.title); continue; }
-    const parentDeclaresParentInBatch = resolved.find((x) => x.title === r.parentTitleRaw)?.parentTitleRaw;
+    const parentDeclaresParentInBatch = resolved.find((x) => keyOf(x) === parentKey)?.parentTitleRaw;
     const parentAlreadyHasParent = existingParentById.get(parentId);
     if (parentDeclaresParentInBatch || parentAlreadyHasParent) { unresolvedParents.push(r.title); continue; }
     parentUpdates.push({ id: childId, parentTaskId: parentId });
@@ -809,7 +842,7 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
   // One combined "assigned to you" email per person for the whole import —
   // new rows with a member assignee, plus existing rows whose assignee changed.
   const newlyAssignedIds = [
-    ...toInsert.filter((r) => r.assigneeId).map((r) => titleToId.get(r.title)!),
+    ...toInsert.filter((r) => r.assigneeId).map((r) => titleToId.get(keyOf(r))!),
     ...toUpdate.filter((r) => r.assigneeId && r.assigneeId !== existingAssigneeById.get(r._existingId)).map((r) => r._existingId),
   ];
   if (newlyAssignedIds.length > 0) notifyTasksAssigned(newlyAssignedIds, req.user.id);
@@ -821,6 +854,7 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
     duplicateRows,
     unmatchedAssignees: [...unmatchedAssigneesSet],
     unresolvedParents,
+    listsCreated,
     totalRows: allRows.length,
   });
 }) as RequestHandler);

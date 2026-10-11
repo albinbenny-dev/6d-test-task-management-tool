@@ -20,20 +20,20 @@ export function sampleTimeline(): { items: TLItem[]; lanes: TLLane[] } {
     return {
       id: `s${n++}`, swimlaneId: lane, title, type: 'TASK', marker, color: null,
       startDate: toYmd(start), endDate: toYmd(end), durationDays: workingDaysBetween(start, end),
-      percentComplete: pct, assignee: null, notes: null, sortOrder: n,
+      percentComplete: pct, assignee: null, notes: null, taskId: null, sortOrder: n,
     };
   };
   const ms = (title: string, lane: string | null, wk: number, marker = 'diamond'): TLItem => {
     const d = toYmd(addDays(monday(wk), 4));
     return {
       id: `s${n++}`, swimlaneId: lane, title, type: 'MILESTONE', marker, color: null,
-      startDate: d, endDate: d, durationDays: 0, percentComplete: 0, assignee: null, notes: null, sortOrder: n,
+      startDate: d, endDate: d, durationDays: 0, percentComplete: 0, assignee: null, notes: null, taskId: null, sortOrder: n,
     };
   };
   const lanes: TLLane[] = [
-    { id: 'sl1', name: 'Initiation', color: null, collapsed: false, sortOrder: 0 },
-    { id: 'sl2', name: 'Design & Build', color: null, collapsed: false, sortOrder: 1 },
-    { id: 'sl3', name: 'Test & Go Live', color: null, collapsed: false, sortOrder: 2 },
+    { id: 'sl1', name: 'Initiation', color: null, collapsed: false, sortOrder: 0, taskListId: null },
+    { id: 'sl2', name: 'Design & Build', color: null, collapsed: false, sortOrder: 1, taskListId: null },
+    { id: 'sl3', name: 'Test & Go Live', color: null, collapsed: false, sortOrder: 2, taskListId: null },
   ];
   const items: TLItem[] = [
     ms('Kick-off', 'sl1', 0, 'star'),
