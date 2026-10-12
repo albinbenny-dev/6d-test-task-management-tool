@@ -22,7 +22,14 @@ export interface TLItem {
   notes: string | null;
   /** Set = generated from a Task: title, dates, assignee and % (from status) are read-only here. */
   taskId: string | null;
+  /** View-only: kept in the table but left off the timeline view and exports. */
+  hidden?: boolean;
   sortOrder: number;
+}
+
+/** Whether a row is drawn on the timeline: not hidden by hand, and not 100% complete while "hide completed" is on. */
+export function shownOnTimeline(i: Pick<TLItem, 'hidden' | 'percentComplete'>, hideDone: boolean): boolean {
+  return !i.hidden && !(hideDone && i.percentComplete >= 100);
 }
 
 export interface TLLane {
@@ -140,7 +147,7 @@ export interface TimelineSummary {
 export interface TimelineDetail {
   timeline: {
     id: string; name: string; description: string | null; templateId: string | null;
-    styleOverrides: StyleOverrides; taskGranularity: 'TASKS' | 'SUBTASKS'; createdAt: string; updatedAt: string;
+    styleOverrides: StyleOverrides; taskGranularity: 'TASKS' | 'SUBTASKS'; hideDone?: boolean; createdAt: string; updatedAt: string;
   };
   template: { id: string; name: string; isActive: boolean; config: TemplateConfig } | null;
   swimlanes: TLLane[];

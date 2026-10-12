@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, GripVertical, Link2, Plus, Trash2, Unlink } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Eye, EyeOff, GripVertical, Link2, Plus, Trash2, Unlink } from 'lucide-react';
 import type { TLItem, TLLane } from '../../lib/timeline/types';
-import { MILESTONE_MARKERS, TASK_MARKERS } from '../../lib/timeline/types';
+import { MILESTONE_MARKERS, TASK_MARKERS, shownOnTimeline } from '../../lib/timeline/types';
 import { todayYmd } from '../../lib/timeline/dates';
 import type { useTimelineEditor } from '../../hooks/useTimelines';
 import { useClickOutside } from '../../hooks/useClickOutside';
@@ -10,9 +10,9 @@ import { MarkerIcon } from './MarkerIcon';
 
 type Actions = ReturnType<typeof useTimelineEditor>;
 
-const COLS = '22px 26px minmax(180px,1fr) 62px 92px 128px 128px 62px 120px 30px';
+const COLS = '22px 26px minmax(180px,1fr) 62px 92px 128px 128px 62px 120px 28px 30px';
 // Narrow container (e.g. Split view): drop the Assigned-to column and tighten the rest so Start/End/% stay visible.
-const COLS_COMPACT = '18px 22px minmax(110px,1fr) 52px 66px 118px 118px 50px 26px';
+const COLS_COMPACT = '18px 22px minmax(110px,1fr) 52px 66px 118px 118px 50px 26px 26px';
 const MARKER_LABEL: Record<string, string> = {
   pill: 'Template bar', bar: 'Square bar', chevron: 'Chevron',
   diamond: 'Diamond', flag: 'Flag', star: 'Star', circle: 'Circle', triangle: 'Triangle',
@@ -58,8 +58,8 @@ function ColorPicker({ value, onChange, swatches, autoLabel }: { value: string |
 }
 
 // ── Item row ────────────────────────────────────────────────────────────────
-function ItemRow({ item, color, laneSwatches, canEdit, compact, selected, checked, focusMe, dragging, dropTarget, a, onSelect, onCheck, onFocused, onDragStart, onDragEnd, onDragOver, onDrop }: {
-  item: TLItem; color: string; laneSwatches: string[]; canEdit: boolean; compact: boolean; selected: boolean; checked: boolean; focusMe: boolean;
+function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, selected, checked, focusMe, dragging, dropTarget, a, onSelect, onCheck, onFocused, onDragStart, onDragEnd, onDragOver, onDrop }: {
+  item: TLItem; color: string; laneSwatches: string[]; canEdit: boolean; compact: boolean; hideDone: boolean; selected: boolean; checked: boolean; focusMe: boolean;
   dragging: boolean; dropTarget: boolean; a: Actions;
   onSelect: () => void; onCheck: (v: boolean) => void; onFocused: () => void;
   onDragStart: (e: React.DragEvent, row: HTMLElement | null) => void; onDragEnd: () => void;
@@ -72,6 +72,8 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, selected, checke
   // Generated from a Task: the task owns title / dates / assignee / progress, so those cells are read-only here.
   const linked = !!item.taskId;
   const own = canEdit && !linked;
+  const handHidden = !!item.hidden;
+  const offTimeline = !shownOnTimeline(item, hideDone);
 
   useEffect(() => {
     if (focusMe && titleRef.current) { titleRef.current.focus(); titleRef.current.select(); onFocused(); }
@@ -93,7 +95,7 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, selected, checke
       title={linked ? 'Linked to a task — change title, dates, assignee and status in the Task List. % complete follows the task status (To Do 0 · In Progress 50 · In Review 75 · Done 100).' : undefined}
       style={{
         display: 'grid', gridTemplateColumns: compact ? COLS_COMPACT : COLS, alignItems: 'center', gap: 4, padding: '2px 6px',
-        borderBottom: '1px solid var(--border)', opacity: dragging ? 0.4 : 1,
+        borderBottom: '1px solid var(--border)', opacity: dragging ? 0.4 : offTimeline ? 0.5 : 1,
         background: selected ? 'var(--cyan-dim)' : checked ? 'var(--surface2)' : 'transparent',
         boxShadow: dropTarget ? 'inset 0 2px 0 var(--cyan)' : undefined,
       }}
@@ -216,6 +218,16 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, selected, checke
         />
       ) : <Plain>{item.assignee ?? ''}</Plain>}
 
+      {canEdit && !(offTimeline && !handHidden) ? (
+        <button
+          onClick={(e) => { e.stopPropagation(); a.hideItems.mutate({ ids: [item.id], hidden: !handHidden }, { onError: () => toast.error('Could not change visibility') }); }}
+          title={handHidden ? 'Hidden from the timeline view and exports — click to show' : 'Hide from the timeline view and exports (stays in this table)'}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: handHidden ? 'var(--amber, #D97706)' : 'var(--text-dim)', display: 'flex', padding: 4 }}
+        >{handHidden ? <EyeOff size={14} /> : <Eye size={14} />}</button>
+      ) : offTimeline ? (
+        <span title="Left off the timeline: 100% complete and “Hide completed” is on" style={{ color: 'var(--text-dim)', display: 'flex', padding: 4 }}><EyeOff size={14} /></span>
+      ) : <span />}
+
       {own ? (
         <button onClick={(e) => { e.stopPropagation(); a.deleteItems.mutate([item.id]); }} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', display: 'flex', padding: 4 }}>
           <Trash2 size={14} />
@@ -240,7 +252,7 @@ function MarkerOption({ type, marker, color, active, onPick }: { type: 'TASK' | 
 }
 
 // ── Grid ────────────────────────────────────────────────────────────────────
-export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, milestoneColor, selectedItemId, onSelectItem, actions: a, granularity, onGranularity }: {
+export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, milestoneColor, selectedItemId, onSelectItem, actions: a, granularity, onGranularity, hideDone, onHideDone }: {
   items: TLItem[];
   lanes: TLLane[];
   canEdit: boolean;
@@ -254,6 +266,9 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
   /** For lanes linked to Task Lists: one bar per task, or one per subtask. */
   granularity: 'TASKS' | 'SUBTASKS';
   onGranularity: (g: 'TASKS' | 'SUBTASKS') => void;
+  /** Leave 100%-complete rows off the timeline view / exports. */
+  hideDone: boolean;
+  onHideDone: (v: boolean) => void;
 }) {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [focusItemId, setFocusItemId] = useState<string | null>(null);
@@ -354,7 +369,7 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
 
   const renderItems = (laneId: string | null) => (byLane.get(laneId) ?? []).map((it) => (
     <ItemRow
-      key={it.id} item={it} color={itemColor(it)} canEdit={canEdit} compact={compact}
+      key={it.id} item={it} color={itemColor(it)} canEdit={canEdit} compact={compact} hideDone={hideDone}
       laneSwatches={lanePalette}
       selected={selectedItemId === it.id} checked={checked.has(it.id)} focusMe={focusItemId === it.id}
       dragging={dragId === it.id} dropTarget={overKey === `${laneId}:${it.id}`} a={a}
@@ -368,6 +383,11 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
   ));
 
   const allChecked = items.length > 0 && checked.size === items.length;
+  const offCount = items.filter((i) => !shownOnTimeline(i, hideDone)).length;
+  const doneCount = items.filter((i) => i.percentComplete >= 100).length;
+  const checkedItems = items.filter((i) => checked.has(i.id));
+  const toHide = checkedItems.filter((i) => !i.hidden);
+  const toShow = checkedItems.filter((i) => i.hidden);
   const anyLinked = lanes.some((l) => !!l.taskListId);
 
   return (
@@ -387,6 +407,22 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
             <Trash2 size={12} style={{ marginRight: 4, verticalAlign: -1 }} />Delete {checked.size}
           </button>
         )}
+        {canEdit && toHide.length > 0 && (
+          <button className="tb-btn tb-btn-ghost" title="Keep these rows in the table but leave them off the timeline view and exports"
+            onClick={() => { a.hideItems.mutate({ ids: toHide.map((i) => i.id), hidden: true }, { onError: () => toast.error('Could not hide the rows') }); setChecked(new Set()); }}>
+            <EyeOff size={12} style={{ marginRight: 4, verticalAlign: -1 }} />Hide {toHide.length} from timeline
+          </button>
+        )}
+        {canEdit && toShow.length > 0 && (
+          <button className="tb-btn tb-btn-ghost"
+            onClick={() => { a.hideItems.mutate({ ids: toShow.map((i) => i.id), hidden: false }, { onError: () => toast.error('Could not show the rows') }); setChecked(new Set()); }}>
+            <Eye size={12} style={{ marginRight: 4, verticalAlign: -1 }} />Show {toShow.length} on timeline
+          </button>
+        )}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-mid)', cursor: canEdit ? 'pointer' : 'default' }} title="Leave rows that are 100% complete off the timeline view and exports (they stay in this table)">
+          <input type="checkbox" checked={hideDone} disabled={!canEdit} onChange={(e) => onHideDone(e.target.checked)} />
+          Hide completed{doneCount > 0 ? ` (${doneCount})` : ''}
+        </label>
         {anyLinked && (
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-mid)' }} title="How lanes linked to Task Lists are drawn">
             Linked lists show
@@ -397,7 +433,7 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
           </label>
         )}
         <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-dim)' }}>
-          {items.length} item{items.length === 1 ? '' : 's'} · duration counts working days (Mon–Fri)
+          {items.length} item{items.length === 1 ? '' : 's'}{offCount > 0 ? ` · ${offCount} hidden from the timeline` : ''} · duration counts working days (Mon–Fri)
         </span>
       </div>
       {anyLinked && (
@@ -414,7 +450,7 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
           <div style={{ display: 'grid', gridTemplateColumns: compact ? COLS_COMPACT : COLS, gap: 4, padding: '8px 6px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)', fontSize: 11.5, fontWeight: 700, color: 'var(--text-mid)' }}>
             <span />
             <input type="checkbox" checked={allChecked} onChange={(e) => setChecked(e.target.checked ? new Set(items.map((i) => i.id)) : new Set())} />
-            <span style={{ paddingLeft: 6 }}>Title</span><span>Type</span><span>{compact ? 'Days' : 'Duration'}</span><span>Start</span><span>End</span><span style={{ textAlign: 'right', paddingRight: 8 }}>%</span>{!compact && <span>Assigned to</span>}<span />
+            <span style={{ paddingLeft: 6 }}>Title</span><span>Type</span><span>{compact ? 'Days' : 'Duration'}</span><span>Start</span><span>End</span><span style={{ textAlign: 'right', paddingRight: 8 }}>%</span>{!compact && <span>Assigned to</span>}<span title="Show on the timeline"><Eye size={13} style={{ verticalAlign: -2, opacity: 0.6 }} /></span><span />
           </div>
 
           {/* Ungrouped items sit above the first swimlane */}

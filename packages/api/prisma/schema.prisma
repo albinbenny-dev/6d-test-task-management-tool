@@ -620,6 +620,8 @@ model Timeline {
   // For swimlanes linked to a Task List (see TimelineSwimlane.taskListId): "TASKS" = one bar per
   // top-level task (progress averaged from its subtasks) · "SUBTASKS" = one bar per subtask.
   taskGranularity String   @default("TASKS")
+  // true = rows that are 100% complete are left off the timeline view / exports (they stay in the table).
+  hideDone        Boolean  @default(false)
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -670,6 +672,8 @@ model TimelineItem {
   // Set = generated from this Task (title/dates/% /assignee are read-only here — edit them in the
   // Task List). % is derived from task status only. Plain id, no FK; the sync prunes dead links.
   taskId          String?
+  // true = kept in the table but left off the timeline view / exports. Survives task syncs (view-only setting).
+  hidden          Boolean   @default(false)
   sortOrder       Int       @default(0)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

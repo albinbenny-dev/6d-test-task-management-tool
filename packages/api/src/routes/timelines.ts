@@ -42,6 +42,7 @@ const UpdateTimelineSchema = z.object({
   templateId: z.string().optional().nullable(),
   styleOverrides: StyleOverridesSchema.optional(),
   taskGranularity: z.enum(['TASKS', 'SUBTASKS']).optional(), // for lanes linked to Task Lists
+  hideDone: z.boolean().optional(), // leave 100%-complete rows off the timeline view / exports
 });
 
 const SwimlaneCreateSchema = z.object({ name: z.string().min(1).max(100), color: hex.optional().nullable() });
@@ -66,6 +67,7 @@ const ItemFields = {
   percentComplete: z.number().int().min(0).max(100).optional(),
   assignee: z.string().max(150).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
+  hidden: z.boolean().optional(), // view-only: left off the timeline view / exports (allowed on task-linked items too)
 };
 const CreateItemSchema = z.object(ItemFields);
 const UpdateItemSchema = z.object(ItemFields).partial();
@@ -99,6 +101,7 @@ function serializeItem(i: ItemRow) {
     assignee: i.assignee,
     notes: i.notes,
     taskId: i.taskId, // set = generated from a Task (read-only here)
+    hidden: i.hidden,
     sortOrder: i.sortOrder,
   };
 }
@@ -275,6 +278,7 @@ router.get('/:timelineId', (async (req, res) => {
       templateId: timeline.templateId,
       styleOverrides: parseOverrides(timeline.styleOverrides),
       taskGranularity: timeline.taskGranularity,
+      hideDone: timeline.hideDone,
       createdAt: timeline.createdAt, updatedAt: timeline.updatedAt,
     },
     template: serializeTemplate(timeline.template),
@@ -331,7 +335,7 @@ router.post('/:timelineId/duplicate', requireAdvancedFeatures as RequestHandler,
     const t = await tx.timeline.create({
       data: {
         projectId: src.projectId, name: `${src.name} (copy)`.slice(0, 150), description: src.description,
-        templateId: src.templateId, styleOverrides: src.styleOverrides, taskGranularity: src.taskGranularity, createdByUserId: req.user.id,
+        templateId: src.templateId, styleOverrides: src.styleOverrides, taskGranularity: src.taskGranularity, hideDone: src.hideDone, createdByUserId: req.user.id,
       },
     });
     const laneMap = new Map<string, string>();
@@ -345,7 +349,7 @@ router.post('/:timelineId/duplicate', requireAdvancedFeatures as RequestHandler,
       data: src.items.map((i) => ({
         timelineId: t.id, swimlaneId: i.swimlaneId ? laneMap.get(i.swimlaneId) ?? null : null,
         title: i.title, type: i.type, marker: i.marker, color: i.color, startDate: i.startDate, endDate: i.endDate,
-        percentComplete: i.percentComplete, assignee: i.assignee, notes: i.notes, taskId: i.taskId, sortOrder: i.sortOrder,
+        percentComplete: i.percentComplete, assignee: i.assignee, notes: i.notes, taskId: i.taskId, hidden: i.hidden, sortOrder: i.sortOrder,
       })),
     });
     return t;
@@ -501,6 +505,16 @@ router.post('/:timelineId/items/bulk-delete', requireAdvancedFeatures as Request
   res.json({ deleted: r.count, skippedLinked: parsed.data.ids.length - r.count });
 }) as RequestHandler);
 
+// Hide / show many rows at once (view-only flag, so task-linked rows are included).
+router.post('/:timelineId/items/bulk-hide', requireAdvancedFeatures as RequestHandler, (async (req, res) => {
+  const parsed = z.object({ ids: z.array(z.string()).min(1).max(MAX_ITEMS_PER_TIMELINE), hidden: z.boolean() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Validation failed', issues: parsed.error.issues });
+  const timeline = await loadTimeline(req.project.id, req.params.timelineId);
+  if (!timeline) return res.status(404).json({ error: 'Timeline not found' });
+  const r = await prisma.timelineItem.updateMany({ where: { timelineId: timeline.id, id: { in: parsed.data.ids } }, data: { hidden: parsed.data.hidden } });
+  res.json({ updated: r.count });
+}) as RequestHandler);
+
 router.put('/:timelineId/items/:itemId', requireAdvancedFeatures as RequestHandler, (async (req, res) => {
   const parsed = UpdateItemSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Validation failed', issues: parsed.error.issues });
@@ -565,6 +579,7 @@ router.put('/:timelineId/items/:itemId', requireAdvancedFeatures as RequestHandl
       ...(d.percentComplete !== undefined ? { percentComplete: d.percentComplete } : {}),
       ...(d.assignee !== undefined ? { assignee: d.assignee } : {}),
       ...(d.notes !== undefined ? { notes: d.notes } : {}),
+      ...(d.hidden !== undefined ? { hidden: d.hidden } : {}),
     },
   });
   res.json({ item: serializeItem(item) });

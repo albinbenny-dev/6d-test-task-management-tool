@@ -68,6 +68,7 @@ export interface ItemInput {
   percentComplete?: number;
   assignee?: string | null;
   notes?: string | null;
+  hidden?: boolean;
 }
 
 export function useTimelineEditor(projectId: string, timelineId: string) {
@@ -78,13 +79,15 @@ export function useTimelineEditor(projectId: string, timelineId: string) {
   const patchCache = (fn: (d: TimelineDetail) => TimelineDetail) => qc.setQueryData<TimelineDetail>(key, (d) => (d ? fn(d) : d));
 
   const updateTimeline = useMutation({
-    mutationFn: async (data: { name?: string; description?: string | null; templateId?: string | null; styleOverrides?: StyleOverrides; taskGranularity?: 'TASKS' | 'SUBTASKS' }) => {
+    mutationFn: async (data: { name?: string; description?: string | null; templateId?: string | null; styleOverrides?: StyleOverrides; taskGranularity?: 'TASKS' | 'SUBTASKS'; hideDone?: boolean }) => {
       await api.put(base, data);
     },
-    onMutate: (data) => {
+    onMutate: async (data) => {
+      // Drop any in-flight read so a stale response can't overwrite this optimistic change.
+      await qc.cancelQueries({ queryKey: key });
       patchCache((d) => ({
         ...d,
-        timeline: { ...d.timeline, ...(data.name !== undefined ? { name: data.name } : {}), ...(data.styleOverrides !== undefined ? { styleOverrides: data.styleOverrides } : {}), ...(data.templateId !== undefined ? { templateId: data.templateId } : {}), ...(data.taskGranularity !== undefined ? { taskGranularity: data.taskGranularity } : {}) },
+        timeline: { ...d.timeline, ...(data.name !== undefined ? { name: data.name } : {}), ...(data.styleOverrides !== undefined ? { styleOverrides: data.styleOverrides } : {}), ...(data.templateId !== undefined ? { templateId: data.templateId } : {}), ...(data.taskGranularity !== undefined ? { taskGranularity: data.taskGranularity } : {}), ...(data.hideDone !== undefined ? { hideDone: data.hideDone } : {}) },
       }));
     },
     onSettled: refresh,
@@ -105,6 +108,13 @@ export function useTimelineEditor(projectId: string, timelineId: string) {
   const deleteItems = useMutation({
     mutationFn: async (ids: string[]) => { await api.post(`${base}/items/bulk-delete`, { ids }); },
     onMutate: (ids) => patchCache((d) => ({ ...d, items: d.items.filter((i) => !ids.includes(i.id)) })),
+    onSettled: refresh,
+  });
+
+  // Hide / show rows on the timeline view (view-only flag — works on task-linked rows too).
+  const hideItems = useMutation({
+    mutationFn: async ({ ids, hidden }: { ids: string[]; hidden: boolean }) => { await api.post(`${base}/items/bulk-hide`, { ids, hidden }); },
+    onMutate: async ({ ids, hidden }) => { await qc.cancelQueries({ queryKey: key }); patchCache((d) => ({ ...d, items: d.items.map((i) => (ids.includes(i.id) ? { ...i, hidden } : i)) })); },
     onSettled: refresh,
   });
 
@@ -163,7 +173,7 @@ export function useTimelineEditor(projectId: string, timelineId: string) {
     onSettled: refresh,
   });
 
-  return { updateTimeline, createItem, updateItem, deleteItems, reorderItems, createLane, updateLane, deleteLane, reorderLanes, importFile, importFromProject };
+  return { updateTimeline, createItem, updateItem, deleteItems, hideItems, reorderItems, createLane, updateLane, deleteLane, reorderLanes, importFile, importFromProject };
 }
 
 export interface ImportResult {

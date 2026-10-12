@@ -13,6 +13,7 @@ import { layoutTimeline } from '../lib/timeline/layout';
 import { resolveConfig } from '../lib/timeline/config';
 import { exportPng, exportPptx, exportSvg, safeFileName } from '../lib/timeline/export';
 import type { StyleOverrides, TimelineTemplateDTO } from '../lib/timeline/types';
+import { shownOnTimeline } from '../lib/timeline/types';
 import { TimelineGrid } from '../components/timeline/TimelineGrid';
 import { TimelinePreview } from '../components/timeline/TimelinePreview';
 import { TemplateGallery } from '../components/timeline/TemplateGallery';
@@ -80,7 +81,10 @@ export default function TimelineBuilder() {
   const lanes = detail?.swimlanes ?? [];
   const name = detail?.timeline.name ?? 'Timeline';
 
-  const layout = useMemo(() => layoutTimeline({ title: name, items, lanes, config }), [name, items, lanes, config]);
+  const hideDone = detail?.timeline.hideDone ?? false;
+  // Rows hidden by hand (or 100% rows while "hide completed" is on) stay in the table but never reach the preview, thumbnails or exports.
+  const shownItems = useMemo(() => items.filter((i) => shownOnTimeline(i, hideDone)), [items, hideDone]);
+  const layout = useMemo(() => layoutTimeline({ title: name, items: shownItems, lanes, config }), [name, shownItems, lanes, config]);
   useEffect(() => { if (pageIndex > layout.pages.length - 1) setPageIndex(Math.max(0, layout.pages.length - 1)); }, [layout, pageIndex]);
 
   function pickTemplate(id: string) {
@@ -104,7 +108,7 @@ export default function TimelineBuilder() {
     finally { setBusy(null); }
   }
 
-  const hasItems = items.length > 0;
+  const hasItems = shownItems.length > 0;
   const exportItem = (label: string, icon: React.ReactNode, onClick: () => void, hint?: string) => (
     <button
       onClick={onClick} disabled={!hasItems && label !== 'Excel data'}
@@ -191,6 +195,8 @@ export default function TimelineBuilder() {
                 selectedItemId={selectedItemId} onSelectItem={setSelectedItemId} actions={actions}
                 granularity={detail.timeline.taskGranularity ?? 'TASKS'}
                 onGranularity={(g) => actions.updateTimeline.mutate({ taskGranularity: g }, { onError: () => toast.error('Could not change the setting') })}
+                hideDone={hideDone}
+                onHideDone={(v) => actions.updateTimeline.mutate({ hideDone: v }, { onError: () => toast.error('Could not change the setting') })}
               />
             </div>
           )}
@@ -201,7 +207,12 @@ export default function TimelineBuilder() {
                 layout={layout} fontFamily={config.font.family} pageIndex={pageIndex} onPageIndex={setPageIndex}
                 selectedItemId={selectedItemId} onSelectItem={view === 'timeline' ? undefined : setSelectedItemId}
               />
-              {!hasItems && (
+              {!hasItems && items.length > 0 && (
+                <div style={{ fontSize: 12, color: 'var(--text-dim)', textAlign: 'center', marginTop: 8 }}>
+                  Every row is hidden from the timeline — show some again from the table (eye icon).
+                </div>
+              )}
+              {items.length === 0 && (
                 <div style={{ fontSize: 12, color: 'var(--text-dim)', textAlign: 'center', marginTop: 8 }}>
                   Showing an empty plan. Add tasks in the grid{canManageTimelines ? ' or use Import' : ''} and this preview updates live.
                 </div>
@@ -216,7 +227,7 @@ export default function TimelineBuilder() {
               {rightTab === 'templates' ? (
                 <>
                   <TemplateGallery
-                    templates={templateList} selectedId={activeTemplate?.id ?? null} items={items} lanes={lanes} title={name}
+                    templates={templateList} selectedId={activeTemplate?.id ?? null} items={shownItems} lanes={lanes} title={name}
                     onSelect={canManageTimelines ? pickTemplate : () => toast('You have view-only access to this timeline')}
                   />
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 10 }}>
@@ -248,7 +259,7 @@ export default function TimelineBuilder() {
       )}
 
       {importOpen && (
-        <ImportTimelineModal projectId={projectId} hasData={hasItems || lanes.length > 0} actions={actions} onClose={() => setImportOpen(false)} />
+        <ImportTimelineModal projectId={projectId} hasData={items.length > 0 || lanes.length > 0} actions={actions} onClose={() => setImportOpen(false)} />
       )}
     </div>
   );
