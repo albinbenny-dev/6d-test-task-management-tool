@@ -7,6 +7,7 @@ import {
   useAdminUsers,
   useUpdateUserRole,
   useResetUserPassword,
+  useUpdateUserProfile,
   useDeleteUser,
   type AdminUser,
 } from '../hooks/useAdminUsers';
@@ -161,6 +162,115 @@ function ResetPasswordDialog({
   );
 }
 
+// ── Edit User Dialog (correct a wrong email / name) ─────────────────────────
+function EditUserDialog({
+  user,
+  open,
+  onOpenChange,
+}: {
+  user: AdminUser | null;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const updateProfile = useUpdateUserProfile();
+  const [email, setEmail] = useState('');
+  const [name, setName]   = useState('');
+
+  // (re)load the fields whenever a different user is opened
+  React.useEffect(() => {
+    if (open && user) { setEmail(user.email); setName(user.name); }
+  }, [open, user]);
+
+  const emailChanged = !!user && email.trim().toLowerCase() !== user.email.toLowerCase();
+  const nameChanged  = !!user && name.trim() !== user.name;
+  const canSave = !!user && (emailChanged || nameChanged) && !updateProfile.isPending;
+
+  async function handleSubmit() {
+    if (!user || !canSave) return;
+    try {
+      await updateProfile.mutateAsync({
+        userId: user.id,
+        ...(emailChanged ? { email: email.trim() } : {}),
+        ...(nameChanged ? { name: name.trim() } : {}),
+      });
+      toast.success(emailChanged ? `Email updated for ${name.trim()}.` : 'User updated.');
+      onOpenChange(false);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      toast.error(axiosErr.response?.data?.error ?? 'Failed to update user.');
+    }
+  }
+
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(6,34,74,0.6)', backdropFilter: 'blur(4px)',
+            zIndex: 9998, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <Dialog.Content
+            style={{
+              background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
+              padding: '28px', width: '420px', maxWidth: '96vw', zIndex: 9999, fontFamily: 'var(--font-ui)',
+            }}
+          >
+            <Dialog.Title style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text)', marginBottom: '4px' }}>
+              Edit User
+            </Dialog.Title>
+            <Dialog.Description style={{ fontSize: '12px', color: 'var(--text-dim)', marginBottom: '20px' }}>
+              Correct the name or email. It is the same account, so project memberships, tasks and comments stay attached.
+            </Dialog.Description>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={LABEL_STYLE}>Name</label>
+                <input
+                  className="input-field" value={name} onChange={(e) => setName(e.target.value)}
+                  style={{ width: '100%', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={LABEL_STYLE}>Email</label>
+                <input
+                  className="input-field" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void handleSubmit(); }}
+                  placeholder="name@6dtech.co.in"
+                  style={{ fontFamily: 'var(--font-mono)', width: '100%', boxSizing: 'border-box' }}
+                />
+                {emailChanged && (
+                  <p style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                    They will log in with the new email from now on (password unchanged). Their current session keeps working until it expires.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '24px' }}>
+              <Dialog.Close asChild>
+                <button type="button" className="tb-btn tb-btn-ghost">Cancel</button>
+              </Dialog.Close>
+              <button
+                type="button"
+                onClick={() => void handleSubmit()}
+                disabled={!canSave}
+                style={{
+                  padding: '8px 18px', background: 'linear-gradient(135deg, #F47B20, #D9601A)', border: 'none', borderRadius: '6px',
+                  color: '#fff', fontSize: '13px', fontWeight: 700,
+                  cursor: canSave ? 'pointer' : 'not-allowed', opacity: canSave ? 1 : 0.6,
+                }}
+              >
+                {updateProfile.isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Overlay>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
 // ── Role Permissions Matrix ────────────────────────────────────────────────
 
 type PermRow = {
@@ -294,6 +404,8 @@ export default function UserManagement() {
   const [deletingId, setDeletingId]           = useState<string | null>(null);
   const [resetTarget, setResetTarget]         = useState<AdminUser | null>(null);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [editTarget, setEditTarget]           = useState<AdminUser | null>(null);
+  const [editDialogOpen, setEditDialogOpen]   = useState(false);
   const [changingRoleId, setChangingRoleId]   = useState<string | null>(null);
   const [search, setSearch]                   = useState('');
   const [page, setPage]                       = useState(1);
@@ -441,7 +553,7 @@ export default function UserManagement() {
             <div style={{ width: '190px', flexShrink: 0 }}>Global Role</div>
             <div style={{ width: '70px', flexShrink: 0 }}>Projects</div>
             <div style={{ width: '100px', flexShrink: 0 }}>Joined</div>
-            <div style={{ width: '190px', flexShrink: 0 }}>Actions</div>
+            <div style={{ width: '260px', flexShrink: 0 }}>Actions</div>
           </div>
 
           {isLoading ? (
@@ -543,7 +655,7 @@ export default function UserManagement() {
                   </div>
 
                   {/* Actions */}
-                  <div style={{ width: '190px', flexShrink: 0 }}>
+                  <div style={{ width: '260px', flexShrink: 0 }}>
                     {deletingId === u.id ? (
                       <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                         <span style={{ fontSize: '10px', color: 'var(--fail)' }}>Delete?</span>
@@ -561,6 +673,14 @@ export default function UserManagement() {
                       </div>
                     ) : (
                       <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          className="tb-btn tb-btn-ghost"
+                          style={{ padding: '4px 10px', fontSize: '11px' }}
+                          title="Correct this user's name or email"
+                          onClick={() => { setEditTarget(u); setEditDialogOpen(true); }}
+                        >
+                          ✎ Edit
+                        </button>
                         <button
                           className="tb-btn tb-btn-ghost"
                           style={{ padding: '4px 10px', fontSize: '11px' }}
@@ -639,6 +759,16 @@ export default function UserManagement() {
         </div>
         )}
       </div>
+
+      {/* Edit User Dialog */}
+      <EditUserDialog
+        user={editTarget}
+        open={editDialogOpen}
+        onOpenChange={(v) => {
+          setEditDialogOpen(v);
+          if (!v) setEditTarget(null);
+        }}
+      />
 
       {/* Reset Password Dialog */}
       <ResetPasswordDialog

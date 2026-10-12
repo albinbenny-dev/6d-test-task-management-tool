@@ -34,6 +34,20 @@ export function useUpdateUserRole() {
   });
 }
 
+export function useUpdateUserProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ userId, ...data }: { userId: string; email?: string; name?: string }) => {
+      const res = await api.put<{ user: AdminUser }>(`/admin/users/${userId}/profile`, data);
+      return res.data.user;
+    },
+    onSuccess: () => {
+      // members lists and assignee pickers show names and emails too
+      void qc.invalidateQueries();
+    },
+  });
+}
+
 export function useResetUserPassword() {
   return useMutation({
     mutationFn: async ({ userId, newPassword }: { userId: string; newPassword: string }) => {

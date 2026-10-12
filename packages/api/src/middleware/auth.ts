@@ -53,14 +53,15 @@ export async function verifyToken(req: Request, res: Response, next: NextFunctio
     // so revoked or demoted users can't use stale JWT claims (F8).
     const user = await prisma.user.findUnique({
       where: { id: payload.id },
-      select: { id: true, globalRole: true },
+      select: { id: true, globalRole: true, email: true, name: true },
     });
     if (!user) {
       res.status(401).json({ error: 'Account not found or has been removed' });
       return;
     }
 
-    req.user = { ...payload, globalRole: user.globalRole };
+    // email/name come from the DB too, so a token issued before an admin corrected them doesn't carry the old values.
+    req.user = { ...payload, email: user.email, name: user.name, globalRole: user.globalRole };
     next();
   } catch (err) {
     if (err instanceof jwt.TokenExpiredError) {

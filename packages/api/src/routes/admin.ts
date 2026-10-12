@@ -71,6 +71,72 @@ router.put('/users/:uid/role', requireSuperAdmin as RequestHandler, async (req: 
   } catch (err) { next(err); }
 });
 
+// PUT /admin/users/:uid/profile — correct a user's email and/or display name.
+// Same account row, so memberships, assigned tasks and comments all stay attached.
+const COMPANY_EMAIL_DOMAIN = '@6dtech.co.in';
+router.put('/users/:uid/profile', requireSuperAdmin as RequestHandler, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { uid } = req.params;
+    const body = req.body as { email?: unknown; name?: unknown };
+    const data: { email?: string; name?: string } = {};
+
+    if (body.email !== undefined) {
+      const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        res.status(400).json({ error: 'Enter a valid email address' });
+        return;
+      }
+      if (!email.endsWith(COMPANY_EMAIL_DOMAIN)) {
+        res.status(400).json({ error: `Email must be a ${COMPANY_EMAIL_DOMAIN} address` });
+        return;
+      }
+      data.email = email;
+    }
+    if (body.name !== undefined) {
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      if (name.length < 2 || name.length > 100) {
+        res.status(400).json({ error: 'Name must be 2–100 characters' });
+        return;
+      }
+      data.name = name;
+    }
+    if (Object.keys(data).length === 0) {
+      res.status(400).json({ error: 'Nothing to update' });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: uid } });
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    if (data.email && data.email !== user.email.toLowerCase()) {
+      const clash = await prisma.user.findFirst({
+        where: { id: { not: uid }, email: { equals: data.email, mode: 'insensitive' } },
+        select: { id: true },
+      });
+      if (clash) {
+        res.status(409).json({ error: 'Another account already uses that email' });
+        return;
+      }
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: uid },
+      data,
+      select: { id: true, email: true, name: true, globalRole: true },
+    });
+    res.json({ user: updated });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      res.status(409).json({ error: 'Another account already uses that email' });
+      return;
+    }
+    next(err);
+  }
+});
+
 // POST /admin/users/:uid/reset-password — set a new password for a user
 router.post('/users/:uid/reset-password', requireSuperAdmin as RequestHandler, async (req: Request, res: Response, next: NextFunction) => {
   try {
