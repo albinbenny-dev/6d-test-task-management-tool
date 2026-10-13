@@ -240,6 +240,33 @@ export const BUILT_IN_TEMPLATES: BuiltIn[] = [
     },
   },
   {
+    key: 'roadmap-slate',
+    name: 'Roadmap Slate & Teal',
+    description: 'Same swimlane roadmap with progress, in a restrained slate and teal palette — clean for steering-committee and customer decks.',
+    category: 'Roadmap',
+    sortOrder: 7,
+    config: {
+      layout: 'swimlane',
+      slide: { showTitle: false },
+      palette: {
+        text: '#0F172A', muted: '#64748B', grid: '#E2E8F0', accent: '#0F766E',
+        taskDefault: '#0D9488', milestoneDefault: '#F59E0B',
+        laneColors: ['#1E293B', '#334155', '#0F766E', '#475569', '#115E59', '#64748B'],
+      },
+      axis: {
+        scale: 'fortnight', style: 'filled', fill: '#1E293B', minorFill: '#64748B', textColor: '#FFFFFF', pastTint: 0.3,
+        yearLabels: true, yearColor: '#0D9488', todayColor: '#E11D48', gridlines: 'none', showToday: true,
+      },
+      task: {
+        height: 18, shape: 'rounded', labelPosition: 'left', showDates: true, datesPlacement: 'right',
+        showPercent: true, percentInside: true, progressStyle: 'shade', colorSource: 'default',
+        notStartedColor: '#94A3B8', boldLabels: true,
+      },
+      milestone: { size: 18, labelPosition: 'right', showDate: true, dateFormat: 'd MMM', railAboveAxis: true },
+      swimlane: { style: 'sidebar', labelWidth: 135, bandOpacity: 0.06, border: 'none', showLabels: true, rowMode: 'single' },
+    },
+  },
+  {
     key: 'clean-minimal',
     name: 'Clean Minimal',
     description: 'Light, low-ink gantt with thin square bars — good for printing.',

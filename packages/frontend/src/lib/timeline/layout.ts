@@ -28,7 +28,7 @@ export interface LayoutInput {
 
 // ── Time axis ───────────────────────────────────────────────────────────────
 
-interface Tick { start: Date; end: Date; label: string }
+interface Tick { start: Date; end: Date; label: string; /** Used when `label` does not fit its cell ("19" instead of "19/10"). */ short?: string }
 interface Range { start: Date; end: Date } // end exclusive
 
 const utc = (y: number, m: number, d = 1) => new Date(Date.UTC(y, m, d));
@@ -84,7 +84,7 @@ function minorLabel(d: Date, scale: Scale): string {
 function buildTicks(range: Range, scale: Scale, plainMonths: boolean): { minor: Tick[]; major: Tick[] } {
   const minor: Tick[] = [];
   for (let c = range.start; c < range.end; c = nextTick(c, scale)) {
-    minor.push({ start: c, end: nextTick(c, scale), label: minorLabel(c, scale) });
+    minor.push({ start: c, end: nextTick(c, scale), label: minorLabel(c, scale), ...(scale === 'fortnight' ? { short: String(c.getUTCDate()) } : {}) });
   }
   const major: Tick[] = [];
   if (scale === 'week' || scale === 'fortnight') {
@@ -340,7 +340,9 @@ interface Plan {
   lines: string[];       // 1–2 lines
   lw: number;            // widest line
   left: number; right: number; // horizontal extent incl. label, for packing
-  dates?: string; dw?: number; // date range drawn beyond the bar's far end (datesPlacement: right)
+  dates?: string; dw?: number; // date range for datesPlacement: right …
+  /** … drawn beyond the bar (default), inside its far end, or left of the label — whichever has room. */
+  datesAt?: 'right' | 'in' | 'left';
 }
 
 function taskDatesText(ctx: Ctx, item: TLItem): string {
@@ -411,9 +413,22 @@ function planItem(ctx: Ctx, item: TLItem): Plan {
     const text = taskDatesText(ctx, item);
     const w = ctx.tw(text);
     const startX = side === 'right' ? x1 + gap + lw + 8 : x1 + gap;
-    if (startX + w <= fr.plotRight) { dates = text; dw = w; right = Math.max(right, startX + w); }
+    let datesAt: Plan['datesAt'];
+    if (startX + w <= fr.plotRight) { dates = text; dw = w; datesAt = 'right'; right = Math.max(right, startX + w); }
+    else {
+      // No room after the bar (it runs to the edge of the plot): put the dates inside its far end, clear of the title and the %.
+      const pct = Math.max(0, Math.min(100, item.percentComplete));
+      const barW = x1 - x0;
+      const fillEnd = x0 + (pct <= 0 ? 0 : pct >= 100 ? barW : Math.max((barW * pct) / 100, Math.min(barW, cfg.task.height)));
+      const pctW = cfg.task.showPercent && cfg.task.percentInside ? ctx.tw('100%', Math.max(7, Math.min(ctx.base - 1, cfg.task.height - 4))) + 12 : 0;
+      const titleEnd = side === 'inside' ? x0 + 6 + lw + 10 : x0;
+      const free = Math.max(fillEnd, x0 + pctW, titleEnd);
+      if (item.marker !== 'chevron' && x1 - 8 - w >= free + 6) { dates = text; dw = w; datesAt = 'in'; }
+      else if (side === 'left' && left - 8 - w >= fr.plotX) { dates = text; dw = w; datesAt = 'left'; left = left - 8 - w; }
+    }
+    return { item, color, x0, x1, cx: x0, side, lines, lw, left, right, dates, dw, datesAt };
   }
-  return { item, color, x0, x1, cx: x0, side, lines, lw, left, right, dates, dw };
+  return { item, color, x0, x1, cx: x0, side, lines, lw, left, right };
 }
 
 function pack(plans: Plan[]): number[] {
@@ -460,8 +475,16 @@ function drawPlan(out: Primitive[], ctx: Ctx, p: Plan, cy: number, shapeH: numbe
   const bar = drawTaskBar(out, ctx, p.item, cy, h, p.color, p.side === 'inside' ? p.lw + 16 : 0);
   const bold = cfg.task.boldLabels;
   if (p.dates && p.dw !== undefined) {
-    const x = p.side === 'right' ? bar.x1 + 4 + p.lw + 8 : bar.x1 + 4;
-    out.push({ kind: 'text', x, y: cy - lh / 2, w: p.dw + 4, h: lh, text: p.dates, size: base, color: cfg.palette.muted, align: 'left', itemId: id });
+    if (p.datesAt === 'in') {
+      const darker = cfg.task.progressStyle === 'shade';
+      const track = darker ? p.color : tint(p.color, 0.55);
+      out.push({ kind: 'text', x: bar.x1 - 8 - p.dw - 2, y: cy - lh / 2, w: p.dw + 4, h: lh, text: p.dates, size: Math.max(7, Math.min(base, cfg.task.height - 4)), color: readableOn(track), align: 'right', itemId: id });
+    } else if (p.datesAt === 'left') {
+      out.push({ kind: 'text', x: bar.x0 - 4 - p.lw - 4 - 8 - p.dw - 2, y: cy - lh / 2, w: p.dw + 4, h: lh, text: p.dates, size: base, color: cfg.palette.muted, align: 'right', itemId: id });
+    } else {
+      const x = p.side === 'right' ? bar.x1 + 4 + p.lw + 8 : bar.x1 + 4;
+      out.push({ kind: 'text', x, y: cy - lh / 2, w: p.dw + 4, h: lh, text: p.dates, size: base, color: cfg.palette.muted, align: 'left', itemId: id });
+    }
   }
   if (p.side === 'inside') {
     const pct = p.item.percentComplete;
@@ -554,6 +577,7 @@ function chromeAfter(ctx: Ctx, bottom: number): Primitive[] {
       const w = x1 - x0;
       if (i > 0) out.push({ kind: 'line', x1: x0, y1: y + 2, x2: x0, y2: y + fr.tierH - 2, color: sep, width: 0.75 });
       let label = tk.label;
+      if (tk.short && ctx.tw(label, base - 1) > w - 4) label = tk.short;
       if (ctx.tw(label, base - 1) > w - 4) label = fitText(label, w - 4, base - 1, ctx.fam);
       if (label.length > 0 && !(label.endsWith('…') && label.length <= 2)) {
         out.push({ kind: 'text', x: x0, y, w, h: fr.tierH, text: label, size: base - 1, color: textColor, bold: ti === 0 && fr.major.length > 0, align: 'center' });
