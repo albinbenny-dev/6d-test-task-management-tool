@@ -86,6 +86,7 @@ export function TaskDetailPanel({ projectId, taskId, onClose, onNavigateToTask }
     return [...set].sort();
   }, [allTasksForTags]);
   const updateTask = useUpdateTask(projectId);
+  const hasSubtasks = (task?.subtasks?.length ?? task?._count?.subtasks ?? 0) > 0;
   const updateStatus = useUpdateTaskStatus(projectId);
   const assignTask = useAssignTask(projectId);
   const deleteTask = useDeleteTask(projectId);
@@ -285,6 +286,33 @@ export function TaskDetailPanel({ projectId, taskId, onClose, onNavigateToTask }
               value={toDateInputValue(task.dueDate)}
               onChange={(e) => updateTask.mutate({ id: task.id, dueDate: e.target.value ? new Date(e.target.value).toISOString() : null })}
             />
+
+            {/* Actuals: stamped when work starts / the task is marked Done, and editable (backdating). A parent's come from its subtasks. */}
+            <span style={{ color: 'var(--text-dim)' }} title="Set automatically when work starts; edit to backdate">Actual start</span>
+            {hasSubtasks ? (
+              <span style={{ color: 'var(--text-mid)' }} title="Earliest actual start of its subtasks">{task.actualStartDate ? toDateInputValue(task.actualStartDate) : '—'} <span style={{ color: 'var(--text-dim)', fontSize: 10.5 }}>(from subtasks)</span></span>
+            ) : (
+              <input
+                type="date" className="input-field" max={new Date().toLocaleDateString('en-CA')} disabled={task.status === 'TO_DO'}
+                title={task.status === 'TO_DO' ? 'Starts when the task moves to In Progress' : undefined}
+                style={{ width: 'auto', fontSize: 11.5, padding: '5px 8px' }}
+                value={toDateInputValue(task.actualStartDate)}
+                onChange={(e) => { if (e.target.value) updateTask.mutate({ id: task.id, actualStartDate: e.target.value }); }}
+              />
+            )}
+
+            <span style={{ color: 'var(--text-dim)' }} title="Set when the task is marked Done; edit to backdate. Cleared if the task is reopened">Actual end</span>
+            {hasSubtasks ? (
+              <span style={{ color: 'var(--text-mid)' }} title="Latest actual end, once every subtask is Done">{task.actualEndDate ? toDateInputValue(task.actualEndDate) : '—'} <span style={{ color: 'var(--text-dim)', fontSize: 10.5 }}>(from subtasks)</span></span>
+            ) : (
+              <input
+                type="date" className="input-field" max={new Date().toLocaleDateString('en-CA')} disabled={task.status !== 'DONE'}
+                title={task.status !== 'DONE' ? 'Set when the task is marked Done' : undefined}
+                style={{ width: 'auto', fontSize: 11.5, padding: '5px 8px' }}
+                value={toDateInputValue(task.actualEndDate)}
+                onChange={(e) => { if (e.target.value) updateTask.mutate({ id: task.id, actualEndDate: e.target.value }); }}
+              />
+            )}
           </div>
 
           <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-dim)', marginBottom: 6 }}>

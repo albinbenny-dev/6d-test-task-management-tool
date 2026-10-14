@@ -585,6 +585,9 @@ export interface Task {
   assigneeExternalName?: string | null; // free-text assignee outside the tool — mutually exclusive with assigneeId
   startDate?: string | null;
   dueDate?: string | null;
+  /** Actual start / end (date-only). A parent task's are derived from its subtasks. */
+  actualStartDate?: string | null;
+  actualEndDate?: string | null;
   tags: string; // JSON string — parse to string[]
   sortOrder: number;
   createdByUserId: string;

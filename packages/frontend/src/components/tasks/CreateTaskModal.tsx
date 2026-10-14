@@ -55,7 +55,7 @@ export function CreateTaskModal({
       // Board quick-add carries a target column — new tasks default to TO_DO
       // server-side, so nudge it into the column the user clicked "+" on.
       if (defaultStatus && defaultStatus !== 'TO_DO') {
-        await updateStatus.mutateAsync({ id: task.id, status: defaultStatus });
+        await updateStatus.mutateAsync({ id: task.id, status: defaultStatus, promptForDate: false });
       }
       toast.success('Task created');
       onClose();

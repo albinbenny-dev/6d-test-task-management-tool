@@ -19,6 +19,7 @@ import { startRunWorker, getRunWorker } from './jobs/runWorker.js';
 import { startJiraPollSchedule } from './jobs/jiraPollWorker.js';
 import { startTaskReminderSchedule } from './jobs/taskReminderWorker.js';
 import { ensureBuiltInTemplates } from './lib/timelineTemplateConfig.js';
+import { backfillTaskActuals } from './lib/taskActuals.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -255,6 +256,14 @@ httpServer.listen(PORT, () => {
       await ensureBuiltInTemplates();
     } catch (err) {
       console.warn('[qa-api] Timeline template seeding failed (non-fatal):', (err as Error).message);
+    }
+
+    // Fill actual start/end for tasks that predate those fields (guarded — only touches legacy rows)
+    try {
+      const n = await backfillTaskActuals();
+      if (n > 0) console.log(`[qa-api] Backfilled actual dates for ${n} task update(s)`);
+    } catch (err) {
+      console.warn('[qa-api] Task actual-date backfill failed (non-fatal):', (err as Error).message);
     }
 
     // Load saved schedules from DB

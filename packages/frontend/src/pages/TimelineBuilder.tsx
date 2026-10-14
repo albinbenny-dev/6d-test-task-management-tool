@@ -14,6 +14,7 @@ import { resolveConfig } from '../lib/timeline/config';
 import { exportPng, exportPptx, exportSvg, safeFileName } from '../lib/timeline/export';
 import type { StyleOverrides, TimelineTemplateDTO } from '../lib/timeline/types';
 import { shownOnTimeline } from '../lib/timeline/types';
+import { hasActual, type DateView } from '../lib/timeline/dateView';
 import { TimelineGrid } from '../components/timeline/TimelineGrid';
 import { TimelinePreview } from '../components/timeline/TimelinePreview';
 import { TemplateGallery } from '../components/timeline/TemplateGallery';
@@ -82,9 +83,11 @@ export default function TimelineBuilder() {
   const name = detail?.timeline.name ?? 'Timeline';
 
   const hideDone = detail?.timeline.hideDone ?? false;
-  // Rows hidden by hand (or 100% rows while "hide completed" is on) stay in the table but never reach the preview, thumbnails or exports.
-  const shownItems = useMemo(() => items.filter((i) => shownOnTimeline(i, hideDone)), [items, hideDone]);
-  const layout = useMemo(() => layoutTimeline({ title: name, items: shownItems, lanes, config }), [name, shownItems, lanes, config]);
+  const dateView: DateView = detail?.timeline.dateView ?? 'BASELINE';
+  const anyActual = useMemo(() => items.some(hasActual), [items]);
+  // Rows hidden by hand (or 100% rows while "hide completed" is on, or rows with no actual dates in the Actual view) stay in the table but never reach the preview, thumbnails or exports.
+  const shownItems = useMemo(() => items.filter((i) => shownOnTimeline(i, hideDone, dateView)), [items, hideDone, dateView]);
+  const layout = useMemo(() => layoutTimeline({ title: name, items: shownItems, lanes, config, dateView }), [name, shownItems, lanes, config, dateView]);
   useEffect(() => { if (pageIndex > layout.pages.length - 1) setPageIndex(Math.max(0, layout.pages.length - 1)); }, [layout, pageIndex]);
 
   function pickTemplate(id: string) {
@@ -176,7 +179,21 @@ export default function TimelineBuilder() {
           />
         ) : <h1 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>{name}</h1>}
 
-        <div style={{ display: 'inline-flex', border: '1px solid var(--border2)', borderRadius: 8, overflow: 'hidden', marginLeft: 'auto' }}>
+        {(anyActual || dateView !== 'BASELINE') && (
+          <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8 }} title="Which dates the timeline draws. Actual dates come from the tasks (start when work begins, end when marked Done).">
+            <span style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>Dates</span>
+            <div style={{ display: 'inline-flex', border: '1px solid var(--border2)', borderRadius: 8, overflow: 'hidden' }}>
+              {([['BASELINE', 'Baseline'], ['ACTUAL', 'Actual'], ['BOTH', 'Both']] as [DateView, string][]).map(([k, label]) => (
+                <button
+                  key={k} disabled={!canManageTimelines}
+                  onClick={() => actions.updateTimeline.mutate({ dateView: k }, { onError: () => toast.error('Could not change the dates shown') })}
+                  style={{ padding: '6px 12px', fontSize: 12.5, fontWeight: 600, border: 'none', cursor: canManageTimelines ? 'pointer' : 'default', background: dateView === k ? 'var(--cyan)' : 'var(--surface)', color: dateView === k ? '#fff' : 'var(--text-mid)' }}
+                >{label}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div style={{ display: 'inline-flex', border: '1px solid var(--border2)', borderRadius: 8, overflow: 'hidden', marginLeft: anyActual || dateView !== 'BASELINE' ? 0 : 'auto' }}>
           {([['data', 'Data'], ['split', 'Split'], ['timeline', 'Timeline']] as [ViewMode, string][]).map(([k, label]) => (
             <button key={k} onClick={() => setView(k)} style={{ padding: '6px 14px', fontSize: 12.5, fontWeight: 600, border: 'none', cursor: 'pointer', background: view === k ? 'var(--cyan)' : 'var(--surface)', color: view === k ? '#fff' : 'var(--text-mid)' }}>{label}</button>
           ))}
@@ -195,7 +212,7 @@ export default function TimelineBuilder() {
                 selectedItemId={selectedItemId} onSelectItem={setSelectedItemId} actions={actions}
                 granularity={detail.timeline.taskGranularity ?? 'TASKS'}
                 onGranularity={(g) => actions.updateTimeline.mutate({ taskGranularity: g }, { onError: () => toast.error('Could not change the setting') })}
-                hideDone={hideDone}
+                hideDone={hideDone} dateView={dateView}
                 onHideDone={(v) => actions.updateTimeline.mutate({ hideDone: v }, { onError: () => toast.error('Could not change the setting') })}
               />
             </div>
@@ -207,9 +224,16 @@ export default function TimelineBuilder() {
                 layout={layout} fontFamily={config.font.family} pageIndex={pageIndex} onPageIndex={setPageIndex}
                 selectedItemId={selectedItemId} onSelectItem={view === 'timeline' ? undefined : setSelectedItemId}
               />
+              {dateView !== 'BASELINE' && hasItems && (
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', textAlign: 'center', marginTop: 6 }}>
+                  {dateView === 'BOTH'
+                    ? 'Solid bars = actual dates · dashed outline = baseline. Rows without actual dates show their plan.'
+                    : 'Showing actual dates only — rows without actual dates are left out. An unfinished row runs to its planned end (or today if later).'}
+                </div>
+              )}
               {!hasItems && items.length > 0 && (
                 <div style={{ fontSize: 12, color: 'var(--text-dim)', textAlign: 'center', marginTop: 8 }}>
-                  Every row is hidden from the timeline — show some again from the table (eye icon).
+                  Nothing to draw{dateView === 'ACTUAL' ? ' — no row has actual dates yet' : ''}. Show rows again from the table (eye icon) or switch the Dates view.
                 </div>
               )}
               {items.length === 0 && (
@@ -227,7 +251,7 @@ export default function TimelineBuilder() {
               {rightTab === 'templates' ? (
                 <>
                   <TemplateGallery
-                    templates={templateList} selectedId={activeTemplate?.id ?? null} items={shownItems} lanes={lanes} title={name}
+                    templates={templateList} selectedId={activeTemplate?.id ?? null} items={shownItems} lanes={lanes} title={name} dateView={dateView}
                     onSelect={canManageTimelines ? pickTemplate : () => toast('You have view-only access to this timeline')}
                   />
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 10 }}>

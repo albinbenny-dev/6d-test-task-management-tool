@@ -10,6 +10,7 @@ import type {
 import { addDays, diffDays, formatDate, monthShort, parseYmd, todayYmd } from './dates';
 import { fitText, measureText } from './text';
 import { bandColor, mix, readableOn, shade, tint } from './color';
+import { applyDateView, type DateView } from './dateView';
 
 type Scale = Exclude<AxisScale, 'auto'>;
 
@@ -22,6 +23,8 @@ export interface LayoutInput {
   items: TLItem[];
   lanes: TLLane[];
   config: TemplateConfig;
+  /** Which dates to draw: the plan (default), the actuals, or both (see dateView.ts). */
+  dateView?: DateView;
   /** Injectable for deterministic tests; defaults to today. */
   today?: string;
 }
@@ -253,6 +256,13 @@ function drawTaskBar(out: Primitive[], ctx: Ctx, item: TLItem, cy: number, h: nu
   const split = showPct && (pct < 100 || darker);
   const fillW = pct >= 100 ? w : Math.max((w * pct) / 100, Math.min(w, h));
 
+  // "Both" view: the planned dates as a dashed outline behind the actual bar.
+  if (item.baseline) {
+    const g0 = ctx.x(parseYmd(item.baseline.startDate));
+    const g1 = Math.max(ctx.x(addDays(parseYmd(item.baseline.endDate), 1)), g0 + 3);
+    out.push({ kind: 'rect', x: g0, y: y - 1.5, w: g1 - g0, h: h + 3, rx: taskRadius(ctx, item, h + 3), fill: tint(ctx.cfg.palette.muted, 0.82), stroke: ctx.cfg.palette.muted, strokeWidth: 1, dash: [3, 2], itemId: item.id });
+  }
+
   if (item.marker === 'chevron') {
     out.push({ kind: 'poly', points: chevronPoints(x0, y, w, h), fill: split ? track : color, itemId: item.id });
     if (split && pct > 0) {
@@ -343,6 +353,8 @@ interface Plan {
   dates?: string; dw?: number; // date range for datesPlacement: right …
   /** … drawn beyond the bar (default), inside its far end, or left of the label — whichever has room. */
   datesAt?: 'right' | 'in' | 'left';
+  /** Extent incl. the baseline outline (== x0 / x1 unless the "both" view draws one). */
+  u0?: number; u1?: number;
 }
 
 function taskDatesText(ctx: Ctx, item: TLItem): string {
@@ -393,26 +405,33 @@ function planItem(ctx: Ctx, item: TLItem): Plan {
 
   const x0 = ctx.x(parseYmd(item.startDate));
   const x1 = Math.max(ctx.x(addDays(parseYmd(item.endDate), 1)), x0 + 3);
+  // Extent incl. the baseline outline ("both" view): labels and dates go beside whichever reaches furthest.
+  let u0 = x0; let u1 = x1;
+  if (item.baseline) {
+    const b0 = ctx.x(parseYmd(item.baseline.startDate));
+    const b1 = Math.max(ctx.x(addDays(parseYmd(item.baseline.endDate), 1)), b0 + 3);
+    u0 = Math.min(x0, b0); u1 = Math.max(x1, b1);
+  }
   const lines = taskLabelText(ctx, item);
   const bold = cfg.task.boldLabels;
   const lw = Math.max(...lines.map((l) => ctx.tw(l, ctx.base, bold)));
   let side: LabelSide = cfg.task.labelPosition;
-  if (side === 'inside' && lw + 10 > x1 - x0) side = x1 + gap + lw <= fr.plotRight ? 'right' : 'left';
-  if (side === 'right' && x1 + gap + lw > fr.plotRight) side = 'left';
-  if (side === 'left' && x0 - gap - lw < fr.plotX) {
-    side = lw + 10 <= x1 - x0 ? 'inside' : x1 + gap + lw <= fr.plotRight ? 'right' : 'left';
+  if (side === 'inside' && lw + 10 > x1 - x0) side = u1 + gap + lw <= fr.plotRight ? 'right' : 'left';
+  if (side === 'right' && u1 + gap + lw > fr.plotRight) side = 'left';
+  if (side === 'left' && u0 - gap - lw < fr.plotX) {
+    side = lw + 10 <= x1 - x0 ? 'inside' : u1 + gap + lw <= fr.plotRight ? 'right' : 'left';
   }
-  let left = x0; let right = x1;
-  if (side === 'right') right = x1 + gap + lw;
-  if (side === 'left') left = x0 - gap - lw;
-  if (side === 'above') right = Math.max(x1, x0 + lw);
+  let left = u0; let right = u1;
+  if (side === 'right') right = u1 + gap + lw;
+  if (side === 'left') left = u0 - gap - lw;
+  if (side === 'above') right = Math.max(u1, x0 + lw);
 
   // Date range beyond the bar's far end (after the label when the label is on the right).
   let dates: string | undefined; let dw: number | undefined;
   if (cfg.task.showDates && cfg.task.datesPlacement === 'right' && cfg.task.labelPosition !== 'above') {
     const text = taskDatesText(ctx, item);
     const w = ctx.tw(text);
-    const startX = side === 'right' ? x1 + gap + lw + 8 : x1 + gap;
+    const startX = side === 'right' ? u1 + gap + lw + 8 : u1 + gap;
     let datesAt: Plan['datesAt'];
     if (startX + w <= fr.plotRight) { dates = text; dw = w; datesAt = 'right'; right = Math.max(right, startX + w); }
     else {
@@ -426,9 +445,9 @@ function planItem(ctx: Ctx, item: TLItem): Plan {
       if (item.marker !== 'chevron' && x1 - 8 - w >= free + 6) { dates = text; dw = w; datesAt = 'in'; }
       else if (side === 'left' && left - 8 - w >= fr.plotX) { dates = text; dw = w; datesAt = 'left'; left = left - 8 - w; }
     }
-    return { item, color, x0, x1, cx: x0, side, lines, lw, left, right, dates, dw, datesAt };
+    return { item, color, x0, x1, cx: x0, side, lines, lw, left, right, dates, dw, datesAt, u0, u1 };
   }
-  return { item, color, x0, x1, cx: x0, side, lines, lw, left, right };
+  return { item, color, x0, x1, cx: x0, side, lines, lw, left, right, u0, u1 };
 }
 
 function pack(plans: Plan[]): number[] {
@@ -474,15 +493,16 @@ function drawPlan(out: Primitive[], ctx: Ctx, p: Plan, cy: number, shapeH: numbe
   const h = cfg.task.height;
   const bar = drawTaskBar(out, ctx, p.item, cy, h, p.color, p.side === 'inside' ? p.lw + 16 : 0);
   const bold = cfg.task.boldLabels;
+  const lx0 = p.u0 ?? bar.x0; const lx1 = p.u1 ?? bar.x1; // label anchors (beyond the baseline outline, if any)
   if (p.dates && p.dw !== undefined) {
     if (p.datesAt === 'in') {
       const darker = cfg.task.progressStyle === 'shade';
       const track = darker ? p.color : tint(p.color, 0.55);
       out.push({ kind: 'text', x: bar.x1 - 8 - p.dw - 2, y: cy - lh / 2, w: p.dw + 4, h: lh, text: p.dates, size: Math.max(7, Math.min(base, cfg.task.height - 4)), color: readableOn(track), align: 'right', itemId: id });
     } else if (p.datesAt === 'left') {
-      out.push({ kind: 'text', x: bar.x0 - 4 - p.lw - 4 - 8 - p.dw - 2, y: cy - lh / 2, w: p.dw + 4, h: lh, text: p.dates, size: base, color: cfg.palette.muted, align: 'right', itemId: id });
+      out.push({ kind: 'text', x: lx0 - 4 - p.lw - 4 - 8 - p.dw - 2, y: cy - lh / 2, w: p.dw + 4, h: lh, text: p.dates, size: base, color: cfg.palette.muted, align: 'right', itemId: id });
     } else {
-      const x = p.side === 'right' ? bar.x1 + 4 + p.lw + 8 : bar.x1 + 4;
+      const x = p.side === 'right' ? lx1 + 4 + p.lw + 8 : lx1 + 4;
       out.push({ kind: 'text', x, y: cy - lh / 2, w: p.dw + 4, h: lh, text: p.dates, size: base, color: cfg.palette.muted, align: 'left', itemId: id });
     }
   }
@@ -496,10 +516,10 @@ function drawPlan(out: Primitive[], ctx: Ctx, p: Plan, cy: number, shapeH: numbe
     const fg = readableOn(solid ? doneBg : trackBg);
     out.push({ kind: 'text', x: bar.x0 + 6, y: cy - lh / 2, w: Math.max(0, bar.w - 8), h: lh, text: fitText(p.lines[0], bar.w - 10, base, ctx.fam, bold), size: Math.min(base, Math.max(7, h - 4)), color: fg, bold, align: 'left', itemId: id });
   } else if (p.side === 'right') {
-    out.push({ kind: 'text', x: bar.x1 + 4, y: cy - lh / 2, w: p.lw + 4, h: lh, text: p.lines[0], size: base, color: cfg.palette.text, bold, align: 'left', itemId: id });
+    out.push({ kind: 'text', x: lx1 + 4, y: cy - lh / 2, w: p.lw + 4, h: lh, text: p.lines[0], size: base, color: cfg.palette.text, bold, align: 'left', itemId: id });
   } else if (p.side === 'left') {
     const w = p.lw + 4;
-    out.push({ kind: 'text', x: bar.x0 - 4 - w, y: cy - lh / 2, w, h: lh, text: p.lines[0], size: base, color: cfg.palette.text, bold, align: 'right', itemId: id });
+    out.push({ kind: 'text', x: lx0 - 4 - w, y: cy - lh / 2, w, h: lh, text: p.lines[0], size: base, color: cfg.palette.text, bold, align: 'right', itemId: id });
   } else {
     const y = cy - h / 2 - 1 - lineBlock;
     p.lines.forEach((line, i) => {
@@ -1030,7 +1050,8 @@ function layoutMilestoneLine(ctx: Ctx, items: TLItem[]): LayoutPage[] {
 export function layoutTimeline(input: LayoutInput): LayoutResult {
   const cfg = input.config;
   const today = input.today ?? todayYmd();
-  const items = input.items.filter((i) => !isNaN(parseYmd(i.startDate).getTime()) && !isNaN(parseYmd(i.endDate).getTime()));
+  const items = applyDateView(input.items, input.dateView ?? 'BASELINE', today)
+    .filter((i) => !isNaN(parseYmd(i.startDate).getTime()) && !isNaN(parseYmd(i.endDate).getTime()));
   const lanes = [...input.lanes].sort((a, b) => a.sortOrder - b.sortOrder);
   const titleShown = cfg.slide.showTitle && !!input.title;
   const fam = cfg.font.family;

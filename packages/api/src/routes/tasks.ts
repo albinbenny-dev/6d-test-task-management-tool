@@ -7,6 +7,7 @@ import { verifyToken } from '../middleware/auth.js';
 import { requireProjectAccess } from '../middleware/projectAccess.js';
 import { requireWrite } from '../middleware/rbac.js';
 import { notifyTaskComment, notifyTaskDueDateChanged, notifyTasksAssigned } from '../services/taskNotificationService.js';
+import { actualsForStatusChange, capAtToday, isFutureDay, rollupParentActuals, rollupParents, toDateOnly } from '../lib/taskActuals.js';
 
 // ── Task Management — Tasks ──────────────────────────────────────────────────
 // General project task tracking (ClickUp-style), deliberately separate from
@@ -42,18 +43,26 @@ const CreateTaskSchema = z.object({
   message: 'Cannot set both a registered assignee and an external assignee name',
 });
 
+// Actual dates: a calendar day (YYYY-MM-DD, or a full ISO datetime — only the day is kept).
+const actualDate = z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Expected YYYY-MM-DD');
+
 const UpdateTaskSchema = z.object({
   title:          z.string().min(1).max(300).optional(),
   description:    z.string().max(10000).optional().nullable(),
   priority:       z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).optional(),
   startDate:      z.string().datetime().optional().nullable(),
   dueDate:        z.string().datetime().optional().nullable(),
+  actualStartDate: actualDate.optional().nullable(),
+  actualEndDate:   actualDate.optional().nullable(),
   tags:           z.array(z.string().min(1).max(40)).optional(),
   taskListId:     z.string().min(1).optional(),
 });
 
 const UpdateStatusSchema = z.object({
   status: z.enum(['TO_DO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE']),
+  // Optional backdating: "completed on" / "started on". Without them the day the status changed is used.
+  actualStartDate: actualDate.optional().nullable(),
+  actualEndDate:   actualDate.optional().nullable(),
 });
 
 const AssignTaskSchema = z.object({
@@ -214,7 +223,7 @@ router.get('/dashboard/summary', (async (req, res) => {
       where: { projectId },
       select: {
         id: true, status: true, priority: true, assigneeId: true, assigneeExternalName: true, taskListId: true,
-        startDate: true, dueDate: true, createdAt: true, completedAt: true,
+        startDate: true, dueDate: true, createdAt: true, completedAt: true, actualStartDate: true, actualEndDate: true,
       },
     }),
     prisma.taskList.findMany({ where: { projectId }, select: { id: true, name: true, color: true } }),
@@ -266,14 +275,16 @@ router.get('/dashboard/summary', (async (req, res) => {
       row.total += 1;
       if (t.dueDate && t.dueDate < now) row.overdue += 1;
     } else {
-      if (t.completedAt && t.completedAt >= weekAgo) completedThisWeek++;
-      if (t.completedAt) {
+      // The actual end date wins over the completion timestamp (which is just when someone clicked Done — wrong for imported / backdated work).
+      const finishedAt = t.actualEndDate ?? t.completedAt;
+      if (finishedAt && finishedAt >= weekAgo) completedThisWeek++;
+      if (finishedAt) {
         doneWithCompletedAt++;
-        const from = (t.startDate ?? t.createdAt).getTime();
-        cycleTimeDaysSum += (t.completedAt.getTime() - from) / 86_400_000;
+        const from = (t.actualStartDate ?? t.startDate ?? t.createdAt).getTime();
+        cycleTimeDaysSum += Math.max(0, finishedAt.getTime() - from) / 86_400_000;
         if (t.dueDate) {
           doneWithDue++;
-          if (t.completedAt.getTime() <= t.dueDate.getTime()) onTimeDoneWithDue++;
+          if (finishedAt.getTime() <= t.dueDate.getTime()) onTimeDoneWithDue++;
         }
       }
     }
@@ -426,6 +437,8 @@ router.post('/bulk-copy', requireWrite as RequestHandler, (async (req, res) => {
     assigneeId: t.assigneeId,
     startDate: t.startDate,
     dueDate: t.dueDate,
+    actualStartDate: t.actualStartDate,
+    actualEndDate: t.actualEndDate,
     tags: t.tags,
     sortOrder: nextSortOrder++,
     createdByUserId: req.user.id,
@@ -485,7 +498,7 @@ router.post('/export', (async (req, res) => {
     : [];
   const parentTitleById = new Map(parents.map((t) => [t.id, t.title]));
 
-  const headers = ['Task List', 'Task Title', 'Description', 'Assignee Email', 'Priority', 'Status', 'Start Date', 'Due Date', 'Tags', 'Parent Task Title'];
+  const headers = ['Task List', 'Task Title', 'Description', 'Assignee Email', 'Priority', 'Status', 'Start Date', 'Due Date', 'Actual Start', 'Actual End', 'Tags', 'Parent Task Title'];
   const rows = tasks.map((t) => {
     let tags: string[] = [];
     try { tags = JSON.parse(t.tags); } catch { /* corrupted row — export blank */ }
@@ -498,13 +511,15 @@ router.post('/export', (async (req, res) => {
       'Status':             STATUS_DISPLAY[t.status] ?? t.status,
       'Start Date':         t.startDate ?? '',
       'Due Date':           t.dueDate ?? '',
+      'Actual Start':       t.actualStartDate ?? '',
+      'Actual End':         t.actualEndDate ?? '',
       'Tags':               tags.join(', '),
       'Parent Task Title':  t.parentTaskId ? (parentTitleById.get(t.parentTaskId) ?? '') : '',
     };
   });
 
   const ws = xlsx.utils.json_to_sheet(rows, { header: headers });
-  ws['!cols'] = [20, 28, 40, 24, 12, 14, 14, 14, 20, 24].map((w) => ({ wch: w }));
+  ws['!cols'] = [20, 28, 40, 24, 12, 14, 14, 14, 14, 14, 20, 24].map((w) => ({ wch: w }));
   const wb = xlsx.utils.book_new();
   xlsx.utils.book_append_sheet(wb, ws, 'Tasks');
   const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
@@ -517,7 +532,7 @@ router.post('/export', (async (req, res) => {
 // ── GET /template — download a standard project-plan Excel template ───────
 
 router.get('/template', (_req, res) => {
-  const headers = ['Task List', 'Task Title', 'Description', 'Assignee Email', 'Priority', 'Status', 'Start Date', 'Due Date', 'Tags', 'Parent Task Title'];
+  const headers = ['Task List', 'Task Title', 'Description', 'Assignee Email', 'Priority', 'Status', 'Start Date', 'Due Date', 'Actual Start', 'Actual End', 'Tags', 'Parent Task Title'];
   const today = new Date();
   const inAWeek = new Date(today.getTime() + 7 * 86_400_000);
   const samples = [
@@ -530,6 +545,8 @@ router.get('/template', (_req, res) => {
       'Status': 'In Progress',
       'Start Date': today,
       'Due Date': inAWeek,
+      'Actual Start': today,
+      'Actual End': '',
       'Tags': 'planning, kickoff',
       'Parent Task Title': '',
     },
@@ -542,13 +559,15 @@ router.get('/template', (_req, res) => {
       'Status': 'To Do',
       'Start Date': today,
       'Due Date': inAWeek,
+      'Actual Start': '',
+      'Actual End': '',
       'Tags': '',
       'Parent Task Title': 'Requirement Gathering',
     },
   ];
 
   const ws = xlsx.utils.json_to_sheet(samples, { header: headers });
-  ws['!cols'] = [22, 28, 45, 24, 12, 14, 14, 14, 20, 24].map((w) => ({ wch: w }));
+  ws['!cols'] = [22, 28, 45, 24, 12, 14, 14, 14, 14, 14, 20, 24].map((w) => ({ wch: w }));
   const wb = xlsx.utils.book_new();
   xlsx.utils.book_append_sheet(wb, ws, 'Task Plan');
   const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
@@ -639,6 +658,8 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
   const statusKeys   = ['status'];
   const startKeys    = ['start date', 'start'];
   const dueKeys      = ['due date', 'due', 'end date', 'finish date', 'finish'];
+  const actualStartKeys = ['actual start', 'actual start date', 'actual begin'];
+  const actualEndKeys   = ['actual end', 'actual end date', 'actual finish', 'actual finish date'];
   const tagsKeys     = ['tags', 'labels'];
   const parentKeys   = ['parent task title', 'parent task', 'parent'];
   const listKeys     = ['task list', 'list', 'task list name'];
@@ -660,6 +681,10 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
     hasStartDateCell: boolean;
     dueDate: Date | null;
     hasDueDateCell: boolean;
+    actualStart: Date | null;
+    hasActualStartCell: boolean;
+    actualEnd: Date | null;
+    hasActualEndCell: boolean;
     tagsRaw: string;
     hasTagsCell: boolean;
     parentTitleRaw: string;
@@ -673,6 +698,8 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
     if (!title) { skippedEmpty++; continue; }
     const startRaw = findRaw(row, startKeys);
     const dueRaw = findRaw(row, dueKeys);
+    const actualStartRaw = findRaw(row, actualStartKeys);
+    const actualEndRaw = findRaw(row, actualEndKeys);
     const tagsRaw = findVal(row, tagsKeys);
     mapped.push({
       title,
@@ -684,6 +711,10 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
       hasStartDateCell: startRaw !== undefined,
       dueDate: dueRaw !== undefined ? parseDateCell(dueRaw) : null,
       hasDueDateCell: dueRaw !== undefined,
+      actualStart: actualStartRaw !== undefined ? toDateOnly(parseDateCell(actualStartRaw)) : null,
+      hasActualStartCell: actualStartRaw !== undefined,
+      actualEnd: actualEndRaw !== undefined ? toDateOnly(parseDateCell(actualEndRaw)) : null,
+      hasActualEndCell: actualEndRaw !== undefined,
       tagsRaw,
       hasTagsCell: tagsRaw !== '',
       parentTitleRaw: findVal(row, parentKeys),
@@ -727,8 +758,9 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
   const involvedListIds = [...new Set(deduped.map((r) => listIdOf(r) as string))];
   const existingTasks = await prisma.task.findMany({
     where: { projectId, taskListId: { in: involvedListIds } },
-    select: { id: true, title: true, parentTaskId: true, status: true, assigneeId: true, taskListId: true },
+    select: { id: true, title: true, parentTaskId: true, status: true, assigneeId: true, taskListId: true, startDate: true, dueDate: true, actualStartDate: true, actualEndDate: true },
   });
+  const existingById = new Map(existingTasks.map((t) => [t.id, t]));
   const existingAssigneeById = new Map(existingTasks.map((t) => [t.id, t.assigneeId]));
   const existingByTitle = new Map(existingTasks.map((t) => [`${t.taskListId}::${t.title}`, t.id]));
   const existingParentById = new Map(existingTasks.map((t) => [t.id, t.parentTaskId]));
@@ -785,6 +817,12 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
           assigneeExternalName: r.assigneeExternalName,
           startDate: r.startDate,
           dueDate: r.dueDate,
+          // Actuals: explicit columns win; otherwise started work takes the planned start and Done takes the planned end.
+          ...actualsForStatusChange(
+            { status: 'TO_DO', actualStartDate: null, actualEndDate: null },
+            (r.status ?? 'TO_DO') as 'TO_DO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE',
+            { startOn: capAtToday(r.actualStart ?? r.startDate), endOn: capAtToday(r.actualEnd ?? r.dueDate) },
+          ),
           tags: JSON.stringify(r.tagsRaw ? r.tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : []),
           sortOrder: takeSort(listIdOf(r) as string),
           createdByUserId: req.user.id,
@@ -811,6 +849,21 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
       }
       if (r.hasStartDateCell) data.startDate = r.startDate;
       if (r.hasDueDateCell) data.dueDate = r.dueDate;
+      // Actuals follow the status the row now has; a re-import keeps what is already recorded unless the Actual columns say otherwise.
+      const ex = existingById.get(r._existingId)!;
+      if (r.status) {
+        Object.assign(data, actualsForStatusChange(
+          ex,
+          r.status as 'TO_DO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE',
+          {
+            startOn: capAtToday(r.actualStart ?? ex.actualStartDate ?? (r.hasStartDateCell ? r.startDate : ex.startDate)),
+            endOn: capAtToday(r.actualEnd ?? (ex.status === 'DONE' ? ex.actualEndDate : null) ?? (r.hasDueDateCell ? r.dueDate : ex.dueDate)),
+          },
+        ));
+      } else {
+        if (r.hasActualStartCell && r.actualStart && ex.status !== 'TO_DO') data.actualStartDate = capAtToday(r.actualStart);
+        if (r.hasActualEndCell && r.actualEnd && ex.status === 'DONE') data.actualEndDate = capAtToday(r.actualEnd);
+      }
       if (r.hasTagsCell) data.tags = JSON.stringify(r.tagsRaw.split(',').map((t) => t.trim()).filter(Boolean));
       return prisma.task.update({ where: { id: r._existingId }, data });
     }));
@@ -838,6 +891,12 @@ router.post('/import', requireWrite as RequestHandler, upload.single('file'), (a
   if (parentUpdates.length > 0) {
     await prisma.$transaction(parentUpdates.map((p) => prisma.task.update({ where: { id: p.id }, data: { parentTaskId: p.parentTaskId } })));
   }
+
+  // Parents take their actual dates from their subtasks.
+  await rollupParents([
+    ...parentUpdates.map((p) => p.parentTaskId),
+    ...toUpdate.map((r) => existingById.get(r._existingId)?.parentTaskId),
+  ]);
 
   // One combined "assigned to you" email per person for the whole import —
   // new rows with a member assignee, plus existing rows whose assignee changed.
@@ -924,6 +983,7 @@ router.post('/', requireWrite as RequestHandler, (async (req, res) => {
     },
     include: TASK_INCLUDE,
   });
+  if (task.parentTaskId) await rollupParentActuals(task.parentTaskId);
   if (task.assigneeId) notifyTasksAssigned([task.id], req.user.id);
   res.status(201).json({ task });
 }) as RequestHandler);
@@ -941,21 +1001,43 @@ router.put('/:taskId', requireWrite as RequestHandler, (async (req, res) => {
   const existing = await prisma.task.findFirst({ where: { id: taskId, projectId } });
   if (!existing) return res.status(404).json({ error: 'Task not found' });
 
-  const { tags, taskListId, ...rest } = parsed.data;
+  const { tags, taskListId, actualStartDate: aStart, actualEndDate: aEnd, ...rest } = parsed.data;
   if (taskListId) {
     const list = await prisma.taskList.findFirst({ where: { id: taskListId, projectId } });
     if (!list) return res.status(400).json({ error: 'That task list does not belong to this project' });
+  }
+
+  // Actual dates: editable on leaf tasks only (a parent's come from its subtasks), and they must make sense for the status.
+  const actualData: { actualStartDate?: Date | null; actualEndDate?: Date | null } = {};
+  if (aStart !== undefined || aEnd !== undefined) {
+    if (await prisma.task.count({ where: { parentTaskId: taskId } }) > 0) {
+      return res.status(400).json({ error: 'Actual dates of a task with subtasks come from its subtasks' });
+    }
+    const nextStart = aStart !== undefined ? toDateOnly(aStart) : existing.actualStartDate;
+    const nextEnd = aEnd !== undefined ? toDateOnly(aEnd) : existing.actualEndDate;
+    if (aStart && existing.status === 'TO_DO') return res.status(400).json({ error: 'Move the task to In Progress before setting an actual start date' });
+    if (aEnd && existing.status !== 'DONE') return res.status(400).json({ error: 'Mark the task Done before setting an actual end date' });
+    if (aEnd === null && existing.status === 'DONE') return res.status(400).json({ error: 'A Done task needs an actual end date — reopen it to clear it' });
+    if (aStart === null && existing.status !== 'TO_DO') return res.status(400).json({ error: 'A started task needs an actual start date' });
+    if (nextStart && nextEnd && nextStart > nextEnd) return res.status(400).json({ error: 'Actual end cannot be before the actual start' });
+    if ((aStart !== undefined && isFutureDay(nextStart)) || (aEnd !== undefined && isFutureDay(nextEnd))) {
+      return res.status(400).json({ error: 'Actual dates cannot be in the future' });
+    }
+    if (aStart !== undefined) actualData.actualStartDate = nextStart;
+    if (aEnd !== undefined) actualData.actualEndDate = nextEnd;
   }
 
   const task = await prisma.task.update({
     where: { id: taskId },
     data: {
       ...rest,
+      ...actualData,
       ...(taskListId ? { taskListId } : {}),
       ...(tags !== undefined ? { tags: JSON.stringify(tags) } : {}),
     },
     include: TASK_INCLUDE,
   });
+  if (actualData.actualStartDate !== undefined || actualData.actualEndDate !== undefined) await rollupParentActuals(existing.parentTaskId);
   if (rest.dueDate !== undefined && (existing.dueDate?.getTime() ?? null) !== (task.dueDate?.getTime() ?? null)) {
     notifyTaskDueDateChanged(task.id, existing.dueDate, req.user.id);
   }
@@ -990,6 +1072,8 @@ router.post('/:taskId/duplicate', requireWrite as RequestHandler, (async (req, r
     assigneeExternalName: t.assigneeExternalName,
     startDate: t.startDate,
     dueDate: t.dueDate,
+    actualStartDate: t.actualStartDate,
+    actualEndDate: t.actualEndDate,
     tags: t.tags,
     sortOrder: nextSortOrder++,
     createdByUserId: req.user.id,
@@ -1020,14 +1104,25 @@ router.patch('/:taskId/status', requireWrite as RequestHandler, (async (req, res
   const existing = await prisma.task.findFirst({ where: { id: taskId, projectId } });
   if (!existing) return res.status(404).json({ error: 'Task not found' });
 
+  // Actual dates follow the status (a parent's are derived from its subtasks instead). The caller may backdate them.
+  const startOn = toDateOnly(parsed.data.actualStartDate);
+  const endOn = parsed.data.status === 'DONE' ? toDateOnly(parsed.data.actualEndDate) : null;
+  // Two dates the caller gave explicitly must be in order (an implicit start is simply pulled back to the end).
+  if (startOn && endOn && startOn > endOn) return res.status(400).json({ error: 'Actual end cannot be before the actual start' });
+  if (isFutureDay(startOn) || isFutureDay(endOn)) return res.status(400).json({ error: 'Actual dates cannot be in the future' });
+  const hasKids = await prisma.task.count({ where: { parentTaskId: taskId } }) > 0;
+  const patch = hasKids ? {} : actualsForStatusChange(existing, parsed.data.status, { startOn, endOn });
+
   const task = await prisma.task.update({
     where: { id: taskId },
     data: {
       status: parsed.data.status,
       completedAt: parsed.data.status === 'DONE' ? new Date() : null,
+      ...patch,
     },
     include: TASK_INCLUDE,
   });
+  await rollupParentActuals(existing.parentTaskId);
   res.json({ task });
 }) as RequestHandler);
 
@@ -1080,6 +1175,7 @@ router.delete('/:taskId', requireWrite as RequestHandler, (async (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Task not found' });
 
   await prisma.task.delete({ where: { id: taskId } });
+  await rollupParentActuals(existing.parentTaskId);
   res.json({ message: 'Task deleted' });
 }) as RequestHandler);
 

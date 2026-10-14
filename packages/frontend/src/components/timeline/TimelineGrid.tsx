@@ -11,6 +11,13 @@ import { MarkerIcon } from './MarkerIcon';
 type Actions = ReturnType<typeof useTimelineEditor>;
 
 const COLS = '22px 26px minmax(180px,1fr) 62px 92px 128px 128px 62px 120px 28px 30px';
+// Actual-dates columns slot in after End (only when the timeline is showing actual dates).
+const gridCols = (compact: boolean, showActual: boolean) => {
+  if (!showActual) return compact ? COLS_COMPACT : COLS;
+  return compact
+    ? '18px 22px minmax(110px,1fr) 52px 66px 118px 118px 118px 118px 50px 26px 26px'
+    : '22px 26px minmax(180px,1fr) 62px 92px 128px 128px 128px 128px 62px 120px 28px 30px';
+};
 // Narrow container (e.g. Split view): drop the Assigned-to column and tighten the rest so Start/End/% stay visible.
 const COLS_COMPACT = '18px 22px minmax(110px,1fr) 52px 66px 118px 118px 50px 26px 26px';
 const MARKER_LABEL: Record<string, string> = {
@@ -58,8 +65,8 @@ function ColorPicker({ value, onChange, swatches, autoLabel }: { value: string |
 }
 
 // ── Item row ────────────────────────────────────────────────────────────────
-function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, selected, checked, focusMe, dragging, dropTarget, a, onSelect, onCheck, onFocused, onDragStart, onDragEnd, onDragOver, onDrop }: {
-  item: TLItem; color: string; laneSwatches: string[]; canEdit: boolean; compact: boolean; hideDone: boolean; selected: boolean; checked: boolean; focusMe: boolean;
+function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, dateView, showActual, selected, checked, focusMe, dragging, dropTarget, a, onSelect, onCheck, onFocused, onDragStart, onDragEnd, onDragOver, onDrop }: {
+  item: TLItem; color: string; laneSwatches: string[]; canEdit: boolean; compact: boolean; hideDone: boolean; dateView: 'BASELINE' | 'ACTUAL' | 'BOTH'; showActual: boolean; selected: boolean; checked: boolean; focusMe: boolean;
   dragging: boolean; dropTarget: boolean; a: Actions;
   onSelect: () => void; onCheck: (v: boolean) => void; onFocused: () => void;
   onDragStart: (e: React.DragEvent, row: HTMLElement | null) => void; onDragEnd: () => void;
@@ -73,7 +80,8 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, select
   const linked = !!item.taskId;
   const own = canEdit && !linked;
   const handHidden = !!item.hidden;
-  const offTimeline = !shownOnTimeline(item, hideDone);
+  const offTimeline = !shownOnTimeline(item, hideDone, dateView);
+  const noActualYet = dateView === 'ACTUAL' && !item.actualStartDate && !item.actualEndDate;
 
   useEffect(() => {
     if (focusMe && titleRef.current) { titleRef.current.focus(); titleRef.current.select(); onFocused(); }
@@ -94,7 +102,7 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, select
       className="tl-row"
       title={linked ? 'Linked to a task — change title, dates, assignee and status in the Task List. % complete follows the task status (To Do 0 · In Progress 50 · In Review 75 · Done 100).' : undefined}
       style={{
-        display: 'grid', gridTemplateColumns: compact ? COLS_COMPACT : COLS, alignItems: 'center', gap: 4, padding: '2px 6px',
+        display: 'grid', gridTemplateColumns: gridCols(compact, showActual), alignItems: 'center', gap: 4, padding: '2px 6px',
         borderBottom: '1px solid var(--border)', opacity: dragging ? 0.4 : offTimeline ? 0.5 : 1,
         background: selected ? 'var(--cyan-dim)' : checked ? 'var(--surface2)' : 'transparent',
         boxShadow: dropTarget ? 'inset 0 2px 0 var(--cyan)' : undefined,
@@ -190,6 +198,24 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, select
         ) : <Plain>{fmt(item.endDate)}</Plain>}
       </div>
 
+      {showActual && (
+        <>
+          {/* Actual start / end — copied from the task for linked rows (read-only here); editable on manual rows. A milestone has one actual date: its end. */}
+          <div onClick={(e) => e.stopPropagation()}>
+            {isMs ? <Plain>—</Plain> : own ? (
+              <input type="date" key={`as-${item.actualStartDate ?? ''}`} defaultValue={item.actualStartDate ?? ''} style={cellInput}
+                onChange={(e) => { if (e.target.value !== (item.actualStartDate ?? '')) save({ id: item.id, actualStartDate: e.target.value || null }); }} />
+            ) : <Plain>{item.actualStartDate ? fmt(item.actualStartDate) : '—'}</Plain>}
+          </div>
+          <div onClick={(e) => e.stopPropagation()}>
+            {own ? (
+              <input type="date" key={`ae-${item.actualEndDate ?? ''}`} defaultValue={item.actualEndDate ?? ''} min={item.actualStartDate ?? undefined} style={cellInput}
+                onChange={(e) => { if (e.target.value !== (item.actualEndDate ?? '')) save({ id: item.id, actualEndDate: e.target.value || null }); }} />
+            ) : <Plain>{item.actualEndDate ? fmt(item.actualEndDate) : '—'}</Plain>}
+          </div>
+        </>
+      )}
+
       {own ? (
         <input
           key={`p-${item.percentComplete}`} type="number" min={0} max={100} defaultValue={item.percentComplete}
@@ -225,7 +251,7 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, select
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: handHidden ? 'var(--amber, #D97706)' : 'var(--text-dim)', display: 'flex', padding: 4 }}
         >{handHidden ? <EyeOff size={14} /> : <Eye size={14} />}</button>
       ) : offTimeline ? (
-        <span title="Left off the timeline: 100% complete and “Hide completed” is on" style={{ color: 'var(--text-dim)', display: 'flex', padding: 4 }}><EyeOff size={14} /></span>
+        <span title={noActualYet && !handHidden ? 'No actual dates yet — left out of the Actual view' : 'Left off the timeline: 100% complete and “Hide completed” is on'} style={{ color: 'var(--text-dim)', display: 'flex', padding: 4 }}><EyeOff size={14} /></span>
       ) : <span />}
 
       {own ? (
@@ -252,7 +278,7 @@ function MarkerOption({ type, marker, color, active, onPick }: { type: 'TASK' | 
 }
 
 // ── Grid ────────────────────────────────────────────────────────────────────
-export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, milestoneColor, selectedItemId, onSelectItem, actions: a, granularity, onGranularity, hideDone, onHideDone }: {
+export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, milestoneColor, selectedItemId, onSelectItem, actions: a, granularity, onGranularity, hideDone, dateView, onHideDone }: {
   items: TLItem[];
   lanes: TLLane[];
   canEdit: boolean;
@@ -268,8 +294,11 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
   onGranularity: (g: 'TASKS' | 'SUBTASKS') => void;
   /** Leave 100%-complete rows off the timeline view / exports. */
   hideDone: boolean;
+  /** Which dates the timeline draws — Actual / Both adds the Actual start / end columns. */
+  dateView: 'BASELINE' | 'ACTUAL' | 'BOTH';
   onHideDone: (v: boolean) => void;
 }) {
+  const showActual = dateView !== 'BASELINE';
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [focusItemId, setFocusItemId] = useState<string | null>(null);
   const [focusLaneId, setFocusLaneId] = useState<string | null>(null);
@@ -369,7 +398,7 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
 
   const renderItems = (laneId: string | null) => (byLane.get(laneId) ?? []).map((it) => (
     <ItemRow
-      key={it.id} item={it} color={itemColor(it)} canEdit={canEdit} compact={compact} hideDone={hideDone}
+      key={it.id} item={it} color={itemColor(it)} canEdit={canEdit} compact={compact} hideDone={hideDone} dateView={dateView} showActual={showActual}
       laneSwatches={lanePalette}
       selected={selectedItemId === it.id} checked={checked.has(it.id)} focusMe={focusItemId === it.id}
       dragging={dragId === it.id} dropTarget={overKey === `${laneId}:${it.id}`} a={a}
@@ -383,7 +412,7 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
   ));
 
   const allChecked = items.length > 0 && checked.size === items.length;
-  const offCount = items.filter((i) => !shownOnTimeline(i, hideDone)).length;
+  const offCount = items.filter((i) => !shownOnTimeline(i, hideDone, dateView)).length;
   const doneCount = items.filter((i) => i.percentComplete >= 100).length;
   const checkedItems = items.filter((i) => checked.has(i.id));
   const toHide = checkedItems.filter((i) => !i.hidden);
@@ -445,12 +474,12 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
       )}
 
       <div ref={wrapRef} style={{ border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', overflowX: 'auto' }}>
-        <div style={{ minWidth: compact ? 560 : 820 }}>
+        <div style={{ minWidth: (compact ? 560 : 820) + (showActual ? 236 : 0) }}>
           {/* Header */}
-          <div style={{ display: 'grid', gridTemplateColumns: compact ? COLS_COMPACT : COLS, gap: 4, padding: '8px 6px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)', fontSize: 11.5, fontWeight: 700, color: 'var(--text-mid)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: gridCols(compact, showActual), gap: 4, padding: '8px 6px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)', fontSize: 11.5, fontWeight: 700, color: 'var(--text-mid)' }}>
             <span />
             <input type="checkbox" checked={allChecked} onChange={(e) => setChecked(e.target.checked ? new Set(items.map((i) => i.id)) : new Set())} />
-            <span style={{ paddingLeft: 6 }}>Title</span><span>Type</span><span>{compact ? 'Days' : 'Duration'}</span><span>Start</span><span>End</span><span style={{ textAlign: 'right', paddingRight: 8 }}>%</span>{!compact && <span>Assigned to</span>}<span title="Show on the timeline"><Eye size={13} style={{ verticalAlign: -2, opacity: 0.6 }} /></span><span />
+            <span style={{ paddingLeft: 6 }}>Title</span><span>Type</span><span>{compact ? 'Days' : 'Duration'}</span><span>Start</span><span>End</span>{showActual && <><span>Actual start</span><span>Actual end</span></>}<span style={{ textAlign: 'right', paddingRight: 8 }}>%</span>{!compact && <span>Assigned to</span>}<span title="Show on the timeline"><Eye size={13} style={{ verticalAlign: -2, opacity: 0.6 }} /></span><span />
           </div>
 
           {/* Ungrouped items sit above the first swimlane */}

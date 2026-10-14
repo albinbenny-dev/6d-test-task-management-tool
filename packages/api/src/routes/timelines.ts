@@ -43,6 +43,7 @@ const UpdateTimelineSchema = z.object({
   styleOverrides: StyleOverridesSchema.optional(),
   taskGranularity: z.enum(['TASKS', 'SUBTASKS']).optional(), // for lanes linked to Task Lists
   hideDone: z.boolean().optional(), // leave 100%-complete rows off the timeline view / exports
+  dateView: z.enum(['BASELINE', 'ACTUAL', 'BOTH']).optional(), // which dates are drawn
 });
 
 const SwimlaneCreateSchema = z.object({ name: z.string().min(1).max(100), color: hex.optional().nullable() });
@@ -68,6 +69,8 @@ const ItemFields = {
   assignee: z.string().max(150).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
   hidden: z.boolean().optional(), // view-only: left off the timeline view / exports (allowed on task-linked items too)
+  actualStartDate: dateStr.optional().nullable(),
+  actualEndDate: dateStr.optional().nullable(),
 };
 const CreateItemSchema = z.object(ItemFields);
 const UpdateItemSchema = z.object(ItemFields).partial();
@@ -102,6 +105,8 @@ function serializeItem(i: ItemRow) {
     notes: i.notes,
     taskId: i.taskId, // set = generated from a Task (read-only here)
     hidden: i.hidden,
+    actualStartDate: i.actualStartDate ? toDateOnlyString(i.actualStartDate) : null,
+    actualEndDate: i.actualEndDate ? toDateOnlyString(i.actualEndDate) : null,
     sortOrder: i.sortOrder,
   };
 }
@@ -127,6 +132,19 @@ function serializeTemplate(t: Prisma.TimelineTemplateGetPayload<object> | null) 
 
 async function loadTimeline(projectId: string, timelineId: string) {
   return prisma.timeline.findFirst({ where: { id: timelineId, projectId } });
+}
+
+// Actual start / end for a manual item: both optional, end not before start; a milestone has one actual date (its end).
+function resolveActuals(
+  startIn: string | null | undefined,
+  endIn: string | null | undefined,
+  type: 'TASK' | 'MILESTONE',
+): { start: Date | null; end: Date | null } | { error: string } {
+  const start = startIn ? parseDateOnly(startIn) : null;
+  const end = endIn ? parseDateOnly(endIn) : null;
+  if ((startIn && isNaN(start!.getTime())) || (endIn && isNaN(end!.getTime()))) return { error: 'Invalid actual date' };
+  if (start && end && end.getTime() < start.getTime()) return { error: 'Actual end cannot be before the actual start' };
+  return { start: type === 'MILESTONE' ? (end ?? start) : start, end };
 }
 
 // Resolves { startDate, endDate } for a create/update, honouring (in order):
@@ -206,6 +224,7 @@ router.get('/import-template', (_req, res) => {
     ['• Type: Task or Milestone. A row with Duration 0 is treated as a milestone.'],
     ['• Give Start plus either End or Duration. Duration is in working days (Mon–Fri). If both are given, End wins.'],
     ['• Dates: 2026-06-01, 01/06/2026 (day first) or 1 Jun 2026.'],
+    ['• Actual Start / Actual End (optional) — when the work really started / finished. The timeline can draw them instead of, or on top of, the planned dates.'],
     ['• Marker (optional) — tasks: pill, bar, chevron. Milestones: diamond, flag, star, circle, triangle.'],
     ['• Exported from MS Project (File → Save As → Excel)? Upload it as is — Name, Start, Finish, Duration, % Complete, Resource Names and Summary columns are recognised.'],
   ];
@@ -279,6 +298,7 @@ router.get('/:timelineId', (async (req, res) => {
       styleOverrides: parseOverrides(timeline.styleOverrides),
       taskGranularity: timeline.taskGranularity,
       hideDone: timeline.hideDone,
+      dateView: timeline.dateView,
       createdAt: timeline.createdAt, updatedAt: timeline.updatedAt,
     },
     template: serializeTemplate(timeline.template),
@@ -335,7 +355,7 @@ router.post('/:timelineId/duplicate', requireAdvancedFeatures as RequestHandler,
     const t = await tx.timeline.create({
       data: {
         projectId: src.projectId, name: `${src.name} (copy)`.slice(0, 150), description: src.description,
-        templateId: src.templateId, styleOverrides: src.styleOverrides, taskGranularity: src.taskGranularity, hideDone: src.hideDone, createdByUserId: req.user.id,
+        templateId: src.templateId, styleOverrides: src.styleOverrides, taskGranularity: src.taskGranularity, hideDone: src.hideDone, dateView: src.dateView, createdByUserId: req.user.id,
       },
     });
     const laneMap = new Map<string, string>();
@@ -349,7 +369,7 @@ router.post('/:timelineId/duplicate', requireAdvancedFeatures as RequestHandler,
       data: src.items.map((i) => ({
         timelineId: t.id, swimlaneId: i.swimlaneId ? laneMap.get(i.swimlaneId) ?? null : null,
         title: i.title, type: i.type, marker: i.marker, color: i.color, startDate: i.startDate, endDate: i.endDate,
-        percentComplete: i.percentComplete, assignee: i.assignee, notes: i.notes, taskId: i.taskId, hidden: i.hidden, sortOrder: i.sortOrder,
+        percentComplete: i.percentComplete, assignee: i.assignee, notes: i.notes, taskId: i.taskId, hidden: i.hidden, actualStartDate: i.actualStartDate, actualEndDate: i.actualEndDate, sortOrder: i.sortOrder,
       })),
     });
     return t;
@@ -456,6 +476,8 @@ router.post('/:timelineId/items', requireAdvancedFeatures as RequestHandler, (as
   }
   const dates = resolveDates(d.type, d.startDate, d.endDate, d.durationDays);
   if ('error' in dates) return res.status(400).json({ error: dates.error });
+  const actuals = resolveActuals(d.actualStartDate, d.actualEndDate, d.type);
+  if ('error' in actuals) return res.status(400).json({ error: actuals.error });
 
   const swimlaneId = d.swimlaneId ?? null;
   const item = await prisma.timelineItem.create({
@@ -465,6 +487,7 @@ router.post('/:timelineId/items', requireAdvancedFeatures as RequestHandler, (as
       startDate: dates.startDate, endDate: dates.endDate,
       percentComplete: d.percentComplete ?? 0,
       assignee: d.assignee ?? null, notes: d.notes ?? null,
+      actualStartDate: actuals.start, actualEndDate: actuals.end,
       sortOrder: await nextItemSort(timeline.id, swimlaneId),
     },
   });
@@ -527,7 +550,7 @@ router.put('/:timelineId/items/:itemId', requireAdvancedFeatures as RequestHandl
   const d = parsed.data;
   if (existing.taskId) {
     // Generated from a Task: the task owns title / dates / assignee / progress. Only the look can be changed here.
-    const lockedField = (['title', 'type', 'startDate', 'endDate', 'durationDays', 'percentComplete', 'assignee', 'swimlaneId'] as const)
+    const lockedField = (['title', 'type', 'startDate', 'endDate', 'durationDays', 'percentComplete', 'assignee', 'swimlaneId', 'actualStartDate', 'actualEndDate'] as const)
       .find((k) => d[k] !== undefined && !(k === 'swimlaneId' && d.swimlaneId === existing.swimlaneId));
     if (lockedField) return res.status(400).json({ error: 'This item is linked to a task — change it in the Task List (only marker and colour can be changed here)' });
   }
@@ -559,6 +582,18 @@ router.put('/:timelineId/items/:itemId', requireAdvancedFeatures as RequestHandl
   const dates = resolveDates(nextType, startIn, durationIn !== undefined ? undefined : endIn, durationIn);
   if ('error' in dates) return res.status(400).json({ error: dates.error });
 
+  // Actual dates (manual items only — task-linked ones are locked above).
+  let actualPatch: { actualStartDate?: Date | null; actualEndDate?: Date | null } = {};
+  if (d.actualStartDate !== undefined || d.actualEndDate !== undefined) {
+    const a = resolveActuals(
+      d.actualStartDate !== undefined ? d.actualStartDate : (existing.actualStartDate ? toDateOnlyString(existing.actualStartDate) : null),
+      d.actualEndDate !== undefined ? d.actualEndDate : (existing.actualEndDate ? toDateOnlyString(existing.actualEndDate) : null),
+      nextType,
+    );
+    if ('error' in a) return res.status(400).json({ error: a.error });
+    actualPatch = { ...(d.actualStartDate !== undefined ? { actualStartDate: a.start } : {}), ...(d.actualEndDate !== undefined ? { actualEndDate: a.end } : {}) };
+  }
+
   const typeChanged = nextType !== existing.type;
   const marker = d.marker !== undefined
     ? validMarker(nextType, d.marker)
@@ -580,6 +615,7 @@ router.put('/:timelineId/items/:itemId', requireAdvancedFeatures as RequestHandl
       ...(d.assignee !== undefined ? { assignee: d.assignee } : {}),
       ...(d.notes !== undefined ? { notes: d.notes } : {}),
       ...(d.hidden !== undefined ? { hidden: d.hidden } : {}),
+      ...actualPatch,
     },
   });
   res.json({ item: serializeItem(item) });
@@ -657,7 +693,7 @@ router.post('/:timelineId/import', requireAdvancedFeatures as RequestHandler, up
         data: {
           timelineId: timeline.id, swimlaneId: laneId, title: it.title, type: it.type, marker: it.marker, color: it.color,
           startDate: it.startDate, endDate: it.endDate, percentComplete: it.percentComplete,
-          assignee: it.assignee, notes: it.notes, sortOrder: await nextSort(laneId),
+          assignee: it.assignee, notes: it.notes, actualStartDate: it.actualStartDate, actualEndDate: it.actualEndDate, sortOrder: await nextSort(laneId),
         },
       });
     }
@@ -768,14 +804,15 @@ router.get('/:timelineId/export-xlsx', (async (req, res) => {
     Title: i.title, Type: i.type === 'MILESTONE' ? 'Milestone' : 'Task', Swimlane: laneName,
     Start: toDateOnlyString(i.startDate), End: toDateOnlyString(i.endDate),
     Duration: i.type === 'MILESTONE' ? 0 : workingDaysBetween(i.startDate, i.endDate),
+    'Actual Start': i.actualStartDate ? toDateOnlyString(i.actualStartDate) : '', 'Actual End': i.actualEndDate ? toDateOnlyString(i.actualEndDate) : '',
     '% Complete': i.percentComplete, 'Assigned To': i.assignee ?? '', Color: i.color ?? '', Marker: i.marker,
   });
   const rows = [
     ...timeline.items.filter((i) => !i.swimlaneId).map((i) => toRow(i, '')),
     ...timeline.swimlanes.flatMap((l) => timeline.items.filter((i) => i.swimlaneId === l.id).map((i) => toRow(i, l.name))),
   ];
-  const ws = xlsx.utils.json_to_sheet(rows, { header: ['Title', 'Type', 'Swimlane', 'Start', 'End', 'Duration', '% Complete', 'Assigned To', 'Color', 'Marker'] });
-  ws['!cols'] = [30, 12, 20, 13, 13, 10, 11, 18, 10, 10].map((w) => ({ wch: w }));
+  const ws = xlsx.utils.json_to_sheet(rows, { header: ['Title', 'Type', 'Swimlane', 'Start', 'End', 'Duration', 'Actual Start', 'Actual End', '% Complete', 'Assigned To', 'Color', 'Marker'] });
+  ws['!cols'] = [30, 12, 20, 13, 13, 10, 13, 13, 11, 18, 10, 10].map((w) => ({ wch: w }));
   const wb = xlsx.utils.book_new();
   xlsx.utils.book_append_sheet(wb, ws, 'Timeline');
   const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;

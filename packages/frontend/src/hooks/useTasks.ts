@@ -1,4 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
+import { askCompletionDate } from '../lib/completionPrompt';
 import { api } from '../lib/api';
 import type { Task, TaskStatus, TaskPriority, TaskDashboardSummary, TaskCommentEntry } from '../types';
 
@@ -106,6 +108,8 @@ export function useUpdateTask(projectId: string) {
       priority?: TaskPriority;
       startDate?: string | null;
       dueDate?: string | null;
+      actualStartDate?: string | null;
+      actualEndDate?: string | null;
       tags?: string[];
       taskListId?: string;
     }) => {
@@ -114,17 +118,38 @@ export function useUpdateTask(projectId: string) {
       return res.data.task;
     },
     onSuccess: () => invalidateAll(qc, projectId),
+    onError: (e) => toast.error(apiMessage(e, 'Could not save the change')),
   });
 }
 
+function apiMessage(err: unknown, fallback: string): string {
+  return (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? fallback;
+}
+
+/**
+ * Moves a task between statuses. Moving to Done asks "when was it completed?" first (default today, backdating allowed) —
+ * that day becomes the task's actual end date. Pass `actualEndDate` to supply it, or `promptForDate: false` to use today.
+ * Cancelling the prompt leaves the task where it was (the mutation resolves with null).
+ */
 export function useUpdateTaskStatus(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: { id: string; status: TaskStatus }) => {
-      const res = await api.patch<{ task: Task }>(`/projects/${projectId}/tasks/${data.id}/status`, { status: data.status });
+    mutationFn: async (data: { id: string; status: TaskStatus; actualStartDate?: string | null; actualEndDate?: string | null; promptForDate?: boolean }) => {
+      let end = data.actualEndDate;
+      if (data.status === 'DONE' && end === undefined && data.promptForDate !== false) {
+        const picked = await askCompletionDate();
+        if (picked === null) return null;
+        end = picked;
+      }
+      const res = await api.patch<{ task: Task }>(`/projects/${projectId}/tasks/${data.id}/status`, {
+        status: data.status,
+        ...(data.actualStartDate ? { actualStartDate: data.actualStartDate } : {}),
+        ...(end ? { actualEndDate: end } : {}),
+      });
       return res.data.task;
     },
     onSuccess: () => invalidateAll(qc, projectId),
+    onError: (e) => toast.error(apiMessage(e, 'Could not change the status')),
   });
 }
 

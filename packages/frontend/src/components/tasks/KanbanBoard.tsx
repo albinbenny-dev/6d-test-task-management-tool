@@ -71,7 +71,8 @@ export function KanbanBoard({
               e.preventDefault();
               setDragOverStatus(null);
               const taskId = e.dataTransfer.getData('text/task-id');
-              if (taskId) onMoveTask(taskId, status);
+              // Dropping a card back on its own column is not a status change (and must not re-ask for a completion date).
+              if (taskId && topLevel.find((t) => t.id === taskId)?.status !== status) onMoveTask(taskId, status);
             }}
           >
             <div className="tm-column-header">

@@ -19,6 +19,9 @@ export interface ParsedItem {
   percentComplete: number;
   assignee: string | null;
   notes: string | null;
+  /** Optional actual dates ("Actual Start" / "Actual End" columns). */
+  actualStartDate: Date | null;
+  actualEndDate: Date | null;
 }
 
 export interface ParsedSheet {
@@ -34,6 +37,8 @@ const ALIASES: Record<string, string[]> = {
   swimlane: ['swimlane', 'lane', 'group', 'workstream', 'category', 'phase', 'stream'],
   start:    ['start', 'startdate', 'begin', 'begindate', 'planstart', 'plannedstart'],
   end:      ['end', 'enddate', 'finish', 'finishdate', 'due', 'duedate', 'planend', 'plannedend'],
+  actualStart: ['actualstart', 'actualstartdate', 'actualbegin'],
+  actualEnd:   ['actualend', 'actualenddate', 'actualfinish', 'actualfinishdate'],
   duration: ['duration', 'durationdays', 'days', 'workingdays', 'workdays'],
   percent:  ['percentcomplete', 'complete', 'progress', 'percent', 'pctcomplete', 'done', 'completion'],
   assignee: ['assignedto', 'assignee', 'resource', 'resources', 'resourcenames', 'owner', 'responsible'],
@@ -226,6 +231,14 @@ export function parseTimelineRows(rows: Record<string, unknown>[]): ParsedSheet 
       end = start;
     }
 
+    // Actual dates are optional; an end before the start is dropped (the start alone is kept).
+    const actualStart = parseDateCell(get('actualStart'));
+    let actualEnd = parseDateCell(get('actualEnd'));
+    if (actualStart && actualEnd && actualEnd.getTime() < actualStart.getTime()) {
+      result.warnings.push(`Row ${rowNo} ("${title}"): Actual End is before Actual Start — Actual End ignored.`);
+      actualEnd = null;
+    }
+
     const colorRaw = str(get('color'));
     result.items.push({
       title: title.slice(0, 200),
@@ -238,6 +251,8 @@ export function parseTimelineRows(rows: Record<string, unknown>[]): ParsedSheet 
       percentComplete: parsePercent(get('percent')),
       assignee: str(get('assignee')) || null,
       notes: str(get('notes')) || null,
+      actualStartDate: actualStart ?? (type === 'MILESTONE' ? actualEnd : null),
+      actualEndDate: actualEnd,
     });
   });
 

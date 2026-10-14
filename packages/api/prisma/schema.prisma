@@ -461,8 +461,12 @@ model Task {
   priority        String    @default("NORMAL") // "LOW" | "NORMAL" | "HIGH" | "URGENT"
   assigneeId      String? // FK -> ProjectMember.id
   assigneeExternalName String? // free-text assignee outside the tool — mutually exclusive with assigneeId
-  startDate       DateTime?
-  dueDate         DateTime?
+  startDate       DateTime? // planned (baseline) start
+  dueDate         DateTime? // planned (baseline) end
+  // Actuals (date-only, UTC midnight). Start is stamped when work begins, end when the task is marked Done;
+  // both can be backdated. Reopening clears the end. A parent task's actuals are derived from its subtasks.
+  actualStartDate DateTime?
+  actualEndDate   DateTime?
   tags            String    @default("[]") // JSON: string[]
   sortOrder       Int       @default(0)
   createdByUserId String
@@ -622,6 +626,8 @@ model Timeline {
   taskGranularity String   @default("TASKS")
   // true = rows that are 100% complete are left off the timeline view / exports (they stay in the table).
   hideDone        Boolean  @default(false)
+  // Which dates the timeline draws: "BASELINE" (planned) · "ACTUAL" (actual only, items without actuals are left out) · "BOTH" (actual bar over a dashed baseline outline).
+  dateView        String   @default("BASELINE")
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -672,6 +678,9 @@ model TimelineItem {
   // Set = generated from this Task (title/dates/% /assignee are read-only here — edit them in the
   // Task List). % is derived from task status only. Plain id, no FK; the sync prunes dead links.
   taskId          String?
+  // Actual dates — copied from the linked Task on every sync; editable only on items that are not task-linked.
+  actualStartDate DateTime?
+  actualEndDate   DateTime?
   // true = kept in the table but left off the timeline view / exports. Survives task syncs (view-only setting).
   hidden          Boolean   @default(false)
   sortOrder       Int       @default(0)

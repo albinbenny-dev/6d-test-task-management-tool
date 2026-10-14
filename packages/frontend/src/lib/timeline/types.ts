@@ -24,11 +24,21 @@ export interface TLItem {
   taskId: string | null;
   /** View-only: kept in the table but left off the timeline view and exports. */
   hidden?: boolean;
+  /** Actual dates (task-linked items copy them from the task; a milestone has one — its end). */
+  actualStartDate?: string | null;
+  actualEndDate?: string | null;
+  /** Set only by applyDateView(): the planned dates drawn as a dashed outline behind the actual bar ("both" view). */
+  baseline?: { startDate: string; endDate: string };
   sortOrder: number;
 }
 
 /** Whether a row is drawn on the timeline: not hidden by hand, and not 100% complete while "hide completed" is on. */
-export function shownOnTimeline(i: Pick<TLItem, 'hidden' | 'percentComplete'>, hideDone: boolean): boolean {
+export function shownOnTimeline(
+  i: Pick<TLItem, 'hidden' | 'percentComplete' | 'actualStartDate' | 'actualEndDate'>,
+  hideDone: boolean,
+  dateView: 'BASELINE' | 'ACTUAL' | 'BOTH' = 'BASELINE',
+): boolean {
+  if (dateView === 'ACTUAL' && !i.actualStartDate && !i.actualEndDate) return false; // nothing actual to draw
   return !i.hidden && !(hideDone && i.percentComplete >= 100);
 }
 
@@ -147,7 +157,7 @@ export interface TimelineSummary {
 export interface TimelineDetail {
   timeline: {
     id: string; name: string; description: string | null; templateId: string | null;
-    styleOverrides: StyleOverrides; taskGranularity: 'TASKS' | 'SUBTASKS'; hideDone?: boolean; createdAt: string; updatedAt: string;
+    styleOverrides: StyleOverrides; taskGranularity: 'TASKS' | 'SUBTASKS'; hideDone?: boolean; dateView?: 'BASELINE' | 'ACTUAL' | 'BOTH'; createdAt: string; updatedAt: string;
   };
   template: { id: string; name: string; isActive: boolean; config: TemplateConfig } | null;
   swimlanes: TLLane[];

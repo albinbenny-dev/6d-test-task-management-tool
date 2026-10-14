@@ -22,6 +22,8 @@ export interface TaskRow {
   status: string;
   startDate: Date | null;
   dueDate: Date | null;
+  actualStartDate?: Date | null;
+  actualEndDate?: Date | null;
   parentTaskId: string | null;
   sortOrder: number;
   assigneeName: string | null; // member name or free-text external name
@@ -34,6 +36,9 @@ export interface DesiredItem {
   type: 'TASK' | 'MILESTONE';
   startDate: Date;
   endDate: Date;
+  /** Actuals of the task (parents: derived from their subtasks); null until work has started / finished. */
+  actualStartDate: Date | null;
+  actualEndDate: Date | null;
   percentComplete: number;
   assignee: string | null;
   sortOrder: number;
@@ -66,10 +71,13 @@ export function deriveItems(tasks: TaskRow[], laneId: string, granularity: Granu
   }
 
   const out: DesiredItem[] = [];
-  const push = (t: TaskRow, span: Span, pct: number) => {
+  const push = (t: TaskRow, span: Span, pct: number, actual: { start: Date | null; end: Date | null }) => {
+    const isMs = span.milestone;
     out.push({
-      taskId: t.id, swimlaneId: laneId, title: t.title.slice(0, 200), type: span.milestone ? 'MILESTONE' : 'TASK',
+      taskId: t.id, swimlaneId: laneId, title: t.title.slice(0, 200), type: isMs ? 'MILESTONE' : 'TASK',
       startDate: span.start, endDate: span.end, percentComplete: Math.round(pct), assignee: t.assigneeName, sortOrder: out.length,
+      // A milestone has a single actual date: the day it was completed.
+      actualStartDate: isMs ? actual.end : actual.start, actualEndDate: actual.end,
     });
   };
 
@@ -78,7 +86,7 @@ export function deriveItems(tasks: TaskRow[], laneId: string, granularity: Granu
     if (granularity === 'SUBTASKS' && children.length > 0) {
       for (const c of children) {
         const sp = ownSpan(c);
-        if (sp) push(c, sp, statusPercent(c.status));
+        if (sp) push(c, sp, statusPercent(c.status), { start: c.actualStartDate ? day(c.actualStartDate) : null, end: c.actualEndDate ? day(c.actualEndDate) : null });
       }
       continue;
     }
@@ -99,7 +107,19 @@ export function deriveItems(tasks: TaskRow[], laneId: string, granularity: Granu
     const pct = children.length > 0
       ? children.reduce((n, c) => n + statusPercent(c.status), 0) / children.length
       : statusPercent(t.status);
-    push(t, span, pct);
+    // Actuals: a leaf uses its own; a parent is derived from its subtasks (earliest start, latest end once every subtask is Done).
+    let actual: { start: Date | null; end: Date | null };
+    if (children.length > 0) {
+      const starts = children.map((c) => c.actualStartDate).filter((d): d is Date => !!d).map(day);
+      const allDone = children.every((c) => c.status === 'DONE' && c.actualEndDate);
+      actual = {
+        start: starts.length ? new Date(Math.min(...starts.map((d) => d.getTime()))) : null,
+        end: allDone ? new Date(Math.max(...children.map((c) => day(c.actualEndDate as Date).getTime()))) : null,
+      };
+    } else {
+      actual = { start: t.actualStartDate ? day(t.actualStartDate) : null, end: t.actualEndDate ? day(t.actualEndDate) : null };
+    }
+    push(t, span, pct, actual);
   }
   return out;
 }
@@ -138,14 +158,14 @@ export async function syncTimelineFromTasks(timelineId: string): Promise<boolean
   const tasks = await prisma.task.findMany({
     where: { projectId: tl.projectId, taskListId: { in: liveLanes.map((l) => l.taskListId as string) } },
     select: {
-      id: true, title: true, status: true, startDate: true, dueDate: true, parentTaskId: true, sortOrder: true, taskListId: true,
+      id: true, title: true, status: true, startDate: true, dueDate: true, actualStartDate: true, actualEndDate: true, parentTaskId: true, sortOrder: true, taskListId: true,
       assigneeExternalName: true, assignee: { select: { user: { select: { name: true } } } },
     },
   });
   const rowsByList = new Map<string, TaskRow[]>();
   for (const t of tasks) {
     const row: TaskRow = {
-      id: t.id, title: t.title, status: t.status, startDate: t.startDate, dueDate: t.dueDate, parentTaskId: t.parentTaskId,
+      id: t.id, title: t.title, status: t.status, startDate: t.startDate, dueDate: t.dueDate, actualStartDate: t.actualStartDate, actualEndDate: t.actualEndDate, parentTaskId: t.parentTaskId,
       sortOrder: t.sortOrder, assigneeName: t.assignee?.user?.name ?? t.assigneeExternalName ?? null,
     };
     rowsByList.set(t.taskListId, [...(rowsByList.get(t.taskListId) ?? []), row]);
@@ -164,13 +184,16 @@ export async function syncTimelineFromTasks(timelineId: string): Promise<boolean
     if (!cur) return [];
     const changed = cur.title !== d.title || cur.type !== d.type || cur.swimlaneId !== d.swimlaneId
       || cur.startDate.getTime() !== d.startDate.getTime() || cur.endDate.getTime() !== d.endDate.getTime()
-      || cur.percentComplete !== d.percentComplete || (cur.assignee ?? null) !== d.assignee || cur.sortOrder !== d.sortOrder;
+      || cur.percentComplete !== d.percentComplete || (cur.assignee ?? null) !== d.assignee || cur.sortOrder !== d.sortOrder
+      || (cur.actualStartDate?.getTime() ?? null) !== (d.actualStartDate?.getTime() ?? null)
+      || (cur.actualEndDate?.getTime() ?? null) !== (d.actualEndDate?.getTime() ?? null);
     if (!changed) return [];
     return [prisma.timelineItem.update({
       where: { id: cur.id },
       data: {
         title: d.title, type: d.type, swimlaneId: d.swimlaneId, startDate: d.startDate, endDate: d.endDate,
         percentComplete: d.percentComplete, assignee: d.assignee, sortOrder: d.sortOrder,
+        actualStartDate: d.actualStartDate, actualEndDate: d.actualEndDate,
         // marker/colour are the user's to keep — only reset the marker when the item switches kind (task ⇄ milestone)
         ...(cur.type !== d.type ? { marker: defaultMarker(d.type) } : {}),
       },
@@ -187,6 +210,7 @@ export async function syncTimelineFromTasks(timelineId: string): Promise<boolean
       data: toCreate.map((d) => ({
         timelineId, swimlaneId: d.swimlaneId, taskId: d.taskId, title: d.title, type: d.type, marker: defaultMarker(d.type),
         startDate: d.startDate, endDate: d.endDate, percentComplete: d.percentComplete, assignee: d.assignee, sortOrder: d.sortOrder,
+        actualStartDate: d.actualStartDate, actualEndDate: d.actualEndDate,
       })),
     })] : []),
   ]);

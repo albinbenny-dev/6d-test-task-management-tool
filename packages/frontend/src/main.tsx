@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import App from './App';
+import { CompletionDateDialog } from './components/tasks/CompletionDateDialog';
 import './styles/globals.css';
 // Monaco (used only by the removed Script Editor) is no longer loaded
 // globally — see packages/frontend/src/lib/monacoSetup.ts.
@@ -23,6 +24,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <App />
+        <CompletionDateDialog />
         <Toaster
           position="top-right"
           toastOptions={{
