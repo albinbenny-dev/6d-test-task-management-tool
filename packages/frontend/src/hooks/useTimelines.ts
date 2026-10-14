@@ -81,7 +81,7 @@ export function useTimelineEditor(projectId: string, timelineId: string) {
   const patchCache = (fn: (d: TimelineDetail) => TimelineDetail) => qc.setQueryData<TimelineDetail>(key, (d) => (d ? fn(d) : d));
 
   const updateTimeline = useMutation({
-    mutationFn: async (data: { name?: string; description?: string | null; templateId?: string | null; styleOverrides?: StyleOverrides; taskGranularity?: 'TASKS' | 'SUBTASKS'; hideDone?: boolean; dateView?: 'BASELINE' | 'ACTUAL' | 'BOTH' }) => {
+    mutationFn: async (data: { name?: string; description?: string | null; templateId?: string | null; styleOverrides?: StyleOverrides; taskGranularity?: 'TASKS' | 'SUBTASKS'; hideDone?: boolean; dateView?: 'BASELINE' | 'ACTUAL' | 'BOTH'; showDelays?: boolean }) => {
       await api.put(base, data);
     },
     onMutate: async (data) => {
@@ -89,7 +89,7 @@ export function useTimelineEditor(projectId: string, timelineId: string) {
       await qc.cancelQueries({ queryKey: key });
       patchCache((d) => ({
         ...d,
-        timeline: { ...d.timeline, ...(data.name !== undefined ? { name: data.name } : {}), ...(data.styleOverrides !== undefined ? { styleOverrides: data.styleOverrides } : {}), ...(data.templateId !== undefined ? { templateId: data.templateId } : {}), ...(data.taskGranularity !== undefined ? { taskGranularity: data.taskGranularity } : {}), ...(data.hideDone !== undefined ? { hideDone: data.hideDone } : {}), ...(data.dateView !== undefined ? { dateView: data.dateView } : {}) },
+        timeline: { ...d.timeline, ...(data.name !== undefined ? { name: data.name } : {}), ...(data.styleOverrides !== undefined ? { styleOverrides: data.styleOverrides } : {}), ...(data.templateId !== undefined ? { templateId: data.templateId } : {}), ...(data.taskGranularity !== undefined ? { taskGranularity: data.taskGranularity } : {}), ...(data.hideDone !== undefined ? { hideDone: data.hideDone } : {}), ...(data.dateView !== undefined ? { dateView: data.dateView } : {}), ...(data.showDelays !== undefined ? { showDelays: data.showDelays } : {}) },
       }));
     },
     onSettled: refresh,

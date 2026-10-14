@@ -1,6 +1,6 @@
 import { TbBtn } from '../layout/Topbar';
 import { MultiSelectFilter } from '../testCycles/FilterBar';
-import { ALL_TASK_STATUSES, STATUS_LABEL, ALL_PRIORITIES, PRIORITY_LABEL, TASK_DUE_BUCKETS } from '../../lib/taskMeta';
+import { ALL_TASK_STATUSES, STATUS_LABEL, ALL_PRIORITIES, PRIORITY_LABEL, TASK_DUE_BUCKETS, DELAY_BUCKETS } from '../../lib/taskMeta';
 
 // Search + every filter dimension for a task list, rendered ONCE by
 // TaskListDetail above the Board/List toggle — owning this state at the
@@ -14,15 +14,16 @@ export interface TaskFilterState {
   priorityFilters: string[];
   assigneeFilters: string[];
   dueFilters: string[];
+  delayFilters: string[];
   tagFilters: string[];
 }
 
 export function emptyTaskFilters(): TaskFilterState {
-  return { search: '', statusFilters: [], priorityFilters: [], assigneeFilters: [], dueFilters: [], tagFilters: [] };
+  return { search: '', statusFilters: [], priorityFilters: [], assigneeFilters: [], dueFilters: [], delayFilters: [], tagFilters: [] };
 }
 
 export function countActiveTaskFilters(f: TaskFilterState): number {
-  return f.statusFilters.length + f.priorityFilters.length + f.assigneeFilters.length + f.dueFilters.length + f.tagFilters.length + (f.search.trim() ? 1 : 0);
+  return f.statusFilters.length + f.priorityFilters.length + f.assigneeFilters.length + f.dueFilters.length + f.delayFilters.length + f.tagFilters.length + (f.search.trim() ? 1 : 0);
 }
 
 export function TaskFilterBar({
@@ -64,6 +65,7 @@ export function TaskFilterBar({
       <MultiSelectFilter label="Priority" values={filters.priorityFilters} onChange={(v) => onChange({ ...filters, priorityFilters: v })} options={ALL_PRIORITIES.map((p) => PRIORITY_LABEL[p])} />
       <MultiSelectFilter label="Assignee" values={filters.assigneeFilters} onChange={(v) => onChange({ ...filters, assigneeFilters: v })} options={assigneeOptions} />
       <MultiSelectFilter label="Due date" values={filters.dueFilters} onChange={(v) => onChange({ ...filters, dueFilters: v })} options={[...TASK_DUE_BUCKETS]} />
+      <MultiSelectFilter label="Delay" values={filters.delayFilters} onChange={(v) => onChange({ ...filters, delayFilters: v })} options={[...DELAY_BUCKETS]} />
       <MultiSelectFilter label="Tags" values={filters.tagFilters} onChange={(v) => onChange({ ...filters, tagFilters: v })} options={tagOptions} />
       {activeFilterCount > 0 && (
         <TbBtn variant="ghost" onClick={() => onChange(emptyTaskFilters())}>✕ Clear ({activeFilterCount})</TbBtn>

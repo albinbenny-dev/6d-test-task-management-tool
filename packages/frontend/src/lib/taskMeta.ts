@@ -56,6 +56,13 @@ export function taskDueBucket(task: Pick<Task, 'dueDate' | 'status'>): TaskDueBu
   return due <= in7Days ? 'Due this week' : 'Later';
 }
 
+// Delay buckets for filtering (delayDays > 0 = late; see components/tasks/DelayChip.tsx).
+export const DELAY_BUCKETS = ['Delayed', 'On time or early', 'No verdict yet'] as const;
+export function taskDelayBucket(task: Pick<Task, 'delayDays'>): (typeof DELAY_BUCKETS)[number] {
+  if (task.delayDays === null || task.delayDays === undefined) return 'No verdict yet';
+  return task.delayDays > 0 ? 'Delayed' : 'On time or early';
+}
+
 export function parseTags(tags: string): string[] {
   try {
     const parsed = JSON.parse(tags);

@@ -28,7 +28,9 @@ export function applyDateView(items: TLItem[], view: DateView, today: string): T
     out.push({
       ...it, startDate: start, endDate: end,
       durationDays: it.type === 'MILESTONE' ? 0 : workingDaysBetween(parseYmd(start), parseYmd(end)),
-      ...(view === 'BOTH' ? { baseline: { startDate: it.startDate, endDate: it.endDate } } : {}),
+      // The plan is kept for the delay cues (overrun segment); only the "both" view also draws it as an outline.
+      baseline: { startDate: it.startDate, endDate: it.endDate },
+      ...(view === 'BOTH' ? { showGhost: true } : {}),
     });
   }
   return out;

@@ -588,6 +588,8 @@ export interface Task {
   /** Actual start / end (date-only). A parent task's are derived from its subtasks. */
   actualStartDate?: string | null;
   actualEndDate?: string | null;
+  /** Schedule variance in working days: + late, − early, null = no verdict yet. A parent shows its worst subtask. */
+  delayDays?: number | null;
   tags: string; // JSON string — parse to string[]
   sortOrder: number;
   createdByUserId: string;
@@ -620,6 +622,21 @@ export interface TaskListSummary {
   completionRate: number;
 }
 
+export interface TaskVarianceSummary {
+  delayedCount: number;
+  delayedOpenCount: number;
+  delayedDoneCount: number;
+  earlyCount: number;
+  onTimeCount: number;
+  delayedRate: number | null;
+  avgDelayDays: number | null;
+  maxDelayDays: number | null;
+  byTaskList: { taskListId: string; name: string; color: string; total: number; delayedCount: number; maxDelayDays: number | null; plannedEnd: string | null; forecastEnd: string | null }[];
+  worst: (Task & { refEnd: string | null })[];
+  byAssignee: { key: string; name: string; delayed: number; maxDelayDays: number }[];
+  curve: { week: string; planned: number; actual: number | null }[];
+}
+
 export interface TaskDashboardSummary {
   counts: Record<TaskStatus, number>;
   total: number;
@@ -635,6 +652,7 @@ export interface TaskDashboardSummary {
   priorityBreakdown: Record<TaskPriority, number>;
   byAssignee: TaskAssigneeSummary[];
   byTaskList: TaskListSummary[];
+  variance?: TaskVarianceSummary;
 }
 
 // ── Payment Milestones — per-project delivery/invoicing milestone tracker ──

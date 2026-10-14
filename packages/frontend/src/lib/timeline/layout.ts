@@ -25,6 +25,8 @@ export interface LayoutInput {
   config: TemplateConfig;
   /** Which dates to draw: the plan (default), the actuals, or both (see dateView.ts). */
   dateView?: DateView;
+  /** Delay cues (red overrun on the bar, +Nd tag) in the Actual / Both views. Default on. */
+  showDelays?: boolean;
   /** Injectable for deterministic tests; defaults to today. */
   today?: string;
 }
@@ -132,6 +134,7 @@ interface Ctx {
   bg: string;
   title: string;
   today: string;
+  showDelays: boolean;
   lanes: TLLane[];
   laneColor: (laneId: string | null) => string | null;
   x: (d: Date) => number;
@@ -257,7 +260,7 @@ function drawTaskBar(out: Primitive[], ctx: Ctx, item: TLItem, cy: number, h: nu
   const fillW = pct >= 100 ? w : Math.max((w * pct) / 100, Math.min(w, h));
 
   // "Both" view: the planned dates as a dashed outline behind the actual bar.
-  if (item.baseline) {
+  if (item.baseline && item.showGhost) {
     const g0 = ctx.x(parseYmd(item.baseline.startDate));
     const g1 = Math.max(ctx.x(addDays(parseYmd(item.baseline.endDate), 1)), g0 + 3);
     out.push({ kind: 'rect', x: g0, y: y - 1.5, w: g1 - g0, h: h + 3, rx: taskRadius(ctx, item, h + 3), fill: tint(ctx.cfg.palette.muted, 0.82), stroke: ctx.cfg.palette.muted, strokeWidth: 1, dash: [3, 2], itemId: item.id });
@@ -283,6 +286,22 @@ function drawTaskBar(out: Primitive[], ctx: Ctx, item: TLItem, cy: number, h: nu
       if (pct > 0) out.push({ kind: 'rect', x: x0, y, w: fillW, h, rx, fill: done, itemId: item.id });
     } else {
       out.push({ kind: 'rect', x: x0, y, w, h, rx, fill: color, itemId: item.id });
+    }
+  }
+
+  // Delay cue: the stretch of the bar beyond the planned end, in red (rounded at the bar's far end).
+  if (ctx.showDelays && item.baseline && item.marker !== 'chevron') {
+    const ov0 = Math.max(x0, ctx.x(addDays(parseYmd(item.baseline.endDate), 1)));
+    const len = x0 + w - ov0;
+    if (len >= 2 && (item.delayDays ?? 0) > 0) {
+      const r = taskRadius(ctx, item, h);
+      const red = '#DC2626';
+      if (r > 0 && len >= 2 * r) {
+        out.push({ kind: 'rect', x: ov0, y, w: len, h, rx: r, fill: red, itemId: item.id });
+        out.push({ kind: 'rect', x: ov0, y, w: r, h, fill: red, itemId: item.id });
+      } else {
+        out.push({ kind: 'rect', x: ov0, y, w: len, h, rx: Math.min(r, len / 2), fill: red, itemId: item.id });
+      }
     }
   }
 
@@ -355,6 +374,8 @@ interface Plan {
   datesAt?: 'right' | 'in' | 'left';
   /** Extent incl. the baseline outline (== x0 / x1 unless the "both" view draws one). */
   u0?: number; u1?: number;
+  /** "+5d" / "−2d" pill after everything else on the row (drawn only when it fits). */
+  tag?: { text: string; w: number; x: number; late: boolean };
 }
 
 function taskDatesText(ctx: Ctx, item: TLItem): string {
@@ -400,14 +421,14 @@ function planItem(ctx: Ctx, item: TLItem): Plan {
       left = Math.max(fr.plotX - 4, Math.min(cx - boxW / 2, fr.plotRight - boxW + 4));
       right = left + boxW;
     }
-    return { item, color, x0: cx, x1: cx, cx, side, lines, lw, left, right };
+    return withDelayTag(ctx, { item, color, x0: cx, x1: cx, cx, side, lines, lw, left, right });
   }
 
   const x0 = ctx.x(parseYmd(item.startDate));
   const x1 = Math.max(ctx.x(addDays(parseYmd(item.endDate), 1)), x0 + 3);
   // Extent incl. the baseline outline ("both" view): labels and dates go beside whichever reaches furthest.
   let u0 = x0; let u1 = x1;
-  if (item.baseline) {
+  if (item.baseline && item.showGhost) {
     const b0 = ctx.x(parseYmd(item.baseline.startDate));
     const b1 = Math.max(ctx.x(addDays(parseYmd(item.baseline.endDate), 1)), b0 + 3);
     u0 = Math.min(x0, b0); u1 = Math.max(x1, b1);
@@ -445,9 +466,36 @@ function planItem(ctx: Ctx, item: TLItem): Plan {
       if (item.marker !== 'chevron' && x1 - 8 - w >= free + 6) { dates = text; dw = w; datesAt = 'in'; }
       else if (side === 'left' && left - 8 - w >= fr.plotX) { dates = text; dw = w; datesAt = 'left'; left = left - 8 - w; }
     }
-    return { item, color, x0, x1, cx: x0, side, lines, lw, left, right, dates, dw, datesAt, u0, u1 };
+    return withDelayTag(ctx, { item, color, x0, x1, cx: x0, side, lines, lw, left, right, dates, dw, datesAt, u0, u1 });
   }
-  return { item, color, x0, x1, cx: x0, side, lines, lw, left, right, u0, u1 };
+  return withDelayTag(ctx, { item, color, x0, x1, cx: x0, side, lines, lw, left, right, u0, u1 });
+}
+
+// ── Delay tag: a small "+5d" (red, working days late) / "−2d" (green, early) pill ──
+function delayTag(ctx: Ctx, item: TLItem): { text: string; w: number; late: boolean; size: number } | null {
+  const d = item.delayDays;
+  if (!ctx.showDelays || d === null || d === undefined || d === 0) return null;
+  const text = `${d > 0 ? '+' : '−'}${Math.abs(d)}d`;
+  const size = Math.max(7, ctx.base - 2);
+  return { text, w: ctx.tw(text, size, true) + 8, late: d > 0, size };
+}
+
+function drawDelayTag(out: Primitive[], ctx: Ctx, item: TLItem, x: number, cy: number) {
+  const t = delayTag(ctx, item);
+  if (!t) return;
+  const h = Math.max(12, t.size + 5);
+  out.push({ kind: 'rect', x, y: cy - h / 2, w: t.w, h, rx: h / 2, fill: t.late ? '#DC2626' : '#059669', itemId: item.id });
+  out.push({ kind: 'text', x, y: cy - h / 2, w: t.w, h, text: t.text, size: t.size, color: '#FFFFFF', bold: true, align: 'center', itemId: item.id });
+}
+
+/** Adds the delay tag after the row's rightmost content when it fits inside the plot. */
+function withDelayTag(ctx: Ctx, p: Plan): Plan {
+  if (p.item.type === 'MILESTONE' && p.side !== 'right') return p;
+  const t = delayTag(ctx, p.item);
+  if (!t) return p;
+  const x = p.right + 6;
+  if (x + t.w > ctx.fr.plotRight) return p;
+  return { ...p, tag: { text: t.text, w: t.w, x, late: t.late }, right: x + t.w };
 }
 
 function pack(plans: Plan[]): number[] {
@@ -487,11 +535,13 @@ function drawPlan(out: Primitive[], ctx: Ctx, p: Plan, cy: number, shapeH: numbe
         out.push({ kind: 'text', x, y: y + i * lh, w, h: lh, text: line, size: i === 0 ? base : Math.max(7, base - 2), color: i === 0 ? textColor : cfg.palette.muted, bold: false, align: 'center', itemId: id });
       });
     }
+    if (p.tag) drawDelayTag(out, ctx, p.item, p.tag.x, cy);
     return;
   }
 
   const h = cfg.task.height;
   const bar = drawTaskBar(out, ctx, p.item, cy, h, p.color, p.side === 'inside' ? p.lw + 16 : 0);
+  if (p.tag) drawDelayTag(out, ctx, p.item, p.tag.x, cy);
   const bold = cfg.task.boldLabels;
   const lx0 = p.u0 ?? bar.x0; const lx1 = p.u1 ?? bar.x1; // label anchors (beyond the baseline outline, if any)
   if (p.dates && p.dw !== undefined) {
@@ -737,18 +787,24 @@ function layoutGantt(ctx: Ctx, items: TLItem[]): LayoutPage[] {
           const w = ctx.tw(date, textSize) + 4;
           const right = mcx + size / 2 + 4 + w <= fr.plotRight;
           itemPrims.push({ kind: 'text', x: right ? mcx + size / 2 + 4 : mcx - size / 2 - 4 - w, y, w, h: rowH, text: date, size: textSize, color: cfg.palette.muted, align: right ? 'left' : 'right', itemId: item.id });
+          const tg = delayTag(ctx, item);
+          if (right && tg && mcx + size / 2 + 4 + w + 6 + tg.w <= fr.plotRight) drawDelayTag(itemPrims, ctx, item, mcx + size / 2 + 4 + w + 6, cy);
         }
       } else {
         const h = Math.min(cfg.task.height, rowH - 6);
         const bar = drawTaskBar(itemPrims, ctx, item, cy, Math.max(4, h), color);
+        // Notes and the delay tag sit beyond whichever reaches furthest: the bar or its baseline outline ("both" view).
+        const ax1 = item.baseline && item.showGhost ? Math.max(bar.x1, ctx.x(addDays(parseYmd(item.baseline.endDate), 1))) : bar.x1;
         const bits: string[] = [];
         if (cfg.task.showDates) bits.push(`${formatDate(item.startDate, cfg.milestone.dateFormat)} – ${formatDate(item.endDate, cfg.milestone.dateFormat)}`);
         if (cfg.task.showPercent && !cfg.task.percentInside && item.percentComplete > 0) bits.push(`${item.percentComplete}%`);
         const note = bits.join('  ');
+        let tagX = ax1 + 6;
         if (note) {
           const w = ctx.tw(note, textSize) + 4;
-          if (bar.x1 + 4 + w <= fr.plotRight) {
-            itemPrims.push({ kind: 'text', x: bar.x1 + 4, y, w, h: rowH, text: note, size: textSize, color: cfg.palette.muted, align: 'left', itemId: item.id });
+          if (ax1 + 4 + w <= fr.plotRight) {
+            tagX = ax1 + 4 + w + 6;
+            itemPrims.push({ kind: 'text', x: ax1 + 4, y, w, h: rowH, text: note, size: textSize, color: cfg.palette.muted, align: 'left', itemId: item.id });
           } else if (bar.w > w + 12) {
             // No room beside a bar that runs to the plot edge — tuck the note inside its right end.
             const track = cfg.task.showPercent && item.percentComplete < 100;
@@ -757,6 +813,8 @@ function layoutGantt(ctx: Ctx, items: TLItem[]): LayoutPage[] {
             itemPrims.push({ kind: 'text', x: bar.x0 - 4 - w, y, w, h: rowH, text: note, size: textSize, color: cfg.palette.muted, align: 'right', itemId: item.id });
           }
         }
+        const tg = delayTag(ctx, item);
+        if (tg && tagX + tg.w <= fr.plotRight) drawDelayTag(itemPrims, ctx, item, tagX, cy);
       }
     });
 
@@ -1061,6 +1119,7 @@ export function layoutTimeline(input: LayoutInput): LayoutResult {
 
   const makeCtx = (fr: Frame): Ctx => ({
     cfg, fr, fam, base, lineH: base + 3, bg: cfg.slide.background, title: input.title, today, lanes,
+    showDelays: input.showDelays !== false && (input.dateView ?? 'BASELINE') !== 'BASELINE',
     laneColor: (id) => {
       if (!id) return null;
       const idx = laneIndex.get(id);

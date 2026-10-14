@@ -7,6 +7,7 @@ import {
 } from '../../lib/taskMeta';
 import { PriorityBadge } from './PriorityBadge';
 import { TaskStatusPicker } from './TaskStatusPicker';
+import { DelayChip } from './DelayChip';
 import { AssigneePicker, type AssigneeSelection } from './AssigneePicker';
 import { useResizableColumns, type ResizableColumnDef } from '../../hooks/useResizableColumns';
 import { ColResizeHandle } from '../ui/ColResizeHandle';
@@ -140,7 +141,7 @@ function Row({
           />
         </div>
         <div className={`tm-due-chip${overdue ? ' overdue' : ''}`}>
-          {task.dueDate ? <>{overdue ? '⏰' : '📅'} {formatDueDate(task.dueDate)}</> : <span style={{ opacity: 0.4 }}>—</span>}
+          {task.dueDate ? <>{overdue ? '⏰' : '📅'} {formatDueDate(task.dueDate)}{' '}<DelayChip days={task.delayDays} status={task.status} compact /></> : <span style={{ opacity: 0.4 }}>—</span>}
         </div>
         <div style={{ display: 'flex', justifyContent: 'center' }}><PriorityBadge priority={task.priority} /></div>
         <div style={{ display: 'flex', justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>

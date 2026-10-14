@@ -7,6 +7,8 @@ import { verifyToken } from '../middleware/auth.js';
 import { requireProjectAccess } from '../middleware/projectAccess.js';
 import { requireWrite } from '../middleware/rbac.js';
 import { notifyTaskComment, notifyTaskDueDateChanged, notifyTasksAssigned } from '../services/taskNotificationService.js';
+import { attachDelayDays, delayByTask } from '../lib/taskVariance.js';
+import { todayDateOnly } from '../lib/taskActuals.js';
 import { actualsForStatusChange, capAtToday, isFutureDay, rollupParentActuals, rollupParents, toDateOnly } from '../lib/taskActuals.js';
 
 // ── Task Management — Tasks ──────────────────────────────────────────────────
@@ -155,7 +157,7 @@ router.get('/', (async (req, res) => {
     include: TASK_INCLUDE,
     orderBy: { sortOrder: 'asc' },
   });
-  res.json({ tasks });
+  res.json({ tasks: await attachDelayDays(tasks) });
 }) as RequestHandler);
 
 // ── GET /my — tasks assigned to the caller (or ?userId= for privileged view)
@@ -191,7 +193,7 @@ router.get('/my', (async (req, res) => {
     include: TASK_INCLUDE,
     orderBy: [{ status: 'asc' }, { dueDate: 'asc' }],
   });
-  res.json({ userId: targetUserId, tasks });
+  res.json({ userId: targetUserId, tasks: await attachDelayDays(tasks) });
 }) as RequestHandler);
 
 // ── GET /dashboard/summary — a PM-style tracking view: status/assignee/list
@@ -224,6 +226,7 @@ router.get('/dashboard/summary', (async (req, res) => {
       select: {
         id: true, status: true, priority: true, assigneeId: true, assigneeExternalName: true, taskListId: true,
         startDate: true, dueDate: true, createdAt: true, completedAt: true, actualStartDate: true, actualEndDate: true,
+        parentTaskId: true,
       },
     }),
     prisma.taskList.findMany({ where: { projectId }, select: { id: true, name: true, color: true } }),
@@ -317,6 +320,87 @@ router.get('/dashboard/summary', (async (req, res) => {
     }
   }
 
+  // ── Schedule variance (working days, no grace; parents take their worst subtask — see lib/taskVariance.ts) ──
+  const today = todayDateOnly();
+  const delay = delayByTask(allTasks, today);
+  const parentIds = new Set(allTasks.map((t) => t.parentTaskId).filter((x): x is string => !!x));
+  const leaves = allTasks.filter((t) => !parentIds.has(t.id)); // count work items once — never a parent and its subtasks
+  const verdicts = leaves.map((t) => ({ t, d: delay.get(t.id) ?? null })).filter((x): x is { t: (typeof leaves)[number]; d: number } => x.d !== null);
+  const lateOnes = verdicts.filter((x) => x.d > 0);
+  const variance = {
+    delayedCount: lateOnes.length,
+    delayedOpenCount: lateOnes.filter((x) => x.t.status !== 'DONE').length,
+    delayedDoneCount: lateOnes.filter((x) => x.t.status === 'DONE').length,
+    earlyCount: verdicts.filter((x) => x.d < 0).length,
+    onTimeCount: verdicts.filter((x) => x.d === 0).length,
+    // share of tasks with a verdict (finished, or open and already past their planned end) that are late
+    delayedRate: verdicts.length > 0 ? Math.round((lateOnes.length / verdicts.length) * 100) : null,
+    avgDelayDays: lateOnes.length > 0 ? Math.round((lateOnes.reduce((n, x) => n + x.d, 0) / lateOnes.length) * 10) / 10 : null,
+    maxDelayDays: lateOnes.length > 0 ? Math.max(...lateOnes.map((x) => x.d)) : null,
+  };
+
+  const refEnd = (t: (typeof leaves)[number]): Date | null => {
+    if (t.status === 'DONE') return t.actualEndDate;
+    if (!t.dueDate) return null;
+    return t.dueDate < today ? today : t.dueDate; // an open task that is past due is "still running" until today at least
+  };
+  const phaseRows = [...listMap.values()].map((l) => {
+    const ls = leaves.filter((t) => t.taskListId === l.taskListId);
+    const ds = ls.map((t) => delay.get(t.id) ?? null).filter((d): d is number => d !== null);
+    const planned = ls.map((t) => t.dueDate).filter((d): d is Date => !!d);
+    const forecast = ls.map(refEnd).filter((d): d is Date => !!d);
+    const plannedEnd = planned.length ? new Date(Math.max(...planned.map((d) => d.getTime()))) : null;
+    const forecastEnd = forecast.length ? new Date(Math.max(...forecast.map((d) => d.getTime()))) : null;
+    return {
+      taskListId: l.taskListId, name: l.name, color: l.color, total: ls.length,
+      delayedCount: ds.filter((d) => d > 0).length,
+      maxDelayDays: ds.length ? Math.max(...ds) : null, // the phase is as late as its latest task
+      plannedEnd, forecastEnd,
+    };
+  }).sort((a, b) => (b.maxDelayDays ?? -999) - (a.maxDelayDays ?? -999) || a.name.localeCompare(b.name));
+
+  // Cumulative tasks finished by week: planned (by due date) vs actual (by actual end).
+  const monday = (d: Date) => { const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())); x.setUTCDate(x.getUTCDate() - ((x.getUTCDay() + 6) % 7)); return x; };
+  const curve: { week: string; planned: number; actual: number | null }[] = [];
+  const dated = leaves.filter((t) => t.dueDate || (t.status === 'DONE' && t.actualEndDate));
+  if (dated.length > 0) {
+    const edges = dated.flatMap((t) => [t.dueDate, t.status === 'DONE' ? t.actualEndDate : null]).filter((d): d is Date => !!d);
+    const first = monday(new Date(Math.min(...edges.map((d) => d.getTime()))));
+    const last = monday(new Date(Math.max(today.getTime(), ...edges.map((d) => d.getTime()))));
+    const thisWeek = monday(today);
+    const weekIdx = (d: Date) => Math.round((monday(d).getTime() - first.getTime()) / (7 * 86_400_000));
+    const n = Math.min(Math.round((last.getTime() - first.getTime()) / (7 * 86_400_000)) + 1, 260);
+    const plannedBy = new Array(n).fill(0); const actualBy = new Array(n).fill(0);
+    for (const t of dated) {
+      if (t.dueDate) { const i = Math.min(weekIdx(t.dueDate), n - 1); plannedBy[i]++; }
+      if (t.status === 'DONE' && t.actualEndDate) { const i = Math.min(weekIdx(t.actualEndDate), n - 1); actualBy[i]++; }
+    }
+    let p = 0; let a = 0;
+    for (let i = 0; i < n; i++) {
+      p += plannedBy[i]; a += actualBy[i];
+      const wk = new Date(first.getTime() + i * 7 * 86_400_000);
+      curve.push({ week: wk.toISOString().slice(0, 10), planned: p, actual: wk.getTime() <= thisWeek.getTime() ? a : null });
+    }
+  }
+
+  const worstIds = [...lateOnes].sort((a, b) => b.d - a.d || (a.t.dueDate?.getTime() ?? 0) - (b.t.dueDate?.getTime() ?? 0)).slice(0, 15).map((x) => x.t.id);
+  const worstRows = worstIds.length ? await prisma.task.findMany({ where: { id: { in: worstIds } }, include: TASK_INCLUDE }) : [];
+  const worstOrdered = worstIds.map((id) => worstRows.find((r) => r.id === id)).filter((r): r is (typeof worstRows)[number] => !!r);
+  const worstDelayed = (await attachDelayDays(worstOrdered)).map((t) => ({ ...t, refEnd: t.status === 'DONE' ? t.actualEndDate : today }));
+
+  // Late tasks per person (finished late or still open and past due).
+  const lateByKey = new Map<string, { key: string; name: string; delayed: number; maxDelayDays: number }>();
+  const memberIds = [...new Set(lateOnes.map((x) => x.t.assigneeId).filter((x): x is string => !!x))];
+  const lateMembers = memberIds.length ? await prisma.projectMember.findMany({ where: { id: { in: memberIds } }, include: { user: { select: { name: true } } } }) : [];
+  const nameOfMember = new Map(lateMembers.map((m) => [m.id, m.user.name]));
+  for (const { t, d } of lateOnes) {
+    const key = t.assigneeId ?? (t.assigneeExternalName ? `ext:${t.assigneeExternalName}` : 'unassigned');
+    const name = t.assigneeId ? (nameOfMember.get(t.assigneeId) ?? 'Unknown') : (t.assigneeExternalName ?? 'Unassigned');
+    const row = lateByKey.get(key) ?? { key, name, delayed: 0, maxDelayDays: 0 };
+    row.delayed++; row.maxDelayDays = Math.max(row.maxDelayDays, d);
+    lateByKey.set(key, row);
+  }
+
   const overdueIdsSorted = allTasks
     .filter((t) => t.status !== 'DONE' && t.dueDate && t.dueDate < now)
     .sort((a, b) => a.dueDate!.getTime() - b.dueDate!.getTime())
@@ -345,6 +429,7 @@ router.get('/dashboard/summary', (async (req, res) => {
     priorityBreakdown,
     byAssignee: [...byAssigneeMap.values()].sort((a, b) => b.total - a.total),
     byTaskList,
+    variance: { ...variance, byTaskList: phaseRows, worst: worstDelayed, byAssignee: [...lateByKey.values()].sort((a, b) => b.delayed - a.delayed || b.maxDelayDays - a.maxDelayDays), curve },
   });
 }) as RequestHandler);
 
@@ -932,7 +1017,8 @@ router.get('/:taskId', (async (req, res) => {
     },
   });
   if (!task) return res.status(404).json({ error: 'Task not found' });
-  res.json({ task });
+  const [withDelay] = await attachDelayDays([task]);
+  res.json({ task: { ...withDelay, subtasks: await attachDelayDays(task.subtasks) } });
 }) as RequestHandler);
 
 // ── POST / — create a task (or subtask, if parentTaskId is given) ─────────

@@ -87,7 +87,8 @@ export default function TimelineBuilder() {
   const anyActual = useMemo(() => items.some(hasActual), [items]);
   // Rows hidden by hand (or 100% rows while "hide completed" is on, or rows with no actual dates in the Actual view) stay in the table but never reach the preview, thumbnails or exports.
   const shownItems = useMemo(() => items.filter((i) => shownOnTimeline(i, hideDone, dateView)), [items, hideDone, dateView]);
-  const layout = useMemo(() => layoutTimeline({ title: name, items: shownItems, lanes, config, dateView }), [name, shownItems, lanes, config, dateView]);
+  const showDelays = detail?.timeline.showDelays ?? true;
+  const layout = useMemo(() => layoutTimeline({ title: name, items: shownItems, lanes, config, dateView, showDelays }), [name, shownItems, lanes, config, dateView, showDelays]);
   useEffect(() => { if (pageIndex > layout.pages.length - 1) setPageIndex(Math.max(0, layout.pages.length - 1)); }, [layout, pageIndex]);
 
   function pickTemplate(id: string) {
@@ -191,6 +192,12 @@ export default function TimelineBuilder() {
                 >{label}</button>
               ))}
             </div>
+            {dateView !== 'BASELINE' && (
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--text-mid)', cursor: canManageTimelines ? 'pointer' : 'default' }} title="Red overrun on bars that finish (or are still running) past the planned end, and a +Nd / −Nd tag — working days">
+                <input type="checkbox" checked={showDelays} disabled={!canManageTimelines} onChange={(e) => actions.updateTimeline.mutate({ showDelays: e.target.checked }, { onError: () => toast.error('Could not change the setting') })} />
+                Highlight delays
+              </label>
+            )}
           </div>
         )}
         <div style={{ display: 'inline-flex', border: '1px solid var(--border2)', borderRadius: 8, overflow: 'hidden', marginLeft: anyActual || dateView !== 'BASELINE' ? 0 : 'auto' }}>

@@ -8,6 +8,7 @@ import { STATUS_LABEL, formatDueDate } from '../lib/taskMeta';
 import { PriorityBadge } from '../components/tasks/PriorityBadge';
 import { CalendarView } from '../components/tasks/CalendarView';
 import { TaskDetailPanel } from '../components/tasks/TaskDetailPanel';
+import { VarianceSection } from '../components/tasks/VarianceSection';
 import type { TaskListSummary, TaskAssigneeSummary, Task } from '../types';
 
 // ── Task Lists — one row per list (including empty ones), worst-behind
@@ -228,6 +229,8 @@ export default function TaskDashboard() {
                 <ResourceSummaryTable rows={data.byAssignee} />
               </div>
             </div>
+
+            {data.variance && <VarianceSection slug={slug!} v={data.variance} />}
 
             <div className="card" style={{ padding: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 12 }}>Overdue Tasks</div>

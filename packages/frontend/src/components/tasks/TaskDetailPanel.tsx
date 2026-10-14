@@ -8,6 +8,7 @@ import { useProjectStore } from '../../stores/projectStore';
 import { formatRelativeTime } from '../../lib/utils';
 import { parseTags, formatDueDate, isTaskOverdue } from '../../lib/taskMeta';
 import { TaskStatusPicker } from './TaskStatusPicker';
+import { DelayChip, delayTitle } from './DelayChip';
 import { PriorityPicker } from './PriorityPicker';
 import { AssigneePicker } from './AssigneePicker';
 import { TaskAvatar } from './TaskAvatar';
@@ -286,6 +287,16 @@ export function TaskDetailPanel({ projectId, taskId, onClose, onNavigateToTask }
               value={toDateInputValue(task.dueDate)}
               onChange={(e) => updateTask.mutate({ id: task.id, dueDate: e.target.value ? new Date(e.target.value).toISOString() : null })}
             />
+
+            {task.delayDays !== null && task.delayDays !== undefined && (
+              <>
+                <span style={{ color: 'var(--text-dim)' }} title="Working days vs the planned end — no grace period">Schedule</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <DelayChip days={task.delayDays} status={task.status} showZero />
+                  <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{delayTitle(task.delayDays, task.status)}{hasSubtasks ? ' (worst subtask)' : ''}</span>
+                </span>
+              </>
+            )}
 
             {/* Actuals: stamped when work starts / the task is marked Done, and editable (backdating). A parent's come from its subtasks. */}
             <span style={{ color: 'var(--text-dim)' }} title="Set automatically when work starts; edit to backdate">Actual start</span>

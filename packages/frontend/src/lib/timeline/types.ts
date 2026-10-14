@@ -29,6 +29,10 @@ export interface TLItem {
   actualEndDate?: string | null;
   /** Set only by applyDateView(): the planned dates drawn as a dashed outline behind the actual bar ("both" view). */
   baseline?: { startDate: string; endDate: string };
+  /** Set only by applyDateView(): draw the baseline as a dashed outline ("both" view). */
+  showGhost?: boolean;
+  /** Schedule variance in working days (+ late, − early, null = no verdict yet). A parent takes its worst subtask. */
+  delayDays?: number | null;
   sortOrder: number;
 }
 
@@ -157,7 +161,7 @@ export interface TimelineSummary {
 export interface TimelineDetail {
   timeline: {
     id: string; name: string; description: string | null; templateId: string | null;
-    styleOverrides: StyleOverrides; taskGranularity: 'TASKS' | 'SUBTASKS'; hideDone?: boolean; dateView?: 'BASELINE' | 'ACTUAL' | 'BOTH'; createdAt: string; updatedAt: string;
+    styleOverrides: StyleOverrides; taskGranularity: 'TASKS' | 'SUBTASKS'; hideDone?: boolean; dateView?: 'BASELINE' | 'ACTUAL' | 'BOTH'; showDelays?: boolean; createdAt: string; updatedAt: string;
   };
   template: { id: string; name: string; isActive: boolean; config: TemplateConfig } | null;
   swimlanes: TLLane[];

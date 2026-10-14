@@ -1,5 +1,7 @@
 import { prisma } from './prisma.js';
 import { parseDateOnly } from './timelineDates.js';
+import { ownDelay } from './taskVariance.js';
+import { todayDateOnly } from './taskActuals.js';
 
 // ── Timeline ⇄ Task Lists live link ─────────────────────────────────────────
 // A swimlane with taskListId set is *generated* from that Task List. We
@@ -39,6 +41,8 @@ export interface DesiredItem {
   /** Actuals of the task (parents: derived from their subtasks); null until work has started / finished. */
   actualStartDate: Date | null;
   actualEndDate: Date | null;
+  /** Working days late (+) / early (−) vs the planned end; null while there is no verdict. A parent takes its worst subtask. */
+  delayDays: number | null;
   percentComplete: number;
   assignee: string | null;
   sortOrder: number;
@@ -60,7 +64,7 @@ function ownSpan(t: TaskRow): Span | null {
 }
 
 /** Pure: Task rows of ONE list → the items its lane should contain. Exported for testing. */
-export function deriveItems(tasks: TaskRow[], laneId: string, granularity: Granularity): DesiredItem[] {
+export function deriveItems(tasks: TaskRow[], laneId: string, granularity: Granularity, today: Date = todayDateOnly()): DesiredItem[] {
   const kids = new Map<string, TaskRow[]>();
   const tops: TaskRow[] = [];
   const byId = new Set(tasks.map((t) => t.id));
@@ -71,13 +75,13 @@ export function deriveItems(tasks: TaskRow[], laneId: string, granularity: Granu
   }
 
   const out: DesiredItem[] = [];
-  const push = (t: TaskRow, span: Span, pct: number, actual: { start: Date | null; end: Date | null }) => {
+  const push = (t: TaskRow, span: Span, pct: number, actual: { start: Date | null; end: Date | null }, delayDays: number | null) => {
     const isMs = span.milestone;
     out.push({
       taskId: t.id, swimlaneId: laneId, title: t.title.slice(0, 200), type: isMs ? 'MILESTONE' : 'TASK',
       startDate: span.start, endDate: span.end, percentComplete: Math.round(pct), assignee: t.assigneeName, sortOrder: out.length,
       // A milestone has a single actual date: the day it was completed.
-      actualStartDate: isMs ? actual.end : actual.start, actualEndDate: actual.end,
+      actualStartDate: isMs ? actual.end : actual.start, actualEndDate: actual.end, delayDays,
     });
   };
 
@@ -86,7 +90,7 @@ export function deriveItems(tasks: TaskRow[], laneId: string, granularity: Granu
     if (granularity === 'SUBTASKS' && children.length > 0) {
       for (const c of children) {
         const sp = ownSpan(c);
-        if (sp) push(c, sp, statusPercent(c.status), { start: c.actualStartDate ? day(c.actualStartDate) : null, end: c.actualEndDate ? day(c.actualEndDate) : null });
+        if (sp) push(c, sp, statusPercent(c.status), { start: c.actualStartDate ? day(c.actualStartDate) : null, end: c.actualEndDate ? day(c.actualEndDate) : null }, ownDelay(c, today));
       }
       continue;
     }
@@ -119,7 +123,9 @@ export function deriveItems(tasks: TaskRow[], laneId: string, granularity: Granu
     } else {
       actual = { start: t.actualStartDate ? day(t.actualStartDate) : null, end: t.actualEndDate ? day(t.actualEndDate) : null };
     }
-    push(t, span, pct, actual);
+    const kidDelays = children.map((c) => ownDelay(c, today)).filter((d): d is number => d !== null);
+    const delayDays = kidDelays.length > 0 ? Math.max(...kidDelays) : ownDelay(t, today);
+    push(t, span, pct, actual, delayDays);
   }
   return out;
 }
@@ -186,14 +192,15 @@ export async function syncTimelineFromTasks(timelineId: string): Promise<boolean
       || cur.startDate.getTime() !== d.startDate.getTime() || cur.endDate.getTime() !== d.endDate.getTime()
       || cur.percentComplete !== d.percentComplete || (cur.assignee ?? null) !== d.assignee || cur.sortOrder !== d.sortOrder
       || (cur.actualStartDate?.getTime() ?? null) !== (d.actualStartDate?.getTime() ?? null)
-      || (cur.actualEndDate?.getTime() ?? null) !== (d.actualEndDate?.getTime() ?? null);
+      || (cur.actualEndDate?.getTime() ?? null) !== (d.actualEndDate?.getTime() ?? null)
+      || (cur.delayDays ?? null) !== d.delayDays;
     if (!changed) return [];
     return [prisma.timelineItem.update({
       where: { id: cur.id },
       data: {
         title: d.title, type: d.type, swimlaneId: d.swimlaneId, startDate: d.startDate, endDate: d.endDate,
         percentComplete: d.percentComplete, assignee: d.assignee, sortOrder: d.sortOrder,
-        actualStartDate: d.actualStartDate, actualEndDate: d.actualEndDate,
+        actualStartDate: d.actualStartDate, actualEndDate: d.actualEndDate, delayDays: d.delayDays,
         // marker/colour are the user's to keep — only reset the marker when the item switches kind (task ⇄ milestone)
         ...(cur.type !== d.type ? { marker: defaultMarker(d.type) } : {}),
       },
@@ -210,7 +217,7 @@ export async function syncTimelineFromTasks(timelineId: string): Promise<boolean
       data: toCreate.map((d) => ({
         timelineId, swimlaneId: d.swimlaneId, taskId: d.taskId, title: d.title, type: d.type, marker: defaultMarker(d.type),
         startDate: d.startDate, endDate: d.endDate, percentComplete: d.percentComplete, assignee: d.assignee, sortOrder: d.sortOrder,
-        actualStartDate: d.actualStartDate, actualEndDate: d.actualEndDate,
+        actualStartDate: d.actualStartDate, actualEndDate: d.actualEndDate, delayDays: d.delayDays,
       })),
     })] : []),
   ]);

@@ -7,19 +7,19 @@ import { todayYmd } from '../../lib/timeline/dates';
 import type { useTimelineEditor } from '../../hooks/useTimelines';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { MarkerIcon } from './MarkerIcon';
+import { DelayChip } from '../tasks/DelayChip';
 
 type Actions = ReturnType<typeof useTimelineEditor>;
 
-const COLS = '22px 26px minmax(180px,1fr) 62px 92px 128px 128px 62px 120px 28px 30px';
 // Actual-dates columns slot in after End (only when the timeline is showing actual dates).
-const gridCols = (compact: boolean, showActual: boolean) => {
-  if (!showActual) return compact ? COLS_COMPACT : COLS;
-  return compact
-    ? '18px 22px minmax(110px,1fr) 52px 66px 118px 118px 118px 118px 50px 26px 26px'
-    : '22px 26px minmax(180px,1fr) 62px 92px 128px 128px 128px 128px 62px 120px 28px 30px';
+const gridCols = (compact: boolean, showActual: boolean, showDelay: boolean) => {
+  const lead = compact ? ['18px', '22px', 'minmax(110px,1fr)'] : ['22px', '26px', 'minmax(180px,1fr)'];
+  const delay = showDelay ? [compact ? '48px' : '56px'] : []; // right after the title: the key signal stays in view
+  const dates = compact ? ['52px', '66px', '118px', '118px'] : ['62px', '92px', '128px', '128px'];
+  const act = showActual ? (compact ? ['118px', '118px'] : ['128px', '128px']) : [];
+  const tail = compact ? ['50px', '26px', '26px'] : ['62px', '120px', '28px', '30px'];
+  return [...lead, ...delay, ...dates, ...act, ...tail].join(' ');
 };
-// Narrow container (e.g. Split view): drop the Assigned-to column and tighten the rest so Start/End/% stay visible.
-const COLS_COMPACT = '18px 22px minmax(110px,1fr) 52px 66px 118px 118px 50px 26px 26px';
 const MARKER_LABEL: Record<string, string> = {
   pill: 'Template bar', bar: 'Square bar', chevron: 'Chevron',
   diamond: 'Diamond', flag: 'Flag', star: 'Star', circle: 'Circle', triangle: 'Triangle',
@@ -65,8 +65,8 @@ function ColorPicker({ value, onChange, swatches, autoLabel }: { value: string |
 }
 
 // ── Item row ────────────────────────────────────────────────────────────────
-function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, dateView, showActual, selected, checked, focusMe, dragging, dropTarget, a, onSelect, onCheck, onFocused, onDragStart, onDragEnd, onDragOver, onDrop }: {
-  item: TLItem; color: string; laneSwatches: string[]; canEdit: boolean; compact: boolean; hideDone: boolean; dateView: 'BASELINE' | 'ACTUAL' | 'BOTH'; showActual: boolean; selected: boolean; checked: boolean; focusMe: boolean;
+function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, dateView, showActual, showDelay, dragOk, selected, checked, focusMe, dragging, dropTarget, a, onSelect, onCheck, onFocused, onDragStart, onDragEnd, onDragOver, onDrop }: {
+  item: TLItem; color: string; laneSwatches: string[]; canEdit: boolean; compact: boolean; hideDone: boolean; dateView: 'BASELINE' | 'ACTUAL' | 'BOTH'; showActual: boolean; showDelay: boolean; dragOk: boolean; selected: boolean; checked: boolean; focusMe: boolean;
   dragging: boolean; dropTarget: boolean; a: Actions;
   onSelect: () => void; onCheck: (v: boolean) => void; onFocused: () => void;
   onDragStart: (e: React.DragEvent, row: HTMLElement | null) => void; onDragEnd: () => void;
@@ -102,14 +102,14 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, dateVi
       className="tl-row"
       title={linked ? 'Linked to a task — change title, dates, assignee and status in the Task List. % complete follows the task status (To Do 0 · In Progress 50 · In Review 75 · Done 100).' : undefined}
       style={{
-        display: 'grid', gridTemplateColumns: gridCols(compact, showActual), alignItems: 'center', gap: 4, padding: '2px 6px',
+        display: 'grid', gridTemplateColumns: gridCols(compact, showActual, showDelay), alignItems: 'center', gap: 4, padding: '2px 6px',
         borderBottom: '1px solid var(--border)', opacity: dragging ? 0.4 : offTimeline ? 0.5 : 1,
         background: selected ? 'var(--cyan-dim)' : checked ? 'var(--surface2)' : 'transparent',
         boxShadow: dropTarget ? 'inset 0 2px 0 var(--cyan)' : undefined,
       }}
     >
       <span
-        draggable={own}
+        draggable={own && dragOk}
         onDragStart={(e) => onDragStart(e, rowRef.current)}
         onDragEnd={onDragEnd}
         title={own ? 'Drag to reorder or move to another swimlane' : undefined}
@@ -130,6 +130,12 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, dateVi
           onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
         />
       ) : <Plain>{linked && <Link2 size={11} style={{ color: 'var(--cyan)', marginRight: 5, verticalAlign: -1 }} />}{item.title}</Plain>}
+
+      {showDelay && (
+        <div title="Working days vs the planned end (finished: actual end · open: days past due)">
+          {item.delayDays === null || item.delayDays === undefined ? <span style={{ opacity: 0.35, fontSize: 12, padding: '0 6px' }}>—</span> : <DelayChip days={item.delayDays} showZero compact />}
+        </div>
+      )}
 
       <div style={{ position: 'relative' }}>
         <button
@@ -231,6 +237,7 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, dateVi
         />
       ) : <Plain>{item.percentComplete}%</Plain>}
 
+
       {compact ? null : own ? (
         <input
           key={`a-${item.assignee ?? ''}`} defaultValue={item.assignee ?? ''} placeholder="Assign…" style={cellInput}
@@ -278,7 +285,7 @@ function MarkerOption({ type, marker, color, active, onPick }: { type: 'TASK' | 
 }
 
 // ── Grid ────────────────────────────────────────────────────────────────────
-export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, milestoneColor, selectedItemId, onSelectItem, actions: a, granularity, onGranularity, hideDone, dateView, onHideDone }: {
+export function TimelineGrid({ items: allItems, lanes, canEdit, lanePalette, taskColor, milestoneColor, selectedItemId, onSelectItem, actions: a, granularity, onGranularity, hideDone, dateView, onHideDone }: {
   items: TLItem[];
   lanes: TLLane[];
   canEdit: boolean;
@@ -299,6 +306,9 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
   onHideDone: (v: boolean) => void;
 }) {
   const showActual = dateView !== 'BASELINE';
+  const showDelay = allItems.some((i) => i.delayDays !== null && i.delayDays !== undefined);
+  const [delayedOnly, setDelayedOnly] = useState(false);
+  const items = useMemo(() => (delayedOnly ? allItems.filter((i) => (i.delayDays ?? 0) > 0) : allItems), [allItems, delayedOnly]);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [focusItemId, setFocusItemId] = useState<string | null>(null);
   const [focusLaneId, setFocusLaneId] = useState<string | null>(null);
@@ -398,7 +408,7 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
 
   const renderItems = (laneId: string | null) => (byLane.get(laneId) ?? []).map((it) => (
     <ItemRow
-      key={it.id} item={it} color={itemColor(it)} canEdit={canEdit} compact={compact} hideDone={hideDone} dateView={dateView} showActual={showActual}
+      key={it.id} item={it} color={itemColor(it)} canEdit={canEdit} compact={compact} hideDone={hideDone} dateView={dateView} showActual={showActual} showDelay={showDelay} dragOk={!delayedOnly}
       laneSwatches={lanePalette}
       selected={selectedItemId === it.id} checked={checked.has(it.id)} focusMe={focusItemId === it.id}
       dragging={dragId === it.id} dropTarget={overKey === `${laneId}:${it.id}`} a={a}
@@ -448,6 +458,12 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
             <Eye size={12} style={{ marginRight: 4, verticalAlign: -1 }} />Show {toShow.length} on timeline
           </button>
         )}
+        {showDelay && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-mid)', cursor: 'pointer' }} title="Show only rows that are late (table only — drag-reordering is off while this is on)">
+            <input type="checkbox" checked={delayedOnly} onChange={(e) => setDelayedOnly(e.target.checked)} />
+            Delayed only
+          </label>
+        )}
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-mid)', cursor: canEdit ? 'pointer' : 'default' }} title="Leave rows that are 100% complete off the timeline view and exports (they stay in this table)">
           <input type="checkbox" checked={hideDone} disabled={!canEdit} onChange={(e) => onHideDone(e.target.checked)} />
           Hide completed{doneCount > 0 ? ` (${doneCount})` : ''}
@@ -474,12 +490,12 @@ export function TimelineGrid({ items, lanes, canEdit, lanePalette, taskColor, mi
       )}
 
       <div ref={wrapRef} style={{ border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', overflowX: 'auto' }}>
-        <div style={{ minWidth: (compact ? 560 : 820) + (showActual ? 236 : 0) }}>
+        <div style={{ minWidth: (compact ? 560 : 820) + (showActual ? 236 : 0) + (showDelay ? 56 : 0) }}>
           {/* Header */}
-          <div style={{ display: 'grid', gridTemplateColumns: gridCols(compact, showActual), gap: 4, padding: '8px 6px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)', fontSize: 11.5, fontWeight: 700, color: 'var(--text-mid)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: gridCols(compact, showActual, showDelay), gap: 4, padding: '8px 6px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)', fontSize: 11.5, fontWeight: 700, color: 'var(--text-mid)' }}>
             <span />
             <input type="checkbox" checked={allChecked} onChange={(e) => setChecked(e.target.checked ? new Set(items.map((i) => i.id)) : new Set())} />
-            <span style={{ paddingLeft: 6 }}>Title</span><span>Type</span><span>{compact ? 'Days' : 'Duration'}</span><span>Start</span><span>End</span>{showActual && <><span>Actual start</span><span>Actual end</span></>}<span style={{ textAlign: 'right', paddingRight: 8 }}>%</span>{!compact && <span>Assigned to</span>}<span title="Show on the timeline"><Eye size={13} style={{ verticalAlign: -2, opacity: 0.6 }} /></span><span />
+            <span style={{ paddingLeft: 6 }}>Title</span>{showDelay && <span title="Working days late (+) or early (−) vs the planned end">Delay</span>}<span>Type</span><span>{compact ? 'Days' : 'Duration'}</span><span>Start</span><span>End</span>{showActual && <><span>Actual start</span><span>Actual end</span></>}<span style={{ textAlign: 'right', paddingRight: 8 }}>%</span>{!compact && <span>Assigned to</span>}<span title="Show on the timeline"><Eye size={13} style={{ verticalAlign: -2, opacity: 0.6 }} /></span><span />
           </div>
 
           {/* Ungrouped items sit above the first swimlane */}

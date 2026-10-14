@@ -628,6 +628,8 @@ model Timeline {
   hideDone        Boolean  @default(false)
   // Which dates the timeline draws: "BASELINE" (planned) · "ACTUAL" (actual only, items without actuals are left out) · "BOTH" (actual bar over a dashed baseline outline).
   dateView        String   @default("BASELINE")
+  // Draw delay cues (red overrun on the bar, +Nd tag) in the Actual / Both views.
+  showDelays      Boolean  @default(true)
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -681,6 +683,9 @@ model TimelineItem {
   // Actual dates — copied from the linked Task on every sync; editable only on items that are not task-linked.
   actualStartDate DateTime?
   actualEndDate   DateTime?
+  // Schedule variance in working days (+ late, − early, null = no verdict yet). Task-linked items: copied from the task on every sync
+  // (a parent takes its worst subtask); manual items: computed when read.
+  delayDays       Int?
   // true = kept in the table but left off the timeline view / exports. Survives task syncs (view-only setting).
   hidden          Boolean   @default(false)
   sortOrder       Int       @default(0)

@@ -24,7 +24,7 @@ export function TemplateThumb({ template, items, lanes, title, dateView, selecte
     const cfg = resolveConfig(template.config);
     const usable = items.length ? items : sampleTimeline().items;
     const usableLanes = items.length ? lanes : sampleTimeline().lanes;
-    const res = layoutTimeline({ title, items: usable.slice(0, THUMB_ITEM_CAP), lanes: usableLanes, config: cfg, dateView: items.length ? dateView : 'BASELINE' });
+    const res = layoutTimeline({ title, items: usable.slice(0, THUMB_ITEM_CAP), lanes: usableLanes, config: cfg, dateView: items.length ? dateView : 'BASELINE', showDelays: false });
     return pageToSvg(res.pages[0], cfg.font.family, { responsive: true });
   }, [template.config, items, lanes, title, dateView]);
 

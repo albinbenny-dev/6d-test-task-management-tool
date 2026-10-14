@@ -10,6 +10,8 @@ import { requireAdvancedFeatures } from '../middleware/rbac.js';
 import {
   addDays, endDateForDuration, parseDateOnly, toDateOnlyString, workingDaysBetween,
 } from '../lib/timelineDates.js';
+import { ownDelay } from '../lib/taskVariance.js';
+import { todayDateOnly } from '../lib/taskActuals.js';
 import { parseTimelineRows, validMarker, defaultMarker } from '../lib/timelineImport.js';
 import { StyleOverridesSchema, parseConfig } from '../lib/timelineTemplateConfig.js';
 import { syncTimelineFromTasks } from '../lib/timelineTaskSync.js';
@@ -44,6 +46,7 @@ const UpdateTimelineSchema = z.object({
   taskGranularity: z.enum(['TASKS', 'SUBTASKS']).optional(), // for lanes linked to Task Lists
   hideDone: z.boolean().optional(), // leave 100%-complete rows off the timeline view / exports
   dateView: z.enum(['BASELINE', 'ACTUAL', 'BOTH']).optional(), // which dates are drawn
+  showDelays: z.boolean().optional(), // delay cues (red overrun, +Nd tag) in the Actual / Both views
 });
 
 const SwimlaneCreateSchema = z.object({ name: z.string().min(1).max(100), color: hex.optional().nullable() });
@@ -89,6 +92,13 @@ const ReorderLanesSchema = z.object({ orderedIds: z.array(z.string()).min(1) });
 
 type ItemRow = Prisma.TimelineItemGetPayload<object>;
 
+// Variance of a manual (not task-linked) item: finished -> actual end vs planned end; unfinished and past its end -> overdue.
+// Computed on read so it keeps ageing. (Task-linked items carry the value copied from their task by the sync.)
+function manualDelay(i: ItemRow): number | null {
+  const done = !!i.actualEndDate || i.percentComplete >= 100;
+  return ownDelay({ status: done ? 'DONE' : 'OPEN', dueDate: i.endDate, actualEndDate: i.actualEndDate }, todayDateOnly());
+}
+
 function serializeItem(i: ItemRow) {
   return {
     id: i.id,
@@ -105,6 +115,7 @@ function serializeItem(i: ItemRow) {
     notes: i.notes,
     taskId: i.taskId, // set = generated from a Task (read-only here)
     hidden: i.hidden,
+    delayDays: i.taskId ? i.delayDays : manualDelay(i),
     actualStartDate: i.actualStartDate ? toDateOnlyString(i.actualStartDate) : null,
     actualEndDate: i.actualEndDate ? toDateOnlyString(i.actualEndDate) : null,
     sortOrder: i.sortOrder,
@@ -299,6 +310,7 @@ router.get('/:timelineId', (async (req, res) => {
       taskGranularity: timeline.taskGranularity,
       hideDone: timeline.hideDone,
       dateView: timeline.dateView,
+      showDelays: timeline.showDelays,
       createdAt: timeline.createdAt, updatedAt: timeline.updatedAt,
     },
     template: serializeTemplate(timeline.template),
@@ -355,7 +367,7 @@ router.post('/:timelineId/duplicate', requireAdvancedFeatures as RequestHandler,
     const t = await tx.timeline.create({
       data: {
         projectId: src.projectId, name: `${src.name} (copy)`.slice(0, 150), description: src.description,
-        templateId: src.templateId, styleOverrides: src.styleOverrides, taskGranularity: src.taskGranularity, hideDone: src.hideDone, dateView: src.dateView, createdByUserId: req.user.id,
+        templateId: src.templateId, styleOverrides: src.styleOverrides, taskGranularity: src.taskGranularity, hideDone: src.hideDone, dateView: src.dateView, showDelays: src.showDelays, createdByUserId: req.user.id,
       },
     });
     const laneMap = new Map<string, string>();
@@ -369,7 +381,7 @@ router.post('/:timelineId/duplicate', requireAdvancedFeatures as RequestHandler,
       data: src.items.map((i) => ({
         timelineId: t.id, swimlaneId: i.swimlaneId ? laneMap.get(i.swimlaneId) ?? null : null,
         title: i.title, type: i.type, marker: i.marker, color: i.color, startDate: i.startDate, endDate: i.endDate,
-        percentComplete: i.percentComplete, assignee: i.assignee, notes: i.notes, taskId: i.taskId, hidden: i.hidden, actualStartDate: i.actualStartDate, actualEndDate: i.actualEndDate, sortOrder: i.sortOrder,
+        percentComplete: i.percentComplete, assignee: i.assignee, notes: i.notes, taskId: i.taskId, hidden: i.hidden, actualStartDate: i.actualStartDate, actualEndDate: i.actualEndDate, delayDays: i.delayDays, sortOrder: i.sortOrder,
       })),
     });
     return t;

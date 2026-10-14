@@ -11,8 +11,12 @@ import { reminderTimeZone } from '../services/taskNotificationService.js';
 type Status = 'TO_DO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE';
 
 /** Today's calendar date in the reminder time zone (Asia/Kolkata by default), as UTC midnight. */
+const dayFormats = new Map<string, Intl.DateTimeFormat>();
 export function todayDateOnly(now: Date = new Date()): Date {
-  const key = new Intl.DateTimeFormat('en-CA', { timeZone: reminderTimeZone() }).format(now); // YYYY-MM-DD
+  const tz = reminderTimeZone();
+  let fmt = dayFormats.get(tz);
+  if (!fmt) { fmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz }); dayFormats.set(tz, fmt); }
+  const key = fmt.format(now); // YYYY-MM-DD
   return new Date(`${key}T00:00:00.000Z`);
 }
 

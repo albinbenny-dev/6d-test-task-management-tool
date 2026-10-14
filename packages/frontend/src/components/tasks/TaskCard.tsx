@@ -1,5 +1,6 @@
 import { PRIORITY_ACCENT, taskDotColor } from '../../lib/taskMeta';
 import { isTaskOverdue, formatDueDate, parseTags } from '../../lib/taskMeta';
+import { DelayChip } from './DelayChip';
 import { PriorityBadge } from './PriorityBadge';
 import { TaskAvatar, UnassignedAvatar } from './TaskAvatar';
 import type { Task } from '../../types';
@@ -72,7 +73,7 @@ export function TaskCard({
             : <UnassignedAvatar size={22} />}
         {task.dueDate && (
           <span className={`tm-due-chip${overdue ? ' overdue' : ''}`}>
-            {overdue ? '⏰' : '📅'} {formatDueDate(task.dueDate)}
+            {overdue ? '⏰' : '📅'} {formatDueDate(task.dueDate)} <DelayChip days={task.delayDays} status={task.status} compact />
           </span>
         )}
         <PriorityBadge priority={task.priority} />

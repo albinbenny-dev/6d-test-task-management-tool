@@ -14,7 +14,7 @@ import { CreateTaskModal } from '../components/tasks/CreateTaskModal';
 import { TaskListsSidebar } from '../components/tasks/TaskListsSidebar';
 import { ImportTasksModal } from '../components/tasks/ImportTasksModal';
 import { TaskFilterBar, emptyTaskFilters, type TaskFilterState } from '../components/tasks/TaskFilterBar';
-import { formatDueDate, parseTags, STATUS_LABEL, PRIORITY_LABEL, taskDueBucket } from '../lib/taskMeta';
+import { formatDueDate, parseTags, STATUS_LABEL, PRIORITY_LABEL, taskDueBucket, taskDelayBucket } from '../lib/taskMeta';
 import type { Task, TaskStatus } from '../types';
 
 function matchesMulti(selected: string[], value: string): boolean {
@@ -68,6 +68,7 @@ export default function TaskListDetail() {
       if (!matchesMulti(filters.priorityFilters, PRIORITY_LABEL[t.priority])) return false;
       if (!matchesMulti(filters.assigneeFilters, assigneeName(t))) return false;
       if (!matchesMulti(filters.dueFilters, taskDueBucket(t))) return false;
+      if (!matchesMulti(filters.delayFilters, taskDelayBucket(t))) return false;
       if (filters.tagFilters.length > 0) {
         const taskTags = parseTags(t.tags);
         if (!filters.tagFilters.some((tag) => taskTags.includes(tag))) return false;
