@@ -110,7 +110,7 @@ export function ImportTimelineModal({ projectId, hasData, actions, onClose }: {
               <div style={{ padding: 18, overflowY: 'auto' }}>
                 <p style={{ fontSize: 12, color: 'var(--text-mid)', marginTop: 0, lineHeight: 1.55 }}>
                   Needs a <b>Title</b> and a <b>Start</b> date, plus an <b>End</b> date or a <b>Duration</b> (working days). Optional: Type, Swimlane, Actual Start / Actual End, % Complete, Assigned To, Color, Marker.
-                  Exported from MS Project (<i>File → Save As → Excel</i>)? Upload it as is — its columns are recognised.
+                  Exported from MS Project (<i>File → Save As → Excel</i>)? Upload it as is — its columns are recognised, and <b>Outline Level</b> (if included) groups the tasks into swimlanes.
                 </p>
                 <div style={{ display: 'flex', gap: 14, fontSize: 12.5, margin: '12px 0' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>

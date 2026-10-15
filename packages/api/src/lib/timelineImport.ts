@@ -46,6 +46,8 @@ const ALIASES: Record<string, string[]> = {
   marker:   ['marker', 'shape', 'icon'],
   notes:    ['notes', 'note', 'description', 'comments', 'remarks'],
   summary:  ['summary', 'issummary'],
+  outline:  ['outlinelevel', 'wbslevel'],
+  active:   ['active'],
 };
 
 function normHeader(h: string): string {
@@ -85,6 +87,7 @@ export function parseDateCell(raw: unknown): Date | null {
   let s = String(raw).trim();
   if (!s) return null;
   s = s.replace(/^[A-Za-z]{3,9},?\s+(?=\d)/, ''); // MS Project: "Mon 01/06/26"
+  s = s.replace(/[\sT]+\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AaPp][Mm])?$/, ''); // MS Project: "21 May 2026 08:00" — only the day matters
 
   let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
   if (m) return utc(Number(m[1]), Number(m[2]), Number(m[3]));
@@ -160,6 +163,71 @@ export function validMarker(type: 'TASK' | 'MILESTONE', marker: string | null | 
   return list.includes(m) ? m : defaultMarker(type);
 }
 
+interface OutlinePlan {
+  /** Rows that are roll-ups of the rows beneath them — never imported as items (their sub-tasks are). */
+  summary: boolean[];
+  /** The swimlane each real task belongs to (its nearest summary ancestor at or above `laneLevel`). */
+  lane: (string | null)[];
+  laneLevel: number;
+  rootTitle: string | null;
+  foldedBelowLane: number;
+}
+
+/**
+ * Turns an MS Project outline into swimlanes. A row is a summary when the next row is indented deeper. A single
+ * top row (the project name) is dropped. Lanes come from the shallowest level that gives a useful handful of groups
+ * (4+ summaries), because making every summary a lane would produce dozens of one-task lanes in a deep plan.
+ * Null for a flat list (nothing to group).
+ */
+function planOutline(rows: Record<string, unknown>[], col: Record<string, string>): OutlinePlan | null {
+  const levels = rows.map((r) => { const n = parseInt(str(r[col.outline]), 10); return Number.isFinite(n) && n > 0 ? n : NaN; });
+  const titles = rows.map((r) => str(r[col.title]));
+  const valid = rows.map((_, i) => !!titles[i] && !isNaN(levels[i]));
+  if (valid.filter(Boolean).length < 2) return null;
+
+  const summary: boolean[] = rows.map(() => false);
+  let next = NaN;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (!valid[i]) continue;
+    summary[i] = !isNaN(next) && next > levels[i];
+    next = levels[i];
+  }
+
+  const minLevel = Math.min(...levels.filter((_, i) => valid[i]));
+  const roots = rows.map((_, i) => i).filter((i) => valid[i] && levels[i] === minLevel);
+  const rootIdx = roots.length === 1 && summary[roots[0]] ? roots[0] : -1;
+  const base = rootIdx >= 0 ? minLevel + 1 : minLevel;
+
+  const counts = new Map<number, number>();
+  rows.forEach((_, i) => {
+    if (valid[i] && summary[i] && i !== rootIdx && levels[i] >= base) counts.set(levels[i], (counts.get(levels[i]) ?? 0) + 1);
+  });
+  if (counts.size === 0) return null;
+  const sorted = [...counts.keys()].sort((a, b) => a - b);
+  const laneLevel = sorted.find((l) => (counts.get(l) ?? 0) >= 4)
+    ?? sorted.reduce((best, l) => ((counts.get(l) ?? 0) > (counts.get(best) ?? 0) ? l : best), sorted[0]);
+
+  const lane: (string | null)[] = rows.map(() => null);
+  const anc: (string | undefined)[] = [];
+  let foldedBelowLane = 0;
+  rows.forEach((_, i) => {
+    if (!valid[i]) return;
+    const lv = levels[i];
+    anc.length = lv; // forget ancestors at this depth and below
+    if (i === rootIdx) return;
+    if (summary[i]) {
+      anc[lv] = titles[i];
+      if (lv > laneLevel) foldedBelowLane++;
+      return;
+    }
+    for (let j = Math.min(lv - 1, laneLevel); j >= base; j--) {
+      if (anc[j]) { lane[i] = anc[j] as string; break; }
+    }
+  });
+
+  return { summary, lane, laneLevel, rootTitle: rootIdx >= 0 ? titles[rootIdx] : null, foldedBelowLane };
+}
+
 export function parseTimelineRows(rows: Record<string, unknown>[]): ParsedSheet {
   const result: ParsedSheet = { swimlanes: [], items: [], warnings: [], skippedEmpty: 0 };
   if (rows.length === 0) return result;
@@ -184,6 +252,9 @@ export function parseTimelineRows(rows: Record<string, unknown>[]): ParsedSheet 
   };
 
   let currentLane: string | null = null;
+  // MS Project outline (Outline Level column), unless the sheet already marks swimlanes itself with a Type column.
+  const plan = col.outline && !col.type ? planOutline(rows, col) : null;
+  let inactive = 0;
 
   rows.forEach((row, idx) => {
     const rowNo = idx + 2; // header is row 1
@@ -191,9 +262,11 @@ export function parseTimelineRows(rows: Record<string, unknown>[]): ParsedSheet 
 
     const title = str(get('title'));
     if (!title) { result.skippedEmpty++; return; }
+    if (col.active && /^(no|false|0)$/i.test(str(get('active')))) { inactive++; return; } // MS Project: inactive task
+    if (plan && plan.summary[idx]) return; // roll-up rows: their sub-tasks are what get imported
 
     const typeRaw = str(get('type')).toLowerCase();
-    const isLaneRow = /^(swimlane|lane|summary|group)$/.test(typeRaw) || (col.summary ? truthy(get('summary')) : false);
+    const isLaneRow = !plan && (/^(swimlane|lane|summary|group)$/.test(typeRaw) || (col.summary ? truthy(get('summary')) : false));
     if (isLaneRow) {
       const laneColorRaw = str(get('color'));
       ensureLane(title, /^#[0-9A-Fa-f]{6}$/.test(laneColorRaw) ? laneColorRaw : null);
@@ -202,7 +275,7 @@ export function parseTimelineRows(rows: Record<string, unknown>[]): ParsedSheet 
     }
 
     const explicitLane = str(get('swimlane'));
-    const laneName = explicitLane || currentLane;
+    const laneName = explicitLane || (plan ? plan.lane[idx] : currentLane);
     if (laneName) ensureLane(laneName);
 
     let start = parseDateCell(get('start'));
@@ -255,6 +328,15 @@ export function parseTimelineRows(rows: Record<string, unknown>[]): ParsedSheet 
       actualEndDate: actualEnd,
     });
   });
+
+  if (inactive > 0) result.warnings.push(`${inactive} inactive task${inactive === 1 ? '' : 's'} skipped.`);
+  if (plan) {
+    const parts = [`Grouped by outline level ${plan.laneLevel}: ${result.swimlanes.length} swimlane${result.swimlanes.length === 1 ? '' : 's'}.`];
+    const summaries = plan.summary.filter(Boolean).length - (plan.rootTitle !== null ? 1 : 0);
+    if (summaries > 0) parts.push(`${summaries} summary row${summaries === 1 ? '' : 's'} (roll-ups of their sub-tasks) were not imported as tasks.`);
+    if (plan.rootTitle) parts.push(`"${plan.rootTitle}" is the project root and was not imported.`);
+    result.warnings.push(parts.join(' '));
+  }
 
   return result;
 }

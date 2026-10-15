@@ -244,7 +244,7 @@ router.get('/import-template', (_req, res) => {
     ['• Actual Start / Actual End (optional) — when the work really started / finished. The timeline can draw them instead of, or on top of, the planned dates.'],
     ['• % Complete: 0–100.   Color: hex such as #2563AB.'],
     ['• Marker (optional) — tasks: pill, bar, chevron. Milestones: diamond, flag, star, circle, triangle.'],
-    ['• Exported from MS Project (File → Save As → Excel)? Upload it as is — Name, Start, Finish, Duration, % Complete, Resource Names and Summary columns are recognised.'],
+    ['• Exported from MS Project (File → Save As → Excel)? Upload it as is — Name, Start, Finish, Duration, % Complete, Resource Names, Summary, Outline Level and Active columns are recognised. Outline Level groups tasks into swimlanes (the level that gives a handful of groups); summary roll-up rows are not imported as tasks.'],
   ];
   const ws = xlsx.utils.json_to_sheet(samples, { header: headers });
   ws['!cols'] = [30, 12, 20, 13, 13, 10, 13, 13, 11, 18, 10, 10].map((w) => ({ wch: w }));
