@@ -102,7 +102,7 @@ function ItemRowImpl({ item, laneKey, color, laneSwatches, canEdit, compact, off
       onClick={() => onSelect(item.id)}
       onDragOver={(e) => onDragOver(e, laneKey, item.id)}
       onDrop={(e) => onDrop(e, laneKey, item.id)}
-      className="tl-row"
+      className={`tl-row${menu ? ' tl-row-open' : ''}`}
       title={linked ? 'Linked to a task — change title, dates, assignee and status in the Task List. % complete follows the task status (To Do 0 · In Progress 50 · In Review 75 · Done 100).' : undefined}
       style={{
         display: 'grid', gridTemplateColumns: gridCols(compact, showActual, showDelay), alignItems: 'center', gap: 4, padding: '2px 6px',
