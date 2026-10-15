@@ -26,6 +26,7 @@ export const TemplateConfigSchema = z.object({
     titleAlign: z.enum(['left', 'center']).default('left'),
     titleSize: z.number().min(12).max(60).default(26),
     titleColor: hex.default('#1F2937'),
+    fitOnePage: z.boolean().default(false),
   }).default({}),
   font: z.object({
     family: z.string().min(1).max(60).default('Calibri'),
@@ -65,6 +66,7 @@ export const TemplateConfigSchema = z.object({
     progressStyle: z.enum(['tint', 'shade']).default('tint'), // tint: lighter remainder, shade: darker completed part
     colorSource: z.enum(['lane', 'default']).default('lane'),
     notStartedColor: hex.optional(), // bars at 0% (unless they have their own colour)
+    trackColor: hex.optional(), // the not-yet-completed part of a bar with progress; unset = a lighter tint of the bar colour
     boldLabels: z.boolean().default(false),
   }).default({}),
   milestone: z.object({
@@ -78,6 +80,7 @@ export const TemplateConfigSchema = z.object({
     style: z.enum(['band', 'sidebar', 'header']).default('band'),
     labelWidth: z.number().min(60).max(300).default(130),
     bandOpacity: z.number().min(0).max(0.5).default(0.12),
+    bandColor: hex.optional(), // translucent band behind each lane; unset = the lane's own colour
     showLabels: z.boolean().default(true),
     border: z.enum(['none', 'dotted']).default('none'),
     rowMode: z.enum(['pack', 'single']).default('pack'), // pack: share rows when items do not overlap · single: one item per row, in grid order
@@ -100,6 +103,7 @@ export const StyleOverridesSchema = z.object({
   slide: z.object({
     size: z.enum(['16:9', '4:3']), background: hex, showTitle: z.boolean(),
     titleAlign: z.enum(['left', 'center']), titleSize: z.number().min(12).max(60), titleColor: hex,
+    fitOnePage: z.boolean(),
   }).partial().optional(),
   font: z.object({ family: z.string().min(1).max(60), baseSize: z.number().min(7).max(20) }).partial().optional(),
   palette: z.object({
@@ -116,7 +120,7 @@ export const StyleOverridesSchema = z.object({
     height: z.number().min(8).max(60), shape: z.enum(['pill', 'rounded', 'square']),
     labelPosition: z.enum(['inside', 'left', 'right', 'above']), showDates: z.boolean(), datesPlacement: z.enum(['inline', 'right']),
     showPercent: z.boolean(), percentInside: z.boolean(), progressStyle: z.enum(['tint', 'shade']),
-    colorSource: z.enum(['lane', 'default']), notStartedColor: hex, boldLabels: z.boolean(),
+    colorSource: z.enum(['lane', 'default']), notStartedColor: hex, trackColor: hex, boldLabels: z.boolean(),
   }).partial().optional(),
   milestone: z.object({
     size: z.number().min(8).max(48), labelPosition: z.enum(['below', 'above', 'right']),
@@ -124,7 +128,7 @@ export const StyleOverridesSchema = z.object({
   }).partial().optional(),
   swimlane: z.object({
     style: z.enum(['band', 'sidebar', 'header']), labelWidth: z.number().min(60).max(300),
-    bandOpacity: z.number().min(0).max(0.5), showLabels: z.boolean(), border: z.enum(['none', 'dotted']), rowMode: z.enum(['pack', 'single']),
+    bandOpacity: z.number().min(0).max(0.5), bandColor: hex, showLabels: z.boolean(), border: z.enum(['none', 'dotted']), rowMode: z.enum(['pack', 'single']),
   }).partial().optional(),
   table: z.object({
     labelWidth: z.number().min(120).max(420), showStart: z.boolean(), showEnd: z.boolean(),
@@ -264,6 +268,34 @@ export const BUILT_IN_TEMPLATES: BuiltIn[] = [
       },
       milestone: { size: 18, labelPosition: 'right', showDate: true, dateFormat: 'd MMM', railAboveAxis: true },
       swimlane: { style: 'sidebar', labelWidth: 135, bandOpacity: 0.06, border: 'none', showLabels: true, rowMode: 'single' },
+    },
+  },
+  {
+    key: 'roadmap-dark',
+    name: 'Roadmap Dark (Translucent Lanes)',
+    description: 'Dark navy slide with translucent swimlane bands, blue lane labels, steel-blue bars with a teal completed part and % inside, dates beyond each bar — for project-tracker slides.',
+    category: 'Roadmap',
+    sortOrder: 8,
+    config: {
+      layout: 'swimlane',
+      slide: { background: '#0F3278', showTitle: true, titleAlign: 'left', titleSize: 28, titleColor: '#FFFFFF' },
+      font: { family: 'Arial', baseSize: 10 },
+      palette: {
+        text: '#FFFFFF', muted: '#DCE6F5', grid: '#0F3278', accent: '#0070C0',
+        taskDefault: '#56AA9D', milestoneDefault: '#FFC000',
+        laneColors: ['#0070C0'],
+      },
+      axis: {
+        scale: 'fortnight', style: 'filled', fill: '#1F3763', minorFill: '#478CB7', textColor: '#FFFFFF', pastTint: 0.3,
+        yearLabels: true, yearColor: '#FFFFFF', todayColor: '#FFC000', gridlines: 'none', showToday: false,
+      },
+      task: {
+        height: 11, shape: 'rounded', labelPosition: 'left', showDates: true, datesPlacement: 'right',
+        showPercent: true, percentInside: true, progressStyle: 'tint', colorSource: 'default',
+        trackColor: '#84A7C7', boldLabels: true,
+      },
+      milestone: { size: 12, labelPosition: 'right', showDate: true, dateFormat: 'd MMM', railAboveAxis: true },
+      swimlane: { style: 'sidebar', labelWidth: 100, bandOpacity: 0.2, bandColor: '#A5A5A5', border: 'none', showLabels: true, rowMode: 'single' },
     },
   },
   {

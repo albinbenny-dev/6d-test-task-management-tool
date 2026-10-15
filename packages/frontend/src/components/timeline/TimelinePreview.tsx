@@ -42,7 +42,15 @@ export function TimelinePreview({ layout, fontFamily, pageIndex, onPageIndex, se
       )}
       {pageCount > 1 && (
         <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>
-          This plan is too long for one slide, so it is split across {pageCount} slides (lane headers repeat). The PowerPoint export includes all of them.
+          {layout.fitFailed
+            ? <>"Fit everything on one slide" is on, but this plan is too long to fit even at the smallest size, so it is split across {pageCount} slides. Hide completed rows or collapse lanes to shrink it.</>
+            : <>This plan is too long for one slide, so it is split across {pageCount} slides (lane headers repeat). The PowerPoint export includes all of them. Turn on "Fit everything on one slide" in the style settings to squeeze it onto one.</>}
+        </div>
+      )}
+      {layout.fitScale !== undefined && (
+        <div style={{ textAlign: 'center', fontSize: 11, color: layout.fitScale < 0.6 ? 'var(--amber)' : 'var(--text-dim)', marginTop: 4 }}>
+          Fitted onto one slide at {Math.round(layout.fitScale * 100)}% of normal size.
+          {layout.fitScale < 0.6 && ' Text is getting small — consider hiding completed rows or collapsing lanes.'}
         </div>
       )}
     </div>

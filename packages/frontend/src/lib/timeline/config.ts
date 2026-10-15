@@ -6,7 +6,7 @@ import type { StyleOverrides, TemplateConfig } from './types';
 export const DEFAULT_CONFIG: TemplateConfig = {
   version: 1,
   layout: 'gantt',
-  slide: { size: '16:9', background: '#FFFFFF', showTitle: true, titleAlign: 'left', titleSize: 26, titleColor: '#1F2937' },
+  slide: { size: '16:9', background: '#FFFFFF', showTitle: true, titleAlign: 'left', titleSize: 26, titleColor: '#1F2937', fitOnePage: false },
   font: { family: 'Calibri', baseSize: 11 },
   palette: {
     text: '#1F2937', muted: '#6B7280', grid: '#E5E7EB', accent: '#2563AB',

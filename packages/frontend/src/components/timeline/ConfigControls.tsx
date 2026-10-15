@@ -25,6 +25,7 @@ export const SECTIONS: Section[] = [
     fields: [
       { path: 'layout', label: 'Layout style', kind: 'select', options: [['gantt', 'Gantt — task table + bars'], ['swimlane', 'Swimlanes — bands per workstream'], ['milestone-line', 'Milestone line — one time line']] },
       { path: 'slide.size', label: 'Slide size', kind: 'select', options: [['16:9', 'Widescreen 16:9'], ['4:3', 'Standard 4:3']] },
+      { path: 'slide.fitOnePage', label: 'Fit everything on one slide', kind: 'toggle' },
       { path: 'slide.showTitle', label: 'Show title', kind: 'toggle' },
       { path: 'slide.titleAlign', label: 'Title alignment', kind: 'select', options: [['left', 'Left'], ['center', 'Centre']], when: (c) => c.slide.showTitle },
       { path: 'slide.titleSize', label: 'Title size (pt)', kind: 'number', min: 12, max: 60, when: (c) => c.slide.showTitle },
@@ -102,6 +103,8 @@ export const SECTIONS: Section[] = [
       { path: 'axis.minorFill', label: 'Axis lower tier', kind: 'color', optional: true, hint: 'Fill of the second axis row. Defaults to the axis header colour until changed.' },
       { path: 'axis.yearColor', label: 'Year labels', kind: 'color' },
       { path: 'task.notStartedColor', label: 'Not-started bars (0%)', kind: 'color', optional: true, hint: 'Colour for bars at 0% unless the item has its own colour.' },
+      { path: 'task.trackColor', label: 'Unfinished part of bars', kind: 'color', optional: true, hint: 'Colour of the not-yet-completed part of a bar that shows progress. Defaults to a lighter tint of the bar colour until changed.' },
+      { path: 'swimlane.bandColor', label: 'Swimlane band', kind: 'color', optional: true, hint: 'Colour of the translucent band behind each lane (strength = Band tint). Defaults to the lane colour until changed.' },
       { path: 'axis.textColor', label: 'Axis text (filled)', kind: 'color' },
       { path: 'axis.todayColor', label: 'Today marker', kind: 'color' },
       { path: 'palette.laneColors', label: 'Swimlane colours', kind: 'colors', hint: 'Lanes take these in order, unless a lane has its own colour.' },

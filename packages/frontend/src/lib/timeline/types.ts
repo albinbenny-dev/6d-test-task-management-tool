@@ -70,6 +70,8 @@ export interface TemplateConfig {
     titleAlign: 'left' | 'center';
     titleSize: number;
     titleColor: string;
+    /** Never split a long plan across slides: shrink it (uniformly) until it fits on one. */
+    fitOnePage: boolean;
   };
   font: { family: string; baseSize: number };
   palette: {
@@ -105,6 +107,8 @@ export interface TemplateConfig {
     colorSource: 'lane' | 'default';
     /** Colour for bars at 0% (unless the item has its own colour). */
     notStartedColor?: string;
+    /** Colour of the not-yet-completed part of a bar that shows progress; unset = a lighter tint of the bar colour. */
+    trackColor?: string;
     boldLabels: boolean;
   };
   milestone: {
@@ -119,6 +123,8 @@ export interface TemplateConfig {
     style: 'band' | 'sidebar' | 'header';
     labelWidth: number;
     bandOpacity: number;
+    /** Fill of the translucent band behind each lane; unset = the lane's own colour. Drawn at bandOpacity. */
+    bandColor?: string;
     showLabels: boolean;
     border: 'none' | 'dotted';
     /** pack: items share a row when they do not overlap · single: one item per row, in grid order. */
@@ -207,4 +213,8 @@ export interface LayoutResult {
   paginated: boolean;
   /** Time axis scale actually used (after 'auto' resolution). */
   scale: Exclude<AxisScale, 'auto'>;
+  /** Set when "fit on one slide" had to shrink the plan: 0–1, the fraction of normal size it was drawn at. */
+  fitScale?: number;
+  /** "Fit on one slide" is on but the plan is too long to fit even at the maximum shrink, so it is still split. */
+  fitFailed?: boolean;
 }

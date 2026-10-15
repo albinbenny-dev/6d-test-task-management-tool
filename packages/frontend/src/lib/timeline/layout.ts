@@ -162,8 +162,10 @@ function leftWidthFor(cfg: TemplateConfig, W: number): number {
 
 const YEAR_PAD = 46; // room for the big year labels at each end of the axis
 
-function buildFrame(cfg: TemplateConfig, items: TLItem[], titleShown: boolean, today: string, railH = 0): Frame {
-  const { w: W, h: H } = SLIDE_SIZE[cfg.slide.size];
+/** `k` > 1 lays the plan out on a virtual slide k× larger (same aspect ratio) — see layoutTimeline's fit-on-one-slide. */
+function buildFrame(cfg: TemplateConfig, items: TLItem[], titleShown: boolean, today: string, railH = 0, k = 1): Frame {
+  const W = SLIDE_SIZE[cfg.slide.size].w * k;
+  const H = SLIDE_SIZE[cfg.slide.size].h * k;
   const base = cfg.font.baseSize;
 
   let min: Date; let max: Date;
@@ -253,7 +255,7 @@ function drawTaskBar(out: Primitive[], ctx: Ctx, item: TLItem, cy: number, h: nu
   const tk = ctx.cfg.task;
   const showPct = tk.showPercent;
   const darker = tk.progressStyle === 'shade';
-  const track = darker ? color : tint(color, 0.55);
+  const track = tk.trackColor ?? (darker ? color : tint(color, 0.55));
   const done = darker ? shade(color, 0.38) : color;
   // With a darker "completed" style even a 100% bar shows its fill; the tint style leaves 100% solid.
   const split = showPct && (pct < 100 || darker);
@@ -757,7 +759,7 @@ function layoutGantt(ctx: Ctx, items: TLItem[]): LayoutPage[] {
       const y = fr.bodyTop + ri * rowH;
       const cy = y + rowH / 2;
       if (row.kind === 'lane') {
-        bgPrims.push({ kind: 'rect', x: fr.leftX, y: y + 1, w: fr.plotRight - fr.leftX, h: rowH - 2, rx: 3, fill: bandColor(row.color, ctx.bg, Math.max(0.15, cfg.swimlane.bandOpacity + 0.06)) });
+        bgPrims.push({ kind: 'rect', x: fr.leftX, y: y + 1, w: fr.plotRight - fr.leftX, h: rowH - 2, rx: 3, fill: bandColor(cfg.swimlane.bandColor ?? row.color, ctx.bg, Math.max(0.15, cfg.swimlane.bandOpacity + 0.06)) });
         bgPrims.push({ kind: 'rect', x: fr.leftX, y: y + 1, w: 5, h: rowH - 2, fill: row.color });
         const glyph = row.lane.collapsed ? '▸ ' : '';
         itemPrims.push({ kind: 'text', x: fr.leftX + 12, y, w: fr.plotRight - fr.leftX - 16, h: rowH, text: fitText(glyph + row.lane.name, fr.plotRight - fr.leftX - 20, textSize, ctx.fam, true), size: textSize, color: cfg.palette.text, bold: true, align: 'left' });
@@ -912,10 +914,10 @@ function layoutSwimlane(ctx: Ctx, items: TLItem[], rail?: RailResult): LayoutPag
       if (lane) {
         if (sw.style === 'header') {
           bgPrims.push({ kind: 'rect', x: fr.leftX, y, w: fr.plotRight - fr.leftX, h: headerStrip, fill: lc });
-          bgPrims.push({ kind: 'rect', x: fr.leftX, y: y + headerStrip, w: fr.plotRight - fr.leftX, h: h - headerStrip, fill: bandColor(lc, ctx.bg, sw.bandOpacity) });
+          bgPrims.push({ kind: 'rect', x: fr.leftX, y: y + headerStrip, w: fr.plotRight - fr.leftX, h: h - headerStrip, fill: bandColor(sw.bandColor ?? lc, ctx.bg, sw.bandOpacity) });
           itemPrims.push({ kind: 'text', x: fr.leftX + 8, y, w: fr.plotRight - fr.leftX - 16, h: headerStrip, text: fitText((lane.collapsed ? '▸ ' : '') + lane.name, fr.plotRight - fr.leftX - 20, base, ctx.fam, true), size: base, color: readableOn(lc), bold: true, align: 'left' });
         } else {
-          bgPrims.push({ kind: 'rect', x: fr.leftX, y, w: fr.plotRight - fr.leftX, h, fill: bandColor(lc, ctx.bg, sw.bandOpacity) });
+          bgPrims.push({ kind: 'rect', x: fr.leftX, y, w: fr.plotRight - fr.leftX, h, fill: bandColor(sw.bandColor ?? lc, ctx.bg, sw.bandOpacity) });
           if (sw.style === 'sidebar') {
             if (sw.showLabels) {
               bgPrims.push({ kind: 'rect', x: fr.leftX, y, w: fr.leftW - 4, h, fill: lc });
@@ -1105,7 +1107,7 @@ function layoutMilestoneLine(ctx: Ctx, items: TLItem[]): LayoutPage[] {
 
 // ── Entry point ─────────────────────────────────────────────────────────────
 
-export function layoutTimeline(input: LayoutInput): LayoutResult {
+function layoutOnce(input: LayoutInput, k: number): LayoutResult {
   const cfg = input.config;
   const today = input.today ?? todayYmd();
   const items = applyDateView(input.items, input.dateView ?? 'BASELINE', today)
@@ -1130,7 +1132,7 @@ export function layoutTimeline(input: LayoutInput): LayoutResult {
     tw: (text, size = base, bold = false) => measureText(text, size, fam, bold),
   });
 
-  let ctx = makeCtx(buildFrame(cfg, items, titleShown, today));
+  let ctx = makeCtx(buildFrame(cfg, items, titleShown, today, 0, k));
 
   // Milestone rail: needs the x-scale (independent of its height) to size itself, then the frame is rebuilt with that height reserved above the axis.
   let rail: RailResult | undefined;
@@ -1139,7 +1141,7 @@ export function layoutTimeline(input: LayoutInput): LayoutResult {
     const r = planRail(ctx, items.filter((i) => !i.swimlaneId || !known.has(i.swimlaneId)));
     if (r.height > 0) {
       rail = r;
-      ctx = makeCtx(buildFrame(cfg, items, titleShown, today, r.height));
+      ctx = makeCtx(buildFrame(cfg, items, titleShown, today, r.height, k));
     }
   }
 
@@ -1148,4 +1150,51 @@ export function layoutTimeline(input: LayoutInput): LayoutResult {
     : layoutGantt(ctx, items);
 
   return { pages, paginated: pages.length > 1, scale: ctx.fr.scale };
+}
+
+// ── Fit on one slide ────────────────────────────────────────────────────────
+// Rather than teach each layout to cram rows, a plan that would paginate is laid out on a larger
+// virtual slide of the same shape (so everything fits at normal proportions) and then scaled down
+// uniformly onto the real slide. The result is one page of ordinary primitives, so the preview and
+// the PPTX / PNG / SVG exports need no special handling. Text shrinks with it, hence the cap.
+
+const MAX_FIT_ZOOM_OUT = 4; // never below 25% — beyond that the text is unreadable anyway
+
+function scalePrimitive(p: Primitive, f: number): Primitive {
+  const opt = (key: string, v: number | undefined) => (v === undefined ? {} : { [key]: v * f });
+  switch (p.kind) {
+    case 'rect':
+      return { ...p, x: p.x * f, y: p.y * f, w: p.w * f, h: p.h * f, ...opt('rx', p.rx), ...opt('strokeWidth', p.strokeWidth), ...(p.dash ? { dash: p.dash.map((d) => d * f) } : {}) };
+    case 'shape':
+      return { ...p, x: p.x * f, y: p.y * f, w: p.w * f, h: p.h * f, ...opt('strokeWidth', p.strokeWidth) };
+    case 'poly':
+      return { ...p, points: p.points.map(([x, y]) => [x * f, y * f] as [number, number]), ...opt('strokeWidth', p.strokeWidth) };
+    case 'line':
+      return { ...p, x1: p.x1 * f, y1: p.y1 * f, x2: p.x2 * f, y2: p.y2 * f, width: p.width * f, ...(p.dash ? { dash: p.dash.map((d) => d * f) } : {}) };
+    case 'text':
+      return { ...p, x: p.x * f, y: p.y * f, w: p.w * f, h: p.h * f, size: p.size * f };
+  }
+}
+
+export function layoutTimeline(input: LayoutInput): LayoutResult {
+  const natural = layoutOnce(input, 1);
+  if (!input.config.slide.fitOnePage || natural.pages.length <= 1) return natural;
+
+  let hi = MAX_FIT_ZOOM_OUT;
+  let best = layoutOnce(input, hi);
+  if (best.pages.length > 1) return { ...natural, fitFailed: true };
+  let lo = 1;
+  for (let i = 0; i < 7; i++) { // smallest zoom-out that still fits (≈1.5% precision)
+    const mid = (lo + hi) / 2;
+    const r = layoutOnce(input, mid);
+    if (r.pages.length === 1) { hi = mid; best = r; } else lo = mid;
+  }
+  const f = 1 / hi;
+  const page = best.pages[0];
+  return {
+    pages: [{ width: page.width * f, height: page.height * f, primitives: page.primitives.map((p) => scalePrimitive(p, f)) }],
+    paginated: false,
+    scale: best.scale,
+    fitScale: f,
+  };
 }
