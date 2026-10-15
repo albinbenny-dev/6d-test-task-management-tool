@@ -85,6 +85,8 @@ export default function TimelineBuilder() {
   const hideDone = detail?.timeline.hideDone ?? false;
   const dateView: DateView = detail?.timeline.dateView ?? 'BASELINE';
   const anyActual = useMemo(() => items.some(hasActual), [items]);
+  // Anyone who can edit this timeline can always reach the Dates switch — without it a plan with no actuals yet could never get the Actual columns to type them into.
+  const showDatesToggle = canManageTimelines || anyActual || dateView !== 'BASELINE';
   // Rows hidden by hand (or 100% rows while "hide completed" is on, or rows with no actual dates in the Actual view) stay in the table but never reach the preview, thumbnails or exports.
   const shownItems = useMemo(() => items.filter((i) => shownOnTimeline(i, hideDone, dateView)), [items, hideDone, dateView]);
   const showDelays = detail?.timeline.showDelays ?? true;
@@ -192,8 +194,8 @@ export default function TimelineBuilder() {
           />
         ) : <h1 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>{name}</h1>}
 
-        {(anyActual || dateView !== 'BASELINE') && (
-          <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8 }} title="Which dates the timeline draws. Actual dates come from the tasks (start when work begins, end when marked Done).">
+        {showDatesToggle && (
+          <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8 }} title="Which dates the timeline draws. Actual dates come from the tasks (start when work begins, end when marked Done). To type actual start / end dates into rows here, choose Both (or Actual) — the Actual start / Actual end columns appear in the table.">
             <span style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>Dates</span>
             <div style={{ display: 'inline-flex', border: '1px solid var(--border2)', borderRadius: 8, overflow: 'hidden' }}>
               {([['BASELINE', 'Baseline'], ['ACTUAL', 'Actual'], ['BOTH', 'Both']] as [DateView, string][]).map(([k, label]) => (
@@ -212,7 +214,7 @@ export default function TimelineBuilder() {
             )}
           </div>
         )}
-        <div style={{ display: 'inline-flex', border: '1px solid var(--border2)', borderRadius: 8, overflow: 'hidden', marginLeft: anyActual || dateView !== 'BASELINE' ? 0 : 'auto' }}>
+        <div style={{ display: 'inline-flex', border: '1px solid var(--border2)', borderRadius: 8, overflow: 'hidden', marginLeft: showDatesToggle ? 0 : 'auto' }}>
           {([['data', 'Data'], ['split', 'Split'], ['timeline', 'Timeline']] as [ViewMode, string][]).map(([k, label]) => (
             <button key={k} onClick={() => setView(k)} style={{ padding: '6px 14px', fontSize: 12.5, fontWeight: 600, border: 'none', cursor: 'pointer', background: view === k ? 'var(--cyan)' : 'var(--surface)', color: view === k ? '#fff' : 'var(--text-mid)' }}>{label}</button>
           ))}
