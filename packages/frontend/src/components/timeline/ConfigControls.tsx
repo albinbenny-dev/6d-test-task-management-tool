@@ -118,7 +118,12 @@ export const SECTIONS: Section[] = [
     title: 'Text',
     fields: [
       { path: 'font.family', label: 'Font', kind: 'select', options: FONTS.map((f) => [f, f] as Opt), hint: 'PowerPoint falls back to a default if the viewer lacks the font.' },
-      { path: 'font.baseSize', label: 'Base size (pt)', kind: 'number', min: 7, max: 20 },
+      { path: 'font.baseSize', label: 'Base size (pt)', kind: 'number', min: 7, max: 20, hint: 'The starting size for all text. The sizes below override it for one area; 0 follows the base size.' },
+      { path: 'font.taskSize', label: 'Task labels (pt)', kind: 'number', min: 0, max: 30, hint: 'Task names and their date ranges. 0 = base size.' },
+      { path: 'font.laneSize', label: 'Lane labels (pt)', kind: 'number', min: 0, max: 30, when: (c) => c.layout !== 'milestone-line', hint: 'The swimlane names. 0 = base size.' },
+      { path: 'font.milestoneSize', label: 'Milestone labels (pt)', kind: 'number', min: 0, max: 30, hint: 'Milestone names and dates. 0 = base size.' },
+      { path: 'font.axisSize', label: 'Axis (pt)', kind: 'number', min: 0, max: 30, hint: 'Month and date labels on the time axis. 0 = base size − 1.' },
+      { path: 'font.percentSize', label: '% inside bars (pt)', kind: 'number', min: 0, max: 30, when: (c) => c.task.showPercent && c.task.percentInside, hint: '0 = automatic. Never larger than the bar height allows — raise Bar height to fit bigger text.' },
     ],
   },
 ];

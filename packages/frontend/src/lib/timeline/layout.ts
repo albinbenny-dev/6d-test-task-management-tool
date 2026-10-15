@@ -130,7 +130,10 @@ interface Ctx {
   fr: Frame;
   fam: string;
   base: number;
-  lineH: number;
+  /** Resolved text sizes (pt) per area: font.*Size, falling back to the base size. */
+  fs: { task: number; lane: number; axis: number; milestone: number; pct: number };
+  lineH: number;      // line height for task / milestone text
+  laneLineH: number;  // line height for lane labels
   bg: string;
   title: string;
   today: string;
@@ -182,7 +185,7 @@ function buildFrame(cfg: TemplateConfig, items: TLItem[], titleShown: boolean, t
   const range = snapRange(min, max, scale);
   const { minor, major } = buildTicks(range, scale, cfg.axis.yearLabels);
 
-  const tierH = base + 9;
+  const tierH = (cfg.font.axisSize || base - 1) + 10;
   const axisH = major.length ? tierH * 2 : tierH;
   const titleH = titleShown ? cfg.slide.titleSize * 1.3 + 10 : 0;
 
@@ -246,6 +249,11 @@ function starPoints(cx: number, cy: number, r: number): [number, number][] {
 
 function pctLabel(item: TLItem): string {
   return item.percentComplete > 0 ? `${item.percentComplete}%` : '';
+}
+
+/** Size of the "% inside the bar" text: the setting (kept within the bar), else automatic from the base size and bar height. */
+function pctFontSize(ctx: Ctx, barH: number): number {
+  return ctx.fs.pct > 0 ? Math.max(5, Math.min(ctx.fs.pct, barH - 2)) : Math.max(7, Math.min(ctx.base - 1, barH - 4));
 }
 
 /** Draws the task bar (with progress) and returns its horizontal extent. */
@@ -313,7 +321,7 @@ function drawTaskBar(out: Primitive[], ctx: Ctx, item: TLItem, cy: number, h: nu
   // "60%" inside the bar: right-aligned at the end of the completed part (or after it if that part is too short).
   if (showPct && tk.percentInside && w >= PCT_INSIDE_MIN_W) {
     const txt = `${pct}%`;
-    const size = Math.max(7, Math.min(ctx.base - 1, h - 4));
+    const size = pctFontSize(ctx, h);
     const tw = ctx.tw(txt, size);
     const fillEnd = x0 + (pct > 0 ? (item.marker === 'chevron' ? (w * pct) / 100 : fillW) : 0);
     const doneBg = pct > 0 ? (split ? done : color) : track;
@@ -423,7 +431,7 @@ function planItem(ctx: Ctx, item: TLItem): Plan {
     const date = cfg.milestone.showDate ? formatDate(item.startDate, cfg.milestone.dateFormat) : '';
     let side: LabelSide = cfg.milestone.labelPosition;
     let lines = side === 'right' ? [date ? `${item.title}  ${date}` : item.title] : [item.title, ...(date ? [date] : [])];
-    let lw = Math.max(...lines.map((l) => ctx.tw(l)));
+    let lw = Math.max(...lines.map((l) => ctx.tw(l, ctx.fs.milestone)));
     let left: number; let right: number; let dateLast = false;
     if (side === 'right') {
       if (cx + size / 2 + gap + lw > fr.plotRight) { side = 'left'; }
@@ -433,10 +441,10 @@ function planItem(ctx: Ctx, item: TLItem): Plan {
     else {
       // Long titles wrap to two lines rather than being cut short; the date stays on its own line.
       lw = Math.min(lw, 180);
-      const titleLines = wrapLines(item.title, lw, ctx.base, ctx, 2);
+      const titleLines = wrapLines(item.title, lw, ctx.fs.milestone, ctx, 2);
       lines = [...titleLines, ...(date ? [date] : [])];
       dateLast = !!date;
-      lw = Math.max(...titleLines.map((l) => ctx.tw(l, ctx.base, true)), date ? ctx.tw(date, Math.max(7, ctx.base - 2)) : 0);
+      lw = Math.max(...titleLines.map((l) => ctx.tw(l, ctx.fs.milestone, true)), date ? ctx.tw(date, Math.max(7, ctx.fs.milestone - 2)) : 0);
       // Same box drawPlan uses (centred on the marker but kept inside the plot), so packing matches what is drawn.
       const boxW = Math.max(lw, size) + 6;
       left = Math.max(fr.plotX - 4, Math.min(cx - boxW / 2, fr.plotRight - boxW + 4));
@@ -456,7 +464,7 @@ function planItem(ctx: Ctx, item: TLItem): Plan {
   }
   const lines = taskLabelText(ctx, item, x1 - x0);
   const bold = cfg.task.boldLabels;
-  const lw = Math.max(...lines.map((l) => ctx.tw(l, ctx.base, bold)));
+  const lw = Math.max(...lines.map((l) => ctx.tw(l, ctx.fs.task, bold)));
   let side: LabelSide = cfg.task.labelPosition;
   if (side === 'inside' && lw + 10 > x1 - x0) side = u1 + gap + lw <= fr.plotRight ? 'right' : 'left';
   if (side === 'right' && u1 + gap + lw > fr.plotRight) side = 'left';
@@ -478,7 +486,7 @@ function planItem(ctx: Ctx, item: TLItem): Plan {
   let dates: string | undefined; let dw: number | undefined;
   if (cfg.task.showDates && cfg.task.datesPlacement === 'right' && cfg.task.labelPosition !== 'above') {
     const text = taskDatesText(ctx, item);
-    const w = ctx.tw(text);
+    const w = ctx.tw(text, ctx.fs.task);
     const startX = side === 'right' ? u1 + gap + lw + 8 : u1 + gap;
     let datesAt: Plan['datesAt'];
     if (startX + w <= fr.plotRight) { dates = text; dw = w; datesAt = 'right'; right = Math.max(right, startX + w); }
@@ -487,7 +495,7 @@ function planItem(ctx: Ctx, item: TLItem): Plan {
       const pct = Math.max(0, Math.min(100, item.percentComplete));
       const barW = x1 - x0;
       const fillEnd = x0 + (pct <= 0 ? 0 : pct >= 100 ? barW : Math.max((barW * pct) / 100, Math.min(barW, cfg.task.height)));
-      const pctW = cfg.task.showPercent && cfg.task.percentInside ? ctx.tw('100%', Math.max(7, Math.min(ctx.base - 1, cfg.task.height - 4))) + 12 : 0;
+      const pctW = cfg.task.showPercent && cfg.task.percentInside ? ctx.tw('100%', pctFontSize(ctx, cfg.task.height)) + 12 : 0;
       const titleEnd = side === 'inside' ? x0 + 6 + lw + 10 : x0;
       const free = Math.max(fillEnd, x0 + pctW, titleEnd);
       if (item.marker !== 'chevron' && x1 - 8 - w >= free + 6) { dates = text; dw = w; datesAt = 'in'; }
@@ -540,7 +548,9 @@ function pack(plans: Plan[]): number[] {
 
 /** Emits the shape + label for a planned item, vertically centred on `cy`. */
 function drawPlan(out: Primitive[], ctx: Ctx, p: Plan, cy: number, shapeH: number, barH?: number) {
-  const { cfg, base } = ctx;
+  const { cfg } = ctx;
+  const tsz = ctx.fs.task;
+  const msz = ctx.fs.milestone;
   const lh = ctx.lineH;
   const id = p.item.id;
   const lineBlock = p.lines.length * lh;
@@ -552,7 +562,7 @@ function drawPlan(out: Primitive[], ctx: Ctx, p: Plan, cy: number, shapeH: numbe
     if (p.side === 'right' || p.side === 'left') {
       const w = p.lw + 4;
       const x = p.side === 'right' ? p.cx + size / 2 + 4 : p.cx - size / 2 - 4 - w;
-      out.push({ kind: 'text', x, y: cy - lh / 2, w, h: lh, text: p.lines[0], size: base, color: textColor, align: p.side === 'right' ? 'left' : 'right', itemId: id });
+      out.push({ kind: 'text', x, y: cy - lh / 2, w, h: lh, text: p.lines[0], size: msz, color: textColor, align: p.side === 'right' ? 'left' : 'right', itemId: id });
     } else {
       const w = Math.max(p.lw, size) + 6;
       let x = p.cx - w / 2;
@@ -560,7 +570,7 @@ function drawPlan(out: Primitive[], ctx: Ctx, p: Plan, cy: number, shapeH: numbe
       const y = p.side === 'below' ? cy + shapeH / 2 + 2 : cy - shapeH / 2 - 2 - lineBlock;
       p.lines.forEach((line, i) => {
         const isDate = !!p.dateLast && i === p.lines.length - 1;
-        out.push({ kind: 'text', x, y: y + i * lh, w, h: lh, text: line, size: isDate ? Math.max(7, base - 2) : base, color: isDate ? cfg.palette.muted : textColor, bold: false, align: 'center', itemId: id });
+        out.push({ kind: 'text', x, y: y + i * lh, w, h: lh, text: line, size: isDate ? Math.max(7, msz - 2) : msz, color: isDate ? cfg.palette.muted : textColor, bold: false, align: 'center', itemId: id });
       });
     }
     if (p.tag) drawDelayTag(out, ctx, p.item, p.tag.x, cy);
@@ -576,12 +586,12 @@ function drawPlan(out: Primitive[], ctx: Ctx, p: Plan, cy: number, shapeH: numbe
     if (p.datesAt === 'in') {
       const darker = cfg.task.progressStyle === 'shade';
       const track = darker ? p.color : tint(p.color, 0.55);
-      out.push({ kind: 'text', x: bar.x1 - 8 - p.dw - 2, y: cy - lh / 2, w: p.dw + 4, h: lh, text: p.dates, size: Math.max(7, Math.min(base, cfg.task.height - 4)), color: readableOn(track), align: 'right', itemId: id });
+      out.push({ kind: 'text', x: bar.x1 - 8 - p.dw - 2, y: cy - lh / 2, w: p.dw + 4, h: lh, text: p.dates, size: Math.max(7, Math.min(tsz, h - 4)), color: readableOn(track), align: 'right', itemId: id });
     } else if (p.datesAt === 'left') {
-      out.push({ kind: 'text', x: lx0 - 4 - p.lw - 4 - 8 - p.dw - 2, y: cy - lh / 2, w: p.dw + 4, h: lh, text: p.dates, size: base, color: cfg.palette.muted, align: 'right', itemId: id });
+      out.push({ kind: 'text', x: lx0 - 4 - p.lw - 4 - 8 - p.dw - 2, y: cy - lh / 2, w: p.dw + 4, h: lh, text: p.dates, size: tsz, color: cfg.palette.muted, align: 'right', itemId: id });
     } else {
       const x = p.side === 'right' ? lx1 + 4 + p.lw + 8 : lx1 + 4;
-      out.push({ kind: 'text', x, y: cy - lh / 2, w: p.dw + 4, h: lh, text: p.dates, size: base, color: cfg.palette.muted, align: 'left', itemId: id });
+      out.push({ kind: 'text', x, y: cy - lh / 2, w: p.dw + 4, h: lh, text: p.dates, size: tsz, color: cfg.palette.muted, align: 'left', itemId: id });
     }
   }
   if (p.side === 'inside') {
@@ -592,16 +602,16 @@ function drawPlan(out: Primitive[], ctx: Ctx, p: Plan, cy: number, shapeH: numbe
     const doneBg = cfg.task.progressStyle === 'shade' && showPct ? shade(p.color, 0.38) : p.color;
     const trackBg = cfg.task.progressStyle === 'shade' ? p.color : tint(p.color, 0.55);
     const fg = readableOn(solid ? doneBg : trackBg);
-    out.push({ kind: 'text', x: bar.x0 + 6, y: cy - lh / 2, w: Math.max(0, bar.w - 8), h: lh, text: fitText(p.lines[0], bar.w - 10, base, ctx.fam, bold), size: Math.min(base, Math.max(7, h - 4)), color: fg, bold, align: 'left', itemId: id });
+    out.push({ kind: 'text', x: bar.x0 + 6, y: cy - lh / 2, w: Math.max(0, bar.w - 8), h: lh, text: fitText(p.lines[0], bar.w - 10, tsz, ctx.fam, bold), size: Math.min(tsz, Math.max(7, h - 4)), color: fg, bold, align: 'left', itemId: id });
   } else if (p.side === 'right') {
-    out.push({ kind: 'text', x: lx1 + 4, y: cy - lh / 2, w: p.lw + 4, h: lh, text: p.lines[0], size: base, color: cfg.palette.text, bold, align: 'left', itemId: id });
+    out.push({ kind: 'text', x: lx1 + 4, y: cy - lh / 2, w: p.lw + 4, h: lh, text: p.lines[0], size: tsz, color: cfg.palette.text, bold, align: 'left', itemId: id });
   } else if (p.side === 'left') {
     const w = p.lw + 4;
-    out.push({ kind: 'text', x: lx0 - 4 - w, y: cy - lh / 2, w, h: lh, text: p.lines[0], size: base, color: cfg.palette.text, bold, align: 'right', itemId: id });
+    out.push({ kind: 'text', x: lx0 - 4 - w, y: cy - lh / 2, w, h: lh, text: p.lines[0], size: tsz, color: cfg.palette.text, bold, align: 'right', itemId: id });
   } else {
     const y = cy - h / 2 - 1 - lineBlock;
     p.lines.forEach((line, i) => {
-      out.push({ kind: 'text', x: p.aboveX ?? bar.x0, y: y + i * lh, w: Math.max(p.lw, bar.w) + 6, h: lh, text: line, size: i === 0 ? base : Math.max(7, base - 2), color: i === 0 ? cfg.palette.text : cfg.palette.muted, align: 'left', itemId: id });
+      out.push({ kind: 'text', x: p.aboveX ?? bar.x0, y: y + i * lh, w: Math.max(p.lw, bar.w) + 6, h: lh, text: line, size: i === 0 ? tsz : Math.max(7, tsz - 2), color: i === 0 ? cfg.palette.text : cfg.palette.muted, align: 'left', itemId: id });
     });
   }
 }
@@ -635,7 +645,8 @@ function gridlines(ctx: Ctx, bottom: number): Primitive[] {
 }
 
 function chromeAfter(ctx: Ctx, bottom: number): Primitive[] {
-  const { cfg, fr, base } = ctx;
+  const { cfg, fr } = ctx;
+  const axs = ctx.fs.axis;
   const out: Primitive[] = [];
 
   // Today marker
@@ -643,10 +654,10 @@ function chromeAfter(ctx: Ctx, bottom: number): Primitive[] {
   if (cfg.axis.showToday && t >= fr.range.start && t < fr.range.end) {
     const x = ctx.x(t) + (fr.plotW / fr.totalDays) / 2;
     out.push({ kind: 'line', x1: x, y1: fr.bodyTop, x2: x, y2: bottom, color: cfg.axis.todayColor, width: 1.25, dash: [4, 3] });
-    const tagW = ctx.tw('Today', Math.max(7, base - 2), true) + 10;
+    const tagW = ctx.tw('Today', Math.max(7, axs - 1), true) + 10;
     const tagY = cfg.axis.position === 'top' ? fr.bodyTop : bottom - 13;
     out.push({ kind: 'rect', x: x - tagW / 2, y: tagY, w: tagW, h: 13, rx: 3, fill: cfg.axis.todayColor });
-    out.push({ kind: 'text', x: x - tagW / 2, y: tagY, w: tagW, h: 13, text: 'Today', size: Math.max(7, base - 2), color: readableOn(cfg.axis.todayColor), bold: true, align: 'center' });
+    out.push({ kind: 'text', x: x - tagW / 2, y: tagY, w: tagW, h: 13, text: 'Today', size: Math.max(7, axs - 1), color: readableOn(cfg.axis.todayColor), bold: true, align: 'center' });
   }
 
   // Axis
@@ -675,10 +686,10 @@ function chromeAfter(ctx: Ctx, bottom: number): Primitive[] {
       const w = x1 - x0;
       if (i > 0) out.push({ kind: 'line', x1: x0, y1: y + 2, x2: x0, y2: y + fr.tierH - 2, color: sep, width: 0.75 });
       let label = tk.label;
-      if (tk.short && ctx.tw(label, base - 1) > w - 4) label = tk.short;
-      if (ctx.tw(label, base - 1) > w - 4) label = fitText(label, w - 4, base - 1, ctx.fam);
+      if (tk.short && ctx.tw(label, axs) > w - 4) label = tk.short;
+      if (ctx.tw(label, axs) > w - 4) label = fitText(label, w - 4, axs, ctx.fam);
       if (label.length > 0 && !(label.endsWith('…') && label.length <= 2)) {
-        out.push({ kind: 'text', x: x0, y, w, h: fr.tierH, text: label, size: base - 1, color: textColor, bold: ti === 0 && fr.major.length > 0, align: 'center' });
+        out.push({ kind: 'text', x: x0, y, w, h: fr.tierH, text: label, size: axs, color: textColor, bold: ti === 0 && fr.major.length > 0, align: 'center' });
       }
     });
   });
@@ -694,7 +705,7 @@ function chromeAfter(ctx: Ctx, bottom: number): Primitive[] {
     }
   }
   if (cfg.axis.yearLabels) {
-    const size = base + 8;
+    const size = axs + 9;
     const y1 = addDays(fr.range.end, -1).getUTCFullYear();
     out.push({ kind: 'text', x: fr.leftX, y: fr.axisY, w: fr.plotX - 6 - fr.leftX, h: fr.axisH, text: String(fr.range.start.getUTCFullYear()), size, color: cfg.axis.yearColor, bold: true, align: 'right' });
     out.push({ kind: 'text', x: fr.plotRight + 6, y: fr.axisY, w: YEAR_PAD - 6, h: fr.axisH, text: String(y1), size, color: cfg.axis.yearColor, bold: true, align: 'left' });
@@ -766,7 +777,7 @@ function paginateRows(rows: GRow[], capacity: number, laneOf: (r: GRow) => TLLan
 }
 
 function layoutGantt(ctx: Ctx, items: TLItem[]): LayoutPage[] {
-  const { cfg, fr, base } = ctx;
+  const { cfg, fr, fs } = ctx;
   const cols = ganttColumns(cfg, fr.W);
   const rows = ganttRows(ctx, items);
   const bodyH = fr.bodyBottom - fr.bodyTop;
@@ -777,17 +788,17 @@ function layoutGantt(ctx: Ctx, items: TLItem[]): LayoutPage[] {
 
   return pages.map((pageRows, pi) => {
     const rowH = Math.max(MIN_ROW_H, Math.min(ideal, bodyH / Math.max(1, pageRows.length)));
-    const textSize = Math.min(base, Math.max(7, rowH * 0.62));
+    const textSize = Math.min(fs.task, Math.max(7, rowH * 0.62));
     const bgPrims: Primitive[] = [];
     const itemPrims: Primitive[] = [];
 
     // Table header aligned with the axis
     if (cfg.axis.position === 'top') {
       bgPrims.push({ kind: 'rect', x: fr.leftX, y: fr.axisY, w: fr.leftW - 4, h: fr.axisH, fill: bandColor(cfg.palette.accent, ctx.bg, 0.1) });
-      bgPrims.push({ kind: 'text', x: fr.leftX + 8, y: fr.axisY, w: cols.titleW - 10, h: fr.axisH, text: 'Task', size: base - 1, color: cfg.palette.muted, bold: true, align: 'left' });
+      bgPrims.push({ kind: 'text', x: fr.leftX + 8, y: fr.axisY, w: cols.titleW - 10, h: fr.axisH, text: 'Task', size: fs.axis, color: cfg.palette.muted, bold: true, align: 'left' });
       let cx = fr.leftX + cols.titleW;
       cols.extras.forEach((c) => {
-        bgPrims.push({ kind: 'text', x: cx, y: fr.axisY, w: c.w, h: fr.axisH, text: c.label, size: base - 1, color: cfg.palette.muted, bold: true, align: 'center' });
+        bgPrims.push({ kind: 'text', x: cx, y: fr.axisY, w: c.w, h: fr.axisH, text: c.label, size: fs.axis, color: cfg.palette.muted, bold: true, align: 'center' });
         cx += c.w;
       });
     }
@@ -879,7 +890,9 @@ interface Band {
 }
 
 function layoutSwimlane(ctx: Ctx, items: TLItem[], rail?: RailResult): LayoutPage[] {
-  const { cfg, fr, base, lineH } = ctx;
+  const { cfg, fr, lineH } = ctx;
+  const lsz = ctx.fs.lane;
+  const laneLH = ctx.laneLineH;
   const sw = cfg.swimlane;
   const known = new Set(ctx.lanes.map((l) => l.id));
 
@@ -906,7 +919,7 @@ function layoutSwimlane(ctx: Ctx, items: TLItem[], rail?: RailResult): LayoutPag
       lane, color: lane ? ctx.laneColor(lane.id) : null, plans, rowOf,
       subRows, rows, natTotal: rows.reduce((n, r) => n + r.nat, 0),
       minInner: lane && sw.style === 'sidebar' && sw.showLabels && !lane.collapsed
-        ? wrapLines(lane.name, fr.leftW - 20, base, ctx, 3).length * lineH + 10 : 0,
+        ? wrapLines(lane.name, fr.leftW - 20, lsz, ctx, 3).length * laneLH + 10 : 0,
     };
   };
 
@@ -915,8 +928,8 @@ function layoutSwimlane(ctx: Ctx, items: TLItem[], rail?: RailResult): LayoutPag
   if (ungrouped.length) bands.push(mk(null, ungrouped));
   ctx.lanes.forEach((lane) => bands.push(mk(lane, sortItems(items.filter((i) => i.swimlaneId === lane.id)))));
 
-  const headerStrip = sw.style === 'sidebar' ? 0 : lineH + 6;
-  const collapsedH = Math.max(lineH + 8, 22);
+  const headerStrip = sw.style === 'sidebar' ? 0 : laneLH + 6;
+  const collapsedH = Math.max(laneLH + 8, 22);
   const fixedH = (b: Band) => (b.lane?.collapsed ? collapsedH : (b.lane ? headerStrip : 0) + 4) + (b.lane ? sw.gap : 0);
   // Height of a band at row-squeeze factor `k` — rows shrink, but never below what the lane label needs.
   const heightAt = (b: Band, k: number) => fixedH(b) + (b.lane?.collapsed ? 0 : Math.max(b.natTotal * k, b.minInner - 4));
@@ -958,19 +971,19 @@ function layoutSwimlane(ctx: Ctx, items: TLItem[], rail?: RailResult): LayoutPag
         if (sw.style === 'header') {
           bgPrims.push({ kind: 'rect', x: fr.leftX, y, w: fr.plotRight - fr.leftX, h: headerStrip, fill: lc });
           bgPrims.push({ kind: 'rect', x: fr.leftX, y: y + headerStrip, w: fr.plotRight - fr.leftX, h: sh - headerStrip, fill: bandColor(sw.bandColor ?? lc, ctx.bg, sw.bandOpacity) });
-          itemPrims.push({ kind: 'text', x: fr.leftX + 8, y, w: fr.plotRight - fr.leftX - 16, h: headerStrip, text: fitText((lane.collapsed ? '▸ ' : '') + lane.name, fr.plotRight - fr.leftX - 20, base, ctx.fam, true), size: base, color: readableOn(lc), bold: true, align: 'left' });
+          itemPrims.push({ kind: 'text', x: fr.leftX + 8, y, w: fr.plotRight - fr.leftX - 16, h: headerStrip, text: fitText((lane.collapsed ? '▸ ' : '') + lane.name, fr.plotRight - fr.leftX - 20, lsz, ctx.fam, true), size: lsz, color: readableOn(lc), bold: true, align: 'left' });
         } else {
           bgPrims.push({ kind: 'rect', x: fr.leftX, y, w: fr.plotRight - fr.leftX, h: sh, fill: bandColor(sw.bandColor ?? lc, ctx.bg, sw.bandOpacity) });
           if (sw.style === 'sidebar') {
             if (sw.showLabels) {
               bgPrims.push({ kind: 'rect', x: fr.leftX, y, w: fr.leftW - 4, h: sh, fill: lc });
-              const maxL = Math.max(1, Math.floor((sh - 6) / lineH));
-              const lines = wrapLines((lane.collapsed ? '▸ ' : '') + lane.name, fr.leftW - 20, base, ctx, maxL);
-              const top = y + (sh - lines.length * lineH) / 2;
-              lines.forEach((l, i) => itemPrims.push({ kind: 'text', x: fr.leftX + 8, y: top + i * lineH, w: fr.leftW - 20, h: lineH, text: l, size: base, color: readableOn(lc), bold: true, align: 'left' }));
+              const maxL = Math.max(1, Math.floor((sh - 6) / laneLH));
+              const lines = wrapLines((lane.collapsed ? '▸ ' : '') + lane.name, fr.leftW - 20, lsz, ctx, maxL);
+              const top = y + (sh - lines.length * laneLH) / 2;
+              lines.forEach((l, i) => itemPrims.push({ kind: 'text', x: fr.leftX + 8, y: top + i * laneLH, w: fr.leftW - 20, h: laneLH, text: l, size: lsz, color: readableOn(lc), bold: true, align: 'left' }));
             }
           } else {
-            itemPrims.push({ kind: 'text', x: fr.leftX + 8, y, w: fr.plotRight - fr.leftX - 16, h: headerStrip, text: fitText((lane.collapsed ? '▸ ' : '') + lane.name, fr.plotRight - fr.leftX - 20, base, ctx.fam, true), size: base, color: lc, bold: true, align: 'left' });
+            itemPrims.push({ kind: 'text', x: fr.leftX + 8, y, w: fr.plotRight - fr.leftX - 16, h: headerStrip, text: fitText((lane.collapsed ? '▸ ' : '') + lane.name, fr.plotRight - fr.leftX - 20, lsz, ctx.fam, true), size: lsz, color: lc, bold: true, align: 'left' });
             bgPrims.push({ kind: 'rect', x: fr.leftX, y, w: 4, h: sh, fill: lc });
           }
         }
@@ -1016,7 +1029,8 @@ interface RailResult {
 }
 
 function planRail(ctx: Ctx, items: TLItem[]): RailResult {
-  const { cfg, fr, base, lineH } = ctx;
+  const { cfg, fr, lineH } = ctx;
+  const base = ctx.fs.milestone;
   const size = cfg.milestone.size;
   const miles = items.filter((i) => i.type === 'MILESTONE');
   const empty: RailResult = { ids: new Set(), height: 0, draw: () => [] };
@@ -1073,7 +1087,8 @@ function planRail(ctx: Ctx, items: TLItem[]): RailResult {
 // ── Milestone-line layout ───────────────────────────────────────────────────
 
 function layoutMilestoneLine(ctx: Ctx, items: TLItem[]): LayoutPage[] {
-  const { cfg, fr, base, lineH } = ctx;
+  const { cfg, fr, lineH } = ctx;
+  const base = ctx.fs.milestone;
   const ordered = sortItems(items).sort((a, b) => a.startDate.localeCompare(b.startDate));
   const size = cfg.milestone.size;
   const dateSize = Math.max(7, base - 2);
@@ -1211,11 +1226,18 @@ function layoutOnce(input: LayoutInput, k: number): LayoutResult {
   const titleShown = cfg.slide.showTitle && !!input.title;
   const fam = cfg.font.family;
   const base = cfg.font.baseSize;
+  const fs = {
+    task: cfg.font.taskSize || base,
+    lane: cfg.font.laneSize || base,
+    axis: cfg.font.axisSize || base - 1,
+    milestone: cfg.font.milestoneSize || base,
+    pct: cfg.font.percentSize || 0,
+  };
   const colors = cfg.palette.laneColors.length ? cfg.palette.laneColors : [cfg.palette.accent];
   const laneIndex = new Map(lanes.map((l, i) => [l.id, i]));
 
   const makeCtx = (fr: Frame): Ctx => ({
-    cfg, fr, fam, base, lineH: base + 3, bg: cfg.slide.background, title: input.title, today, lanes,
+    cfg, fr, fam, base, fs, lineH: Math.max(fs.task, fs.milestone) + 3, laneLineH: fs.lane + 3, bg: cfg.slide.background, title: input.title, today, lanes,
     projectStart: items.length ? items.reduce((m, i) => { const d = parseYmd(i.startDate); return d < m ? d : m; }, parseYmd(items[0].startDate)) : null,
     showDelays: input.showDelays !== false && (input.dateView ?? 'BASELINE') !== 'BASELINE',
     laneColor: (id) => {

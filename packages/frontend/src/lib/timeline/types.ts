@@ -73,7 +73,13 @@ export interface TemplateConfig {
     /** Never split a long plan across slides: shrink it (uniformly) until it fits on one. */
     fitOnePage: boolean;
   };
-  font: { family: string; baseSize: number };
+  font: {
+    family: string; baseSize: number;
+    /** Optional per-area sizes (pt). 0 = follow the base size (axis: base − 1). */
+    taskSize: number; laneSize: number; axisSize: number; milestoneSize: number;
+    /** Text of the % inside a bar. 0 = automatic (from the base size, kept within the bar height). */
+    percentSize: number;
+  };
   palette: {
     text: string; muted: string; grid: string; accent: string;
     taskDefault: string; milestoneDefault: string; laneColors: string[];

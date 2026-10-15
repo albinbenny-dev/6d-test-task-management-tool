@@ -31,6 +31,12 @@ export const TemplateConfigSchema = z.object({
   font: z.object({
     family: z.string().min(1).max(60).default('Calibri'),
     baseSize: z.number().min(7).max(20).default(11),
+    // Per-area sizes in pt; 0 = follow baseSize (axis: baseSize − 1; percentSize: automatic).
+    taskSize: z.number().min(0).max(30).default(0),
+    laneSize: z.number().min(0).max(30).default(0),
+    axisSize: z.number().min(0).max(30).default(0),
+    milestoneSize: z.number().min(0).max(30).default(0),
+    percentSize: z.number().min(0).max(30).default(0),
   }).default({}),
   palette: z.object({
     text: hex.default('#1F2937'),
@@ -109,7 +115,11 @@ export const StyleOverridesSchema = z.object({
     titleAlign: z.enum(['left', 'center']), titleSize: z.number().min(12).max(60), titleColor: hex,
     fitOnePage: z.boolean(),
   }).partial().optional(),
-  font: z.object({ family: z.string().min(1).max(60), baseSize: z.number().min(7).max(20) }).partial().optional(),
+  font: z.object({
+    family: z.string().min(1).max(60), baseSize: z.number().min(7).max(20),
+    taskSize: z.number().min(0).max(30), laneSize: z.number().min(0).max(30), axisSize: z.number().min(0).max(30),
+    milestoneSize: z.number().min(0).max(30), percentSize: z.number().min(0).max(30),
+  }).partial().optional(),
   palette: z.object({
     text: hex, muted: hex, grid: hex, accent: hex, taskDefault: hex, milestoneDefault: hex,
     laneColors: z.array(hex).min(1).max(12), laneColorMode: z.enum(['own', 'palette']),
