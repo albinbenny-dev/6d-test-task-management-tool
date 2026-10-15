@@ -220,27 +220,34 @@ router.get('/', (async (req, res) => {
 // ── GET /import-template — blank Excel with sample rows (before /:id) ───────
 
 router.get('/import-template', (_req, res) => {
-  const headers = ['Title', 'Type', 'Swimlane', 'Start', 'End', 'Duration', '% Complete', 'Assigned To', 'Color', 'Marker'];
+  const headers = ['Title', 'Type', 'Swimlane', 'Start', 'End', 'Duration', 'Actual Start', 'Actual End', '% Complete', 'Assigned To', 'Color', 'Marker'];
+  const row = (o: Record<string, string | number>) => ({
+    Title: '', Type: '', Swimlane: '', Start: '', End: '', Duration: '', 'Actual Start': '', 'Actual End': '',
+    '% Complete': '', 'Assigned To': '', Color: '', Marker: '', ...o,
+  });
   const samples = [
-    { Title: 'Project Initiation', Type: 'Swimlane', Swimlane: '', Start: '', End: '', Duration: '', '% Complete': '', 'Assigned To': '', Color: '#2563AB', Marker: '' },
-    { Title: 'Project kick off', Type: 'Milestone', Swimlane: '', Start: '2026-05-21', End: '', Duration: 0, '% Complete': 100, 'Assigned To': 'PM', Color: '', Marker: 'star' },
-    { Title: 'Requirement Gathering', Type: 'Task', Swimlane: '', Start: '2026-06-01', End: '', Duration: 80, '% Complete': 80, 'Assigned To': 'BA team', Color: '', Marker: 'pill' },
-    { Title: 'Environment Readiness', Type: 'Swimlane', Swimlane: '', Start: '', End: '', Duration: '', '% Complete': '', 'Assigned To': '', Color: '#0E9F6E', Marker: '' },
-    { Title: 'BOQ Submission', Type: 'Task', Swimlane: '', Start: '2026-06-30', End: '2026-08-20', Duration: '', '% Complete': 100, 'Assigned To': '', Color: '', Marker: '' },
-    { Title: 'P1 Go Live', Type: 'Milestone', Swimlane: '', Start: '2027-02-04', End: '', Duration: 0, '% Complete': 0, 'Assigned To': '', Color: '', Marker: 'flag' },
+    row({ Title: 'Project Initiation', Type: 'Swimlane', Color: '#2563AB' }),
+    row({ Title: 'Project kick off', Type: 'Milestone', Start: '2026-05-21', Duration: 0, 'Actual Start': '2026-05-21', 'Actual End': '2026-05-21', '% Complete': 100, 'Assigned To': 'PM', Marker: 'star' }),
+    row({ Title: 'Requirement Gathering', Type: 'Task', Start: '2026-06-01', Duration: 80, 'Actual Start': '2026-06-03', '% Complete': 80, 'Assigned To': 'BA team', Marker: 'pill' }),
+    row({ Title: 'Environment Readiness', Type: 'Swimlane', Color: '#0E9F6E' }),
+    row({ Title: 'BOQ Submission', Type: 'Task', Start: '2026-06-30', End: '2026-08-20', 'Actual Start': '2026-06-30', 'Actual End': '2026-08-28', '% Complete': 100 }),
+    row({ Title: 'P1 Go Live', Type: 'Milestone', Start: '2027-02-04', Duration: 0, '% Complete': 0, Marker: 'flag' }),
   ];
   const instructions = [
     ['How this sheet is read'],
-    ['• A row with Type = Swimlane starts a new swimlane; the rows below it belong to it (or fill the Swimlane column per row instead).'],
+    ['• Fill the "Timeline" sheet and upload it from the Timeline Builder → Import. Delete the sample rows first (or use "Replace everything").'],
+    ['• Title and Start are required. Everything else is optional.'],
+    ['• A row with Type = Swimlane starts a new swimlane; the rows below it belong to it (or fill the Swimlane column on each row instead).'],
     ['• Type: Task or Milestone. A row with Duration 0 is treated as a milestone.'],
     ['• Give Start plus either End or Duration. Duration is in working days (Mon–Fri). If both are given, End wins.'],
     ['• Dates: 2026-06-01, 01/06/2026 (day first) or 1 Jun 2026.'],
     ['• Actual Start / Actual End (optional) — when the work really started / finished. The timeline can draw them instead of, or on top of, the planned dates.'],
+    ['• % Complete: 0–100.   Color: hex such as #2563AB.'],
     ['• Marker (optional) — tasks: pill, bar, chevron. Milestones: diamond, flag, star, circle, triangle.'],
     ['• Exported from MS Project (File → Save As → Excel)? Upload it as is — Name, Start, Finish, Duration, % Complete, Resource Names and Summary columns are recognised.'],
   ];
   const ws = xlsx.utils.json_to_sheet(samples, { header: headers });
-  ws['!cols'] = [30, 12, 20, 13, 13, 10, 11, 18, 10, 10].map((w) => ({ wch: w }));
+  ws['!cols'] = [30, 12, 20, 13, 13, 10, 13, 13, 11, 18, 10, 10].map((w) => ({ wch: w }));
   const info = xlsx.utils.aoa_to_sheet(instructions);
   info['!cols'] = [{ wch: 120 }];
   const wb = xlsx.utils.book_new();
