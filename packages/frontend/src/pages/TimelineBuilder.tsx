@@ -139,6 +139,9 @@ export default function TimelineBuilder() {
 
   const showData = view !== 'timeline';
   const showTimeline = view !== 'data';
+  // Once the table has been shown it stays mounted (just hidden) — rebuilding hundreds of rows every time you flip views is what made big plans slow.
+  const dataMounted = useRef(false);
+  if (showData) dataMounted.current = true;
 
   if (error) {
     return (
@@ -225,8 +228,8 @@ export default function TimelineBuilder() {
         <div style={{ padding: 24, color: 'var(--text-dim)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>Loading…</div>
       ) : (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 16, padding: '12px 20px 0' }}>
-          {showData && (
-            <div style={{ flex: view === 'data' ? '1 1 100%' : '1 1 56%', minWidth: 0, overflowY: 'auto', paddingBottom: 16 }}>
+          {dataMounted.current && (
+            <div style={{ display: showData ? undefined : 'none', flex: view === 'data' ? '1 1 100%' : '1 1 56%', minWidth: 0, overflowY: 'auto', paddingBottom: 16 }}>
               <TimelineGrid
                 items={items} lanes={lanes} canEdit={canManageTimelines}
                 lanePalette={config.palette.laneColors} ignoreLaneColors={config.palette.laneColorMode === 'palette'} taskColor={config.palette.taskDefault} milestoneColor={config.palette.milestoneDefault}

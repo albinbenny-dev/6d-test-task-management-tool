@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Eye, EyeOff, GripVertical, Link2, Plus, Trash2, Unlink } from 'lucide-react';
 import type { TLItem, TLLane } from '../../lib/timeline/types';
@@ -10,6 +10,12 @@ import { MarkerIcon } from './MarkerIcon';
 import { DelayChip } from '../tasks/DelayChip';
 
 type Actions = ReturnType<typeof useTimelineEditor>;
+/** The only editor actions a row calls — handed over as one stable object so memoised rows don't re-render on unrelated changes. */
+type RowActions = Pick<Actions, 'updateItem' | 'hideItems' | 'deleteItems'>;
+
+function Plain({ children }: { children: React.ReactNode }) {
+  return <span style={{ fontSize: 12.5, padding: '5px 6px', display: 'block' }}>{children}</span>;
+}
 
 // Actual-dates columns slot in after End (only when the timeline is showing actual dates).
 const gridCols = (compact: boolean, showActual: boolean, showDelay: boolean) => {
@@ -65,12 +71,13 @@ function ColorPicker({ value, onChange, swatches, autoLabel }: { value: string |
 }
 
 // ── Item row ────────────────────────────────────────────────────────────────
-function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, dateView, showActual, showDelay, dragOk, selected, checked, focusMe, dragging, dropTarget, a, onSelect, onCheck, onFocused, onDragStart, onDragEnd, onDragOver, onDrop }: {
-  item: TLItem; color: string; laneSwatches: string[]; canEdit: boolean; compact: boolean; hideDone: boolean; dateView: 'BASELINE' | 'ACTUAL' | 'BOTH'; showActual: boolean; showDelay: boolean; dragOk: boolean; selected: boolean; checked: boolean; focusMe: boolean;
-  dragging: boolean; dropTarget: boolean; a: Actions;
-  onSelect: () => void; onCheck: (v: boolean) => void; onFocused: () => void;
-  onDragStart: (e: React.DragEvent, row: HTMLElement | null) => void; onDragEnd: () => void;
-  onDragOver: (e: React.DragEvent) => void; onDrop: (e: React.DragEvent) => void;
+// Memoised below: with hundreds of rows, anything that re-renders every row on each click or keystroke makes the page crawl.
+function ItemRowImpl({ item, laneKey, color, laneSwatches, canEdit, compact, offTimeline, noActualYet, showActual, showDelay, dragOk, selected, checked, focusMe, dragging, dropTarget, a, onSelect, onCheck, onFocused, onDragStart, onDragEnd, onDragOver, onDrop }: {
+  item: TLItem; laneKey: string | null; color: string; laneSwatches: string[]; canEdit: boolean; compact: boolean; offTimeline: boolean; noActualYet: boolean; showActual: boolean; showDelay: boolean; dragOk: boolean; selected: boolean; checked: boolean; focusMe: boolean;
+  dragging: boolean; dropTarget: boolean; a: RowActions;
+  onSelect: (id: string) => void; onCheck: (id: string, v: boolean) => void; onFocused: () => void;
+  onDragStart: (e: React.DragEvent, row: HTMLElement | null, id: string) => void; onDragEnd: () => void;
+  onDragOver: (e: React.DragEvent, laneKey: string | null, id: string) => void; onDrop: (e: React.DragEvent, laneKey: string | null, id: string) => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -80,8 +87,6 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, dateVi
   const linked = !!item.taskId;
   const own = canEdit && !linked;
   const handHidden = !!item.hidden;
-  const offTimeline = !shownOnTimeline(item, hideDone, dateView);
-  const noActualYet = dateView === 'ACTUAL' && !item.actualStartDate && !item.actualEndDate;
 
   useEffect(() => {
     if (focusMe && titleRef.current) { titleRef.current.focus(); titleRef.current.select(); onFocused(); }
@@ -91,14 +96,12 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, dateVi
   const save = (data: Parameters<Actions['updateItem']['mutate']>[0]) =>
     a.updateItem.mutate(data, { onError: (e) => toast.error(errMsg(e, 'Could not save the change')) });
 
-  const Plain = ({ children }: { children: React.ReactNode }) => <span style={{ fontSize: 12.5, padding: '5px 6px', display: 'block' }}>{children}</span>;
-
   return (
     <div
       ref={rowRef}
-      onClick={onSelect}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
+      onClick={() => onSelect(item.id)}
+      onDragOver={(e) => onDragOver(e, laneKey, item.id)}
+      onDrop={(e) => onDrop(e, laneKey, item.id)}
       className="tl-row"
       title={linked ? 'Linked to a task — change title, dates, assignee and status in the Task List. % complete follows the task status (To Do 0 · In Progress 50 · In Review 75 · Done 100).' : undefined}
       style={{
@@ -110,12 +113,12 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, dateVi
     >
       <span
         draggable={own && dragOk}
-        onDragStart={(e) => onDragStart(e, rowRef.current)}
+        onDragStart={(e) => onDragStart(e, rowRef.current, item.id)}
         onDragEnd={onDragEnd}
         title={own ? 'Drag to reorder or move to another swimlane' : undefined}
         style={{ cursor: own ? 'grab' : 'default', color: 'var(--text-dim)', display: 'flex', opacity: own ? 1 : 0.3 }}
       ><GripVertical size={14} /></span>
-      <input type="checkbox" checked={checked} onChange={(e) => onCheck(e.target.checked)} onClick={(e) => e.stopPropagation()} />
+      <input type="checkbox" checked={checked} onChange={(e) => onCheck(item.id, e.target.checked)} onClick={(e) => e.stopPropagation()} />
 
       {own ? (
         <input
@@ -270,6 +273,8 @@ function ItemRow({ item, color, laneSwatches, canEdit, compact, hideDone, dateVi
   );
 }
 
+const ItemRow = memo(ItemRowImpl);
+
 function fmt(ymd: string) {
   const [y, m, d] = ymd.split('-');
   return `${d}/${m}/${y}`;
@@ -319,10 +324,32 @@ export function TimelineGrid({ items: allItems, lanes, canEdit, lanePalette, ign
   const [colorLane, setColorLane] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
+
+  // Rows are memoised, so everything handed to them has to be referentially stable: one actions object that always
+  // calls the latest mutations, and handlers that read the latest state through a ref instead of closing over it.
+  const latest = useRef({ a, onSelectItem, dragId, moveItem });
+  latest.current = { a, onSelectItem, dragId, moveItem };
+  const rowActions = useMemo(() => {
+    const call = (name: keyof RowActions) => ({ mutate: (...args: unknown[]) => (latest.current.a[name].mutate as (...x: unknown[]) => void)(...args) });
+    return { updateItem: call('updateItem'), hideItems: call('hideItems'), deleteItems: call('deleteItems') } as unknown as RowActions;
+  }, []);
+  const onSelectRow = useCallback((id: string) => latest.current.onSelectItem(id), []);
+  const onCheckRow = useCallback((id: string, v: boolean) => setChecked((c) => { const n = new Set(c); if (v) n.add(id); else n.delete(id); return n; }), []);
+  const onFocusedRow = useCallback(() => setFocusItemId(null), []);
+  const onDragStartRow = useCallback((e: React.DragEvent, row: HTMLElement | null, id: string) => {
+    setDragId(id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); if (row) e.dataTransfer.setDragImage(row, 20, 14);
+  }, []);
+  const onDragEndRow = useCallback(() => { setDragId(null); setOverKey(null); }, []);
+  const onDragOverRow = useCallback((e: React.DragEvent, laneId: string | null, beforeId: string) => {
+    if (!latest.current.dragId) return; e.preventDefault(); setOverKey(`${laneId}:${beforeId}`);
+  }, []);
+  const onDropRow = useCallback((e: React.DragEvent, laneId: string | null, beforeId: string) => {
+    e.preventDefault(); const d = latest.current.dragId; if (d) latest.current.moveItem(d, laneId, beforeId); setDragId(null); setOverKey(null);
+  }, []);
   useEffect(() => {
     const el = wrapRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(([entry]) => setCompact(entry.contentRect.width < 860));
+    const ro = new ResizeObserver(([entry]) => { const w = entry.contentRect.width; if (w > 0) setCompact(w < 860); }); // 0 = hidden view: keep the last layout
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -410,16 +437,14 @@ export function TimelineGrid({ items: allItems, lanes, canEdit, lanePalette, ign
 
   const renderItems = (laneId: string | null) => (byLane.get(laneId) ?? []).map((it) => (
     <ItemRow
-      key={it.id} item={it} color={itemColor(it)} canEdit={canEdit} compact={compact} hideDone={hideDone} dateView={dateView} showActual={showActual} showDelay={showDelay} dragOk={!delayedOnly}
+      key={it.id} item={it} laneKey={laneId} color={itemColor(it)} canEdit={canEdit} compact={compact}
+      offTimeline={!shownOnTimeline(it, hideDone, dateView)} noActualYet={dateView === 'ACTUAL' && !it.actualStartDate && !it.actualEndDate}
+      showActual={showActual} showDelay={showDelay} dragOk={!delayedOnly}
       laneSwatches={lanePalette}
       selected={selectedItemId === it.id} checked={checked.has(it.id)} focusMe={focusItemId === it.id}
-      dragging={dragId === it.id} dropTarget={overKey === `${laneId}:${it.id}`} a={a}
-      onSelect={() => onSelectItem(it.id)}
-      onCheck={(v) => setChecked((c) => { const n = new Set(c); if (v) n.add(it.id); else n.delete(it.id); return n; })}
-      onFocused={() => setFocusItemId(null)}
-      onDragStart={(e, row) => { setDragId(it.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', it.id); if (row) e.dataTransfer.setDragImage(row, 20, 14); }}
-      onDragEnd={() => { setDragId(null); setOverKey(null); }}
-      onDragOver={dragProps(laneId, it.id).onDragOver} onDrop={dragProps(laneId, it.id).onDrop}
+      dragging={dragId === it.id} dropTarget={overKey === `${laneId}:${it.id}`} a={rowActions}
+      onSelect={onSelectRow} onCheck={onCheckRow} onFocused={onFocusedRow}
+      onDragStart={onDragStartRow} onDragEnd={onDragEndRow} onDragOver={onDragOverRow} onDrop={onDropRow}
     />
   ));
 
