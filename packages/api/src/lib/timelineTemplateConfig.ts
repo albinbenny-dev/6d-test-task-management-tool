@@ -153,6 +153,8 @@ type BuiltIn = {
   category: string;
   sortOrder: number;
   config: z.input<typeof TemplateConfigSchema>;
+  /** Earlier default configs of this built-in. A stored copy still equal to one of them was never edited, so startup upgrades it to `config`. */
+  replaces?: z.input<typeof TemplateConfigSchema>[];
 };
 
 export const BUILT_IN_TEMPLATES: BuiltIn[] = [
@@ -187,15 +189,22 @@ export const BUILT_IN_TEMPLATES: BuiltIn[] = [
   {
     key: 'milestone-line',
     name: 'Milestone Line',
-    description: 'A single time line with milestones alternating above and below.',
+    description: 'A clean spine with milestone markers and labels above it, then evenly spaced task bars beneath — nothing overlaps, long titles wrap.',
     category: 'Executive',
     sortOrder: 2,
     config: {
       layout: 'milestone-line',
+      palette: { text: '#1F2937', muted: '#64748B', grid: '#E6ECF3', accent: '#2563AB', taskDefault: '#2563AB', milestoneDefault: '#E8501E' },
+      axis: { style: 'underline', textColor: '#475569', fill: '#2563AB', gridlines: 'all', pastTint: 0 },
+      task: { height: 12, shape: 'pill', labelPosition: 'right', showPercent: true, percentInside: false, progressStyle: 'tint' },
+      milestone: { size: 20, labelPosition: 'below', showDate: true, dateFormat: 'd MMM' },
+    },
+    replaces: [{
+      layout: 'milestone-line',
       axis: { style: 'underline', textColor: '#1F2937', fill: '#2563AB', gridlines: 'none' },
       task: { height: 14, shape: 'pill', labelPosition: 'above' },
       milestone: { size: 22, labelPosition: 'below', showDate: true },
-    },
+    }],
   },
   {
     key: 'executive-dark',
@@ -330,9 +339,20 @@ export const BUILT_IN_TEMPLATES: BuiltIn[] = [
 
 /** Upserts every built-in on startup by builtInKey. Never overwrites an edited built-in's config. */
 export async function ensureBuiltInTemplates(): Promise<void> {
+  const canon = (c: unknown) => JSON.stringify(TemplateConfigSchema.parse(c));
   for (const t of BUILT_IN_TEMPLATES) {
     const existing = await prisma.timelineTemplate.findUnique({ where: { builtInKey: t.key } });
-    if (existing) continue;
+    if (existing) {
+      // A built-in that still equals one of its earlier defaults was never edited: move it to the current design.
+      if (t.replaces?.length) {
+        let stored: string | null = null;
+        try { stored = canon(JSON.parse(existing.config)); } catch { /* unreadable — leave it alone */ }
+        if (stored !== null && t.replaces.some((old) => canon(old) === stored)) {
+          await prisma.timelineTemplate.update({ where: { id: existing.id }, data: { description: t.description, config: canon(t.config) } });
+        }
+      }
+      continue;
+    }
     await prisma.timelineTemplate.create({
       data: {
         builtInKey: t.key,

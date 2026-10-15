@@ -332,20 +332,22 @@ function drawTaskBar(out: Primitive[], ctx: Ctx, item: TLItem, cy: number, h: nu
 }
 
 /** Draws the milestone marker centred on its date and returns its centre x. */
-function drawMilestoneMarker(out: Primitive[], ctx: Ctx, item: TLItem, cy: number, size: number, color: string): number {
+function drawMilestoneMarker(out: Primitive[], ctx: Ctx, item: TLItem, cy: number, size: number, color: string, ring = false): number {
   const dayW = ctx.fr.plotW / ctx.fr.totalDays;
   const cx = ctx.x(parseYmd(item.startDate)) + dayW / 2;
   const s = size;
   const id = item.id;
+  // A ring in the slide colour separates the marker from whatever it sits on (the spine, a gridline).
+  const edge = ring ? { stroke: ctx.bg, strokeWidth: 2 } : {};
   switch (item.marker) {
     case 'circle':
-      out.push({ kind: 'shape', shape: 'ellipse', x: cx - s / 2, y: cy - s / 2, w: s, h: s, fill: color, itemId: id });
+      out.push({ kind: 'shape', shape: 'ellipse', x: cx - s / 2, y: cy - s / 2, w: s, h: s, fill: color, ...edge, itemId: id });
       break;
     case 'triangle':
-      out.push({ kind: 'shape', shape: 'triangle', x: cx - s / 2, y: cy - s / 2, w: s, h: s, fill: color, itemId: id });
+      out.push({ kind: 'shape', shape: 'triangle', x: cx - s / 2, y: cy - s / 2, w: s, h: s, fill: color, ...edge, itemId: id });
       break;
     case 'star':
-      out.push({ kind: 'poly', points: starPoints(cx, cy, s / 2), fill: color, itemId: id });
+      out.push({ kind: 'poly', points: starPoints(cx, cy, s / 2), fill: color, ...edge, itemId: id });
       break;
     case 'flag': {
       const px = cx - s * 0.25;
@@ -354,7 +356,7 @@ function drawMilestoneMarker(out: Primitive[], ctx: Ctx, item: TLItem, cy: numbe
       break;
     }
     default:
-      out.push({ kind: 'shape', shape: 'diamond', x: cx - s / 2, y: cy - s / 2, w: s, h: s, fill: color, itemId: id });
+      out.push({ kind: 'shape', shape: 'diamond', x: cx - s / 2, y: cy - s / 2, w: s, h: s, fill: color, ...edge, itemId: id });
   }
   return cx;
 }
@@ -376,6 +378,8 @@ interface Plan {
   datesAt?: 'right' | 'in' | 'left';
   /** Extent incl. the baseline outline (== x0 / x1 unless the "both" view draws one). */
   u0?: number; u1?: number;
+  /** Left edge of an "above" label, shifted left when it would run past the right edge of the plot. */
+  aboveX?: number;
   /** "+5d" / "−2d" pill after everything else on the row (drawn only when it fits). */
   tag?: { text: string; w: number; x: number; late: boolean };
 }
@@ -447,7 +451,13 @@ function planItem(ctx: Ctx, item: TLItem): Plan {
   let left = u0; let right = u1;
   if (side === 'right') right = u1 + gap + lw;
   if (side === 'left') left = u0 - gap - lw;
-  if (side === 'above') right = Math.max(u1, x0 + lw);
+  let aboveX: number | undefined;
+  if (side === 'above') {
+    const boxW = Math.max(lw, x1 - x0) + 6;
+    aboveX = Math.max(fr.plotX, Math.min(x0, fr.plotRight - boxW));
+    left = Math.min(u0, aboveX);
+    right = Math.max(u1, aboveX + boxW);
+  }
 
   // Date range beyond the bar's far end (after the label when the label is on the right).
   let dates: string | undefined; let dw: number | undefined;
@@ -468,9 +478,9 @@ function planItem(ctx: Ctx, item: TLItem): Plan {
       if (item.marker !== 'chevron' && x1 - 8 - w >= free + 6) { dates = text; dw = w; datesAt = 'in'; }
       else if (side === 'left' && left - 8 - w >= fr.plotX) { dates = text; dw = w; datesAt = 'left'; left = left - 8 - w; }
     }
-    return withDelayTag(ctx, { item, color, x0, x1, cx: x0, side, lines, lw, left, right, dates, dw, datesAt, u0, u1 });
+    return withDelayTag(ctx, { item, color, x0, x1, cx: x0, side, lines, lw, left, right, dates, dw, datesAt, u0, u1, aboveX });
   }
-  return withDelayTag(ctx, { item, color, x0, x1, cx: x0, side, lines, lw, left, right, u0, u1 });
+  return withDelayTag(ctx, { item, color, x0, x1, cx: x0, side, lines, lw, left, right, u0, u1, aboveX });
 }
 
 // ── Delay tag: a small "+5d" (red, working days late) / "−2d" (green, early) pill ──
@@ -514,7 +524,7 @@ function pack(plans: Plan[]): number[] {
 }
 
 /** Emits the shape + label for a planned item, vertically centred on `cy`. */
-function drawPlan(out: Primitive[], ctx: Ctx, p: Plan, cy: number, shapeH: number) {
+function drawPlan(out: Primitive[], ctx: Ctx, p: Plan, cy: number, shapeH: number, barH?: number) {
   const { cfg, base } = ctx;
   const lh = ctx.lineH;
   const id = p.item.id;
@@ -541,7 +551,7 @@ function drawPlan(out: Primitive[], ctx: Ctx, p: Plan, cy: number, shapeH: numbe
     return;
   }
 
-  const h = cfg.task.height;
+  const h = barH ?? cfg.task.height;
   const bar = drawTaskBar(out, ctx, p.item, cy, h, p.color, p.side === 'inside' ? p.lw + 16 : 0);
   if (p.tag) drawDelayTag(out, ctx, p.item, p.tag.x, cy);
   const bold = cfg.task.boldLabels;
@@ -575,7 +585,7 @@ function drawPlan(out: Primitive[], ctx: Ctx, p: Plan, cy: number, shapeH: numbe
   } else {
     const y = cy - h / 2 - 1 - lineBlock;
     p.lines.forEach((line, i) => {
-      out.push({ kind: 'text', x: bar.x0, y: y + i * lh, w: Math.max(p.lw, bar.w) + 6, h: lh, text: line, size: i === 0 ? base : Math.max(7, base - 2), color: i === 0 ? cfg.palette.text : cfg.palette.muted, align: 'left', itemId: id });
+      out.push({ kind: 'text', x: p.aboveX ?? bar.x0, y: y + i * lh, w: Math.max(p.lw, bar.w) + 6, h: lh, text: line, size: i === 0 ? base : Math.max(7, base - 2), color: i === 0 ? cfg.palette.text : cfg.palette.muted, align: 'left', itemId: id });
     });
   }
 }
@@ -1029,80 +1039,129 @@ function planRail(ctx: Ctx, items: TLItem[]): RailResult {
 function layoutMilestoneLine(ctx: Ctx, items: TLItem[]): LayoutPage[] {
   const { cfg, fr, base, lineH } = ctx;
   const ordered = sortItems(items).sort((a, b) => a.startDate.localeCompare(b.startDate));
-  const miles = ordered.filter((i) => i.type === 'MILESTONE').map((i) => {
-    const p = planItem(ctx, i);
-    // Titles here are drawn bold, so pack/fit using the bold width (capped like the label box).
-    p.lw = Math.min(190, Math.max(ctx.tw(i.title, ctx.base, true), cfg.milestone.showDate ? ctx.tw(formatDate(i.startDate, cfg.milestone.dateFormat), Math.max(7, ctx.base - 2)) : 0));
-    return p;
-  });
-  const tasks = ordered.filter((i) => i.type === 'TASK').map((i) => planItem(ctx, i));
+  const size = cfg.milestone.size;
+  const dateSize = Math.max(7, base - 2);
   const bodyH = fr.bodyBottom - fr.bodyTop;
 
-  const taskRowOf = pack(tasks);
-  const taskRows = tasks.length ? Math.max(...taskRowOf) + 1 : 0;
-  const taskRowH = cfg.task.height + (tasks.some((t) => t.side === 'above') ? lineH + 2 : 0) + 8;
-  const taskZone = tasks.length ? Math.min(taskRows * taskRowH, bodyH * 0.5) : 0;
-  const tRowH = taskRows ? Math.min(taskRowH, taskZone / taskRows) : taskRowH;
-
-  const mileZoneH = bodyH - taskZone - (tasks.length ? 8 : 0);
-  const lineY = fr.bodyTop + mileZoneH / 2;
-  const size = cfg.milestone.size;
-  const labelH = lineH * (cfg.milestone.showDate ? 2 : 1) + 2;
-  const levelH = labelH + 8;
-  const maxLevels = Math.max(1, Math.min(4, Math.floor((mileZoneH / 2 - size / 2 - 6) / levelH)));
-
-  // Assign each milestone to an above/below level so labels don't collide.
-  const levelEnds: Record<string, number> = {};
-  const order: { side: 'above' | 'below'; level: number }[] = [];
-  for (let l = 0; l < maxLevels; l++) { order.push({ side: 'above', level: l }, { side: 'below', level: l }); }
-  const placed = miles.map((m) => {
-    const half = Math.max(size, m.lw) / 2;
-    let best = order[0]; let bestOverlap = Infinity;
-    for (const o of order) {
-      const key = `${o.side}${o.level}`;
-      const overlap = (levelEnds[key] ?? -Infinity) + 6 - (m.cx - half);
-      if (overlap <= 0) { best = o; bestOverlap = 0; break; }
-      if (overlap < bestOverlap) { bestOverlap = overlap; best = o; }
-    }
-    levelEnds[`${best.side}${best.level}`] = m.cx + half;
-    return { m, ...best };
+  // ── Milestones: a spine with a stem to a label card, titles wrapped to two lines (never cut short).
+  const miles = ordered.filter((i) => i.type === 'MILESTONE').map((i) => {
+    const p = planItem(ctx, i);
+    const titleLines = wrapLines(i.title, 150, base, ctx, 2);
+    const date = cfg.milestone.showDate ? formatDate(i.startDate, cfg.milestone.dateFormat) : '';
+    const lw = Math.max(...titleLines.map((l) => ctx.tw(l, base, true)), date ? ctx.tw(date, dateSize) : 0);
+    return { p, titleLines, date, lw, labelH: titleLines.length * lineH + (date ? lineH : 0) + 2 };
   });
+  const labelH = miles.length ? Math.max(...miles.map((m) => m.labelH)) : 0;
+  const levelH = labelH + 10;
+  const stem = size / 2 + 9; // spine centre → nearest label edge
 
-  const bgPrims: Primitive[] = [];
-  const itemPrims: Primitive[] = [];
-  bgPrims.push({ kind: 'rect', x: fr.plotX, y: lineY - 2, w: fr.plotW, h: 4, rx: 2, fill: cfg.palette.accent });
-
-  placed.forEach(({ m, side, level }) => {
-    const color = m.color;
-    const reach = size / 2 + 6 + level * levelH;
-    const textTop = side === 'above' ? lineY - reach - labelH : lineY + reach;
-    itemPrims.push({
-      kind: 'line', x1: m.cx, y1: lineY, x2: m.cx, y2: side === 'above' ? textTop + labelH : textTop,
-      color: cfg.palette.muted, width: 0.75, itemId: m.item.id,
+  // Greedy level assignment: first free slot, alternating above / below, so neighbouring labels never collide.
+  const place = (maxLevels: number) => {
+    const levelEnds: Record<string, number> = {};
+    const order: { side: 'above' | 'below'; level: number }[] = [];
+    for (let l = 0; l < maxLevels; l++) order.push({ side: 'above', level: l }, { side: 'below', level: l });
+    return miles.map((m) => {
+      const half = Math.max(size, m.lw) / 2 + 3;
+      let best = order[0]; let bestOverlap = Infinity;
+      for (const o of order) {
+        const key = `${o.side}${o.level}`;
+        const overlap = (levelEnds[key] ?? -Infinity) + 6 - (m.p.cx - half);
+        if (overlap <= 0) { best = o; bestOverlap = 0; break; }
+        if (overlap < bestOverlap) { bestOverlap = overlap; best = o; }
+      }
+      levelEnds[`${best.side}${best.level}`] = m.p.cx + half;
+      return { m, ...best };
     });
-    drawMilestoneMarker(itemPrims, ctx, m.item, lineY, size, color);
-    const w = Math.max(m.lw, size) + 8;
-    const x = Math.max(fr.plotX - 4, Math.min(m.cx - w / 2, fr.plotRight - w + 4));
-    const title = m.item.title;
-    const date = cfg.milestone.showDate ? formatDate(m.item.startDate, cfg.milestone.dateFormat) : '';
-    itemPrims.push({ kind: 'text', x, y: textTop, w, h: lineH, text: fitText(title, w, base, ctx.fam, true), size: base, color: cfg.palette.text, bold: true, align: 'center', itemId: m.item.id });
-    if (date) itemPrims.push({ kind: 'text', x, y: textTop + lineH, w, h: lineH, text: date, size: Math.max(7, base - 2), color: cfg.palette.muted, align: 'center', itemId: m.item.id });
-  });
+  };
+  // Distance from the spine to the outer edge of the used levels on one side (just the marker when that side is empty).
+  const extent = (placed: ReturnType<typeof place>, side: 'above' | 'below') => {
+    const lv = placed.filter((p) => p.side === side).map((p) => p.level + 1);
+    return lv.length ? stem + (Math.max(...lv) - 1) * levelH + labelH : size / 2 + 5;
+  };
 
-  if (tasks.length) {
-    const zoneTop = fr.bodyBottom - taskZone;
-    bgPrims.push({ kind: 'line', x1: fr.leftX, y1: zoneTop - 4, x2: fr.plotRight, y2: zoneTop - 4, color: cfg.palette.grid, width: 0.75 });
-    tasks.forEach((p, i) => {
-      const rowTop = zoneTop + taskRowOf[i] * tRowH;
-      const topExtra = p.side === 'above' ? lineH + 2 : 0;
-      drawPlan(itemPrims, ctx, p, rowTop + topExtra + cfg.task.height / 2 + 4, cfg.task.height);
+  const hasTasks = ordered.some((i) => i.type === 'TASK');
+  const topPad = cfg.axis.showToday ? 18 : 6; // room for the "Today" tag above the strip
+  let placed = place(hasTasks ? 3 : 4);
+  for (let l = hasTasks ? 2 : 3; l >= 1 && miles.length && hasTasks && extent(placed, 'above') + extent(placed, 'below') + topPad > bodyH * 0.5; l--) placed = place(l);
+  const aboveExt = extent(placed, 'above');
+  const belowExt = extent(placed, 'below');
+  const stripH = miles.length ? aboveExt + belowExt : 0;
+
+  // ── Tasks: one tidy, evenly spaced row each; they fill what the strip leaves (and paginate rather than overlap).
+  const tasks = ordered.filter((i) => i.type === 'TASK').map((i) => planItem(ctx, i));
+  const rowOf = pack(tasks);
+  const taskRows = tasks.length ? Math.max(...rowOf) + 1 : 0;
+  const aboveBlock = tasks.some((t) => t.side === 'above') ? Math.max(...tasks.map((t) => (t.side === 'above' ? t.lines.length : 0))) * lineH + 2 : 0;
+  const barH0 = cfg.task.height;
+  const idealPitch = Math.max(barH0, lineH) + 10 + aboveBlock;
+  const minPitch = Math.max(lineH + 3, 10 + aboveBlock + 6);
+  const gap = miles.length && tasks.length ? 16 : 0;
+  const stripTop = miles.length ? topPad : 0;
+  const taskAvail = bodyH - stripTop - stripH - gap - (miles.length ? 0 : (cfg.axis.showToday ? 14 : 4));
+  const rowsPerPage = taskRows ? Math.max(1, Math.floor(taskAvail / minPitch)) : 0;
+  const pageCount = taskRows ? Math.ceil(taskRows / rowsPerPage) : 1;
+  const rowsFirst = Math.min(taskRows, rowsPerPage);
+  const pitch = taskRows ? Math.max(minPitch, Math.min(idealPitch * 1.3, taskAvail / rowsFirst)) : 0;
+  const barH = Math.max(6, Math.min(barH0, pitch - 6 - aboveBlock));
+
+  // Leave spare height as breathing room above the strip rather than a hole at the bottom.
+  const spare = Math.max(0, taskAvail - rowsFirst * pitch);
+  const lead = miles.length && hasTasks ? Math.min(spare * 0.4, 28) : 0;
+  const lineY = hasTasks
+    ? fr.bodyTop + stripTop + lead + aboveExt
+    : fr.bodyTop + (bodyH - stripH) / 2 + aboveExt; // milestones only: centre the strip
+  const tasksTop = miles.length
+    ? fr.bodyTop + stripTop + lead + stripH + gap
+    : fr.bodyTop + (cfg.axis.showToday ? 14 : 4);
+
+  const pages: LayoutPage[] = [];
+  for (let pg = 0; pg < pageCount; pg++) {
+    const bgPrims: Primitive[] = [];
+    const itemPrims: Primitive[] = [];
+
+    if (miles.length) {
+      bgPrims.push({ kind: 'rect', x: fr.plotX, y: lineY - 2.5, w: fr.plotW, h: 5, rx: 2.5, fill: cfg.palette.accent });
+      placed.forEach(({ m, side, level }) => {
+        const reach = stem + level * levelH;
+        const color = m.p.color;
+        // Label block hugs the spine side of its slot, so a one-line title sits right at the stem's end.
+        const top = side === 'above' ? lineY - reach - m.labelH : lineY + reach;
+        itemPrims.push({
+          kind: 'line', x1: m.p.cx, y1: lineY, x2: m.p.cx, y2: side === 'above' ? lineY - reach : lineY + reach,
+          color: tint(color, 0.35), width: 1.25, itemId: m.p.item.id,
+        });
+        drawMilestoneMarker(itemPrims, ctx, m.p.item, lineY, size, color, true);
+        const w = Math.max(m.lw, size) + 10;
+        const x = Math.max(fr.plotX - 4, Math.min(m.p.cx - w / 2, fr.plotRight - w + 4));
+        m.titleLines.forEach((line, i) => {
+          itemPrims.push({ kind: 'text', x, y: top + 1 + i * lineH, w, h: lineH, text: line, size: base, color: cfg.palette.text, bold: true, align: 'center', itemId: m.p.item.id });
+        });
+        if (m.date) itemPrims.push({ kind: 'text', x, y: top + 1 + m.titleLines.length * lineH, w, h: lineH, text: m.date, size: dateSize, color: cfg.palette.muted, align: 'center', itemId: m.p.item.id });
+      });
+    }
+
+    if (tasks.length) {
+      if (miles.length) bgPrims.push({ kind: 'line', x1: fr.leftX, y1: tasksTop - gap / 2, x2: fr.plotRight, y2: tasksTop - gap / 2, color: cfg.palette.grid, width: 0.75 });
+      const firstRow = pg * rowsPerPage;
+      const lastRow = Math.min(taskRows, firstRow + rowsPerPage) - 1;
+      // Faint alternate-row banding keeps the eye on a row across a long, sparse bar.
+      for (let r = firstRow; r <= lastRow; r += 1) {
+        if (r % 2 === 0) bgPrims.push({ kind: 'rect', x: fr.leftX, y: tasksTop + (r - firstRow) * pitch, w: fr.plotRight - fr.leftX, h: pitch, rx: 3, fill: bandColor(cfg.palette.accent, ctx.bg, 0.045) });
+      }
+      tasks.forEach((p, i) => {
+        if (rowOf[i] < firstRow || rowOf[i] > lastRow) return;
+        const rowTop = tasksTop + (rowOf[i] - firstRow) * pitch;
+        const cy = rowTop + (pitch + (p.side === 'above' ? aboveBlock : 0)) / 2;
+        drawPlan(itemPrims, ctx, p, cy, barH, barH);
+      });
+    }
+
+    pages.push({
+      width: fr.W, height: fr.H,
+      primitives: [...chromeBefore(ctx, pg + 1, pageCount), ...bgPrims, ...gridlines(ctx, fr.bodyBottom), ...itemPrims, ...chromeAfter(ctx, fr.bodyBottom)],
     });
   }
-
-  return [{
-    width: fr.W, height: fr.H,
-    primitives: [...chromeBefore(ctx, 1, 1), ...bgPrims, ...gridlines(ctx, fr.bodyBottom), ...itemPrims, ...chromeAfter(ctx, fr.bodyBottom)],
-  }];
+  return pages;
 }
 
 // ── Entry point ─────────────────────────────────────────────────────────────
