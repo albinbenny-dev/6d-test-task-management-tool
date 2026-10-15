@@ -11,7 +11,7 @@ export const DEFAULT_CONFIG: TemplateConfig = {
   palette: {
     text: '#1F2937', muted: '#6B7280', grid: '#E5E7EB', accent: '#2563AB',
     taskDefault: '#2563AB', milestoneDefault: '#E8501E',
-    laneColors: ['#2563AB', '#0E9F6E', '#E8501E', '#8B5CF6', '#D97706', '#0891B2'],
+    laneColors: ['#2563AB', '#0E9F6E', '#E8501E', '#8B5CF6', '#D97706', '#0891B2'], laneColorMode: 'own',
   },
   axis: { scale: 'auto', position: 'top', style: 'filled', fill: '#1F3A5F', textColor: '#FFFFFF', pastTint: 0, yearLabels: false, yearColor: '#E8501E', showToday: true, todayColor: '#DC2626', progressLine: false, progressColor: '#F59E0B', gridlines: 'major' },
   task: { height: 20, shape: 'pill', labelPosition: 'inside', showDates: false, datesPlacement: 'inline', showPercent: true, percentInside: false, progressStyle: 'tint', colorSource: 'lane', boldLabels: false },

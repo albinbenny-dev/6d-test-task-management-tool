@@ -1222,7 +1222,7 @@ function layoutOnce(input: LayoutInput, k: number): LayoutResult {
       if (!id) return null;
       const idx = laneIndex.get(id);
       if (idx === undefined) return null;
-      return lanes[idx].color ?? colors[idx % colors.length];
+      return (cfg.palette.laneColorMode === 'palette' ? null : lanes[idx].color) ?? colors[idx % colors.length];
     },
     x: (d) => fr.plotX + (diffDays(fr.range.start, d) / fr.totalDays) * fr.plotW,
     tw: (text, size = base, bold = false) => measureText(text, size, fam, bold),

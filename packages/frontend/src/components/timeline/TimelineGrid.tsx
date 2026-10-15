@@ -285,12 +285,14 @@ function MarkerOption({ type, marker, color, active, onPick }: { type: 'TASK' | 
 }
 
 // ── Grid ────────────────────────────────────────────────────────────────────
-export function TimelineGrid({ items: allItems, lanes, canEdit, lanePalette, taskColor, milestoneColor, selectedItemId, onSelectItem, actions: a, granularity, onGranularity, hideDone, dateView, onHideDone }: {
+export function TimelineGrid({ items: allItems, lanes, canEdit, lanePalette, ignoreLaneColors, taskColor, milestoneColor, selectedItemId, onSelectItem, actions: a, granularity, onGranularity, hideDone, dateView, onHideDone }: {
   items: TLItem[];
   lanes: TLLane[];
   canEdit: boolean;
   /** Template lane colours — a lane with no colour of its own takes these in order. */
   lanePalette: string[];
+  /** The template's palette decides lane colours (each lane's own colour is ignored) — keeps the dots here in step with the preview. */
+  ignoreLaneColors?: boolean;
   taskColor: string;
   milestoneColor: string;
   selectedItemId: string | null;
@@ -337,7 +339,7 @@ export function TimelineGrid({ items: allItems, lanes, canEdit, lanePalette, tas
     return m;
   }, [items, laneIds]);
 
-  const laneColor = (l: TLLane, idx: number) => l.color ?? lanePalette[idx % lanePalette.length] ?? '#2563AB';
+  const laneColor = (l: TLLane, idx: number) => (ignoreLaneColors ? null : l.color) ?? lanePalette[idx % lanePalette.length] ?? '#2563AB';
   const itemColor = (it: TLItem) => it.color ?? (it.type === 'MILESTONE' ? milestoneColor
     : (() => { const idx = sortedLanes.findIndex((l) => l.id === it.swimlaneId); return idx >= 0 ? laneColor(sortedLanes[idx], idx) : taskColor; })());
 

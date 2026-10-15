@@ -77,6 +77,8 @@ export interface TemplateConfig {
   palette: {
     text: string; muted: string; grid: string; accent: string;
     taskDefault: string; milestoneDefault: string; laneColors: string[];
+    /** 'own': a lane's own colour wins and the palette fills in the rest · 'palette': always use the palette (ignore lane colours). */
+    laneColorMode: 'own' | 'palette';
   };
   axis: {
     scale: AxisScale;

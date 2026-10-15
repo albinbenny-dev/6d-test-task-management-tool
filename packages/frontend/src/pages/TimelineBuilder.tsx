@@ -18,7 +18,7 @@ import { hasActual, type DateView } from '../lib/timeline/dateView';
 import { TimelineGrid } from '../components/timeline/TimelineGrid';
 import { TimelinePreview } from '../components/timeline/TimelinePreview';
 import { TemplateGallery } from '../components/timeline/TemplateGallery';
-import { ConfigControls, overridePaths, setIn } from '../components/timeline/ConfigControls';
+import { ConfigControls, overridePaths, setIn, unsetIn } from '../components/timeline/ConfigControls';
 import { ImportTimelineModal } from '../components/timeline/ImportTimelineModal';
 
 type ViewMode = 'data' | 'split' | 'timeline';
@@ -105,6 +105,12 @@ export default function TimelineBuilder() {
   function setOverride(path: string, value: unknown) {
     dirtyOverrides.current = true;
     setOverrides((o) => setIn(o, path, value) as StyleOverrides);
+  }
+
+  /** Drop one customised setting so the template's own value applies again. */
+  function clearOverride(path: string) {
+    dirtyOverrides.current = true;
+    setOverrides((o) => unsetIn(o, path) as StyleOverrides);
   }
 
   function resetOverrides() {
@@ -221,7 +227,7 @@ export default function TimelineBuilder() {
             <div style={{ flex: view === 'data' ? '1 1 100%' : '1 1 56%', minWidth: 0, overflowY: 'auto', paddingBottom: 16 }}>
               <TimelineGrid
                 items={items} lanes={lanes} canEdit={canManageTimelines}
-                lanePalette={config.palette.laneColors} taskColor={config.palette.taskDefault} milestoneColor={config.palette.milestoneDefault}
+                lanePalette={config.palette.laneColors} ignoreLaneColors={config.palette.laneColorMode === 'palette'} taskColor={config.palette.taskDefault} milestoneColor={config.palette.milestoneDefault}
                 selectedItemId={selectedItemId} onSelectItem={setSelectedItemId} actions={actions}
                 granularity={detail.timeline.taskGranularity ?? 'TASKS'}
                 onGranularity={(g) => actions.updateTimeline.mutate({ taskGranularity: g }, { onError: () => toast.error('Could not change the setting') })}
@@ -295,7 +301,7 @@ export default function TimelineBuilder() {
                           </button>
                         )}
                       </div>
-                      <ConfigControls config={config} onChange={setOverride} overriddenPaths={overridePaths(overrides)} />
+                      <ConfigControls config={config} onChange={setOverride} overriddenPaths={overridePaths(overrides)} onReset={clearOverride} />
                     </>
                   ) : <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>View-only — styling can be changed by project admins.</div>}
                 </div>

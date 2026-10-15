@@ -40,6 +40,7 @@ export const TemplateConfigSchema = z.object({
     taskDefault: hex.default('#2563AB'),
     milestoneDefault: hex.default('#E8501E'),
     laneColors: z.array(hex).min(1).max(12).default(['#2563AB', '#0E9F6E', '#E8501E', '#8B5CF6', '#D97706', '#0891B2']),
+    laneColorMode: z.enum(['own', 'palette']).default('own'), // own: a lane's own colour wins · palette: always the palette (ignore lane colours)
   }).default({}),
   axis: z.object({
     scale: z.enum(['auto', 'week', 'fortnight', 'month', 'quarter', 'year']).default('auto'),
@@ -111,7 +112,7 @@ export const StyleOverridesSchema = z.object({
   font: z.object({ family: z.string().min(1).max(60), baseSize: z.number().min(7).max(20) }).partial().optional(),
   palette: z.object({
     text: hex, muted: hex, grid: hex, accent: hex, taskDefault: hex, milestoneDefault: hex,
-    laneColors: z.array(hex).min(1).max(12),
+    laneColors: z.array(hex).min(1).max(12), laneColorMode: z.enum(['own', 'palette']),
   }).partial().optional(),
   axis: z.object({
     scale: z.enum(['auto', 'week', 'fortnight', 'month', 'quarter', 'year']), position: z.enum(['top', 'bottom']),
@@ -297,6 +298,7 @@ export const BUILT_IN_TEMPLATES: BuiltIn[] = [
         taskDefault: '#56AA9D', milestoneDefault: '#FFC000',
         // Lane label blocks step through close shades of blue rather than one flat colour.
         laneColors: ['#0070C0', '#1B84D4', '#0A62A8', '#3392DB', '#0C5896', '#2679BF'],
+        laneColorMode: 'palette',
       },
       axis: {
         scale: 'fortnight', style: 'filled', fill: '#1F3763', minorFill: '#478CB7', textColor: '#FFFFFF', pastTint: 0,
@@ -343,6 +345,27 @@ export const BUILT_IN_TEMPLATES: BuiltIn[] = [
       axis: {
         scale: 'fortnight', style: 'filled', fill: '#1F3763', minorFill: '#478CB7', textColor: '#FFFFFF', pastTint: 0.3,
         yearLabels: true, yearColor: '#FFFFFF', todayColor: '#9CC3F0', gridlines: 'none', showToday: true,
+      },
+      task: {
+        height: 11, shape: 'rounded', labelPosition: 'left', showDates: true, datesPlacement: 'right',
+        showPercent: true, percentInside: true, progressStyle: 'tint', colorSource: 'default',
+        trackColor: '#84A7C7', boldLabels: true,
+      },
+      milestone: { size: 12, labelPosition: 'right', showDate: true, dateFormat: 'd MMM', railAboveAxis: true },
+      swimlane: { style: 'sidebar', labelWidth: 100, bandOpacity: 0.2, bandColor: '#A5A5A5', gap: 4, border: 'none', showLabels: true, rowMode: 'single' },
+    }, {
+      layout: 'swimlane',
+      slide: { background: '#0F3278', showTitle: true, titleAlign: 'left', titleSize: 28, titleColor: '#FFFFFF' },
+      font: { family: 'Arial', baseSize: 10 },
+      palette: {
+        text: '#FFFFFF', muted: '#DCE6F5', grid: '#0F3278', accent: '#0070C0',
+        taskDefault: '#56AA9D', milestoneDefault: '#FFC000',
+        laneColors: ['#0070C0', '#1B84D4', '#0A62A8', '#3392DB', '#0C5896', '#2679BF'],
+      },
+      axis: {
+        scale: 'fortnight', style: 'filled', fill: '#1F3763', minorFill: '#478CB7', textColor: '#FFFFFF', pastTint: 0,
+        yearLabels: true, yearColor: '#FFFFFF', todayColor: '#9CC3F0', gridlines: 'none', showToday: true,
+        progressLine: true, progressColor: '#F5A623',
       },
       task: {
         height: 11, shape: 'rounded', labelPosition: 'left', showDates: true, datesPlacement: 'right',

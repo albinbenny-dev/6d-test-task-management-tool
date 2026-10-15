@@ -40,7 +40,7 @@ export const SECTIONS: Section[] = [
       { path: 'axis.gridlines', label: 'Gridlines', kind: 'select', options: [['none', 'None'], ['major', 'Major only'], ['all', 'Every tick']] },
       { path: 'axis.showToday', label: 'Show today marker', kind: 'toggle' },
       { path: 'axis.progressLine', label: 'Progress line by the axis', kind: 'toggle', hint: 'A slim line beside the axis from the plan\'s first start date to today.' },
-      { path: 'axis.pastTint', label: 'Lighten elapsed time', kind: 'number', min: 0, max: 0.8, step: 0.05, hint: '0 = off. Lightens the part of the axis before today.' },
+      { path: 'axis.pastTint', label: 'Lighten elapsed time', kind: 'number', min: 0, max: 0.8, step: 0.05, when: (c) => !c.axis.progressLine, hint: '0 = off. Lightens the part of the axis before today. Hidden while the progress line is on — that is the cleaner way to show elapsed time.' },
       { path: 'axis.yearLabels', label: 'Year at both ends', kind: 'toggle', hint: 'Shows the year big at each end of the axis; the top tier then lists plain months.' },
     ],
   },
@@ -110,6 +110,7 @@ export const SECTIONS: Section[] = [
       { path: 'axis.textColor', label: 'Axis text (filled)', kind: 'color' },
       { path: 'axis.todayColor', label: 'Today marker', kind: 'color' },
       { path: 'axis.progressColor', label: 'Progress line', kind: 'color', when: (c) => c.axis.progressLine },
+      { path: 'palette.laneColorMode', label: 'Lane colours come from', kind: 'select', options: [['own', "Each lane's own colour"], ['palette', 'The palette only']], when: (c) => c.layout !== 'gantt', hint: "Each lane can have its own colour (the swatch in the Data grid), which beats the palette. 'The palette only' ignores those and steps through the Swimlane colours below, so the lane labels get the template's shades." },
       { path: 'palette.laneColors', label: 'Swimlane colours', kind: 'colors', hint: 'Lanes take these in order, unless a lane has its own colour.' },
     ],
   },
@@ -121,6 +122,21 @@ export const SECTIONS: Section[] = [
     ],
   },
 ];
+
+/** Immutable nested delete (and tidy up objects left empty): unsetIn({a:{b:1}}, 'a.b') → {} */
+export function unsetIn<T>(obj: T, path: string): T {
+  const keys = path.split('.');
+  const rec = (o: unknown, i: number): unknown => {
+    if (!o || typeof o !== 'object') return o;
+    const copy = { ...(o as Record<string, unknown>) };
+    if (i === keys.length - 1) { delete copy[keys[i]]; return copy; }
+    const child = rec(copy[keys[i]], i + 1);
+    if (child === undefined || (child && typeof child === 'object' && !Array.isArray(child) && Object.keys(child).length === 0)) delete copy[keys[i]];
+    else copy[keys[i]] = child;
+    return copy;
+  };
+  return rec(obj, 0) as T;
+}
 
 export function getIn(obj: unknown, path: string): unknown {
   return path.split('.').reduce<unknown>((o, k) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined), obj);
@@ -139,13 +155,15 @@ export function setIn<T>(obj: T, path: string, value: unknown): T {
 const labelStyle = { fontSize: 11.5, color: 'var(--text-mid)', flex: 1, minWidth: 0 } as const;
 const rowStyle = { display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' } as const;
 
-function Control({ field, value, onChange, overridden }: {
-  field: Field; value: unknown; onChange: (v: unknown) => void; overridden?: boolean;
+function Control({ field, value, onChange, overridden, onReset }: {
+  field: Field; value: unknown; onChange: (v: unknown) => void; overridden?: boolean; onReset?: () => void;
 }) {
   const label = (
     <label style={labelStyle} title={field.hint}>
       {field.label}
-      {overridden && <span title="Customised for this timeline" style={{ color: 'var(--cyan)', marginLeft: 4 }}>●</span>}
+      {overridden && (onReset
+        ? <button type="button" onClick={onReset} title="Customised for this timeline — click to go back to the template's value" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--cyan)', marginLeft: 4, fontSize: 'inherit' }}>●</button>
+        : <span title="Customised for this timeline" style={{ color: 'var(--cyan)', marginLeft: 4 }}>●</span>)}
     </label>
   );
   switch (field.kind) {
@@ -213,9 +231,11 @@ function Control({ field, value, onChange, overridden }: {
 }
 
 /** The accordion of controls. `onChange(path, value)` fires per edit. */
-export function ConfigControls({ config, onChange, overriddenPaths }: {
+export function ConfigControls({ config, onChange, overriddenPaths, onReset }: {
   config: TemplateConfig;
   onChange: (path: string, value: unknown) => void;
+  /** When given, the ● beside a customised setting becomes a button that resets just that setting. */
+  onReset?: (path: string) => void;
   /** Paths the user has customised on top of the template (shown with a dot). */
   overriddenPaths?: Set<string>;
 }) {
@@ -238,7 +258,7 @@ export function ConfigControls({ config, onChange, overriddenPaths }: {
             {isOpen && (
               <div style={{ padding: '0 4px 10px 18px' }}>
                 {fields.map((f) => (
-                  <Control key={f.path} field={f} value={getIn(config, f.path)} onChange={(v) => onChange(f.path, v)} overridden={overriddenPaths?.has(f.path)} />
+                  <Control key={f.path} field={f} value={getIn(config, f.path)} onChange={(v) => onChange(f.path, v)} overridden={overriddenPaths?.has(f.path)} onReset={onReset ? () => onReset(f.path) : undefined} />
                 ))}
               </div>
             )}
