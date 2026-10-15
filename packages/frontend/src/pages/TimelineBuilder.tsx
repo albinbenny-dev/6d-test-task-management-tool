@@ -231,6 +231,7 @@ export default function TimelineBuilder() {
           {dataMounted.current && (
             <div style={{ display: showData ? undefined : 'none', flex: view === 'data' ? '1 1 100%' : '1 1 56%', minWidth: 0, overflowY: 'auto', paddingBottom: 16 }}>
               <TimelineGrid
+                projectId={projectId} timelineId={timelineId ?? ''}
                 items={items} lanes={lanes} canEdit={canManageTimelines}
                 lanePalette={config.palette.laneColors} ignoreLaneColors={config.palette.laneColorMode === 'palette'} taskColor={config.palette.taskDefault} milestoneColor={config.palette.milestoneDefault}
                 selectedItemId={selectedItemId} onSelectItem={setSelectedItemId} actions={actions}

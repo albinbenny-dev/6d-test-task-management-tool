@@ -1,6 +1,8 @@
 import { Router, RequestHandler } from 'express';
 import { z } from 'zod';
 import multer from 'multer';
+import { rollupParentActuals } from '../lib/taskActuals.js';
+import { buildTask, parentDataFor, countKeys, taskKey, type BuiltTask, type MemberRef } from '../lib/timelineToTasks.js';
 import * as xlsx from 'xlsx';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
@@ -808,6 +810,223 @@ router.post('/:timelineId/import-from-project', requireAdvancedFeatures as Reque
     ? await prisma.timelineItem.count({ where: { timelineId: timeline.id, swimlane: { taskListId: { in: newLists.map((l) => l.id) } } } })
     : 0;
   res.json({ itemsImported: linkedItems + milestoneCount, swimlanesCreated: newLists.length + milestoneLanes.length, linkedLists: newLists.length });
+}) as RequestHandler);
+
+// ── POST /:timelineId/convert-to-tasks ──────────────────────────────────────
+// Turns timeline rows into Task Lists / Tasks (the reverse of import-from-project). Rows are grouped by the caller —
+// the UI sends a hand-picked selection, or one group per swimlane:
+//   FLAT   each group → one Task List (same name; an existing list is added to) holding the rows as plain tasks
+//   PARENT each group → one parent task with the rows as its subtasks, all in one chosen list (subtasks are one level deep)
+// Re-running is safe: a row whose title + dates already exist in the list is skipped, so nothing doubles up.
+// `dryRun` returns the same summary without writing. `replaceOnTimeline` (FLAT only) deletes the converted rows and links
+// the swimlane (or a new one) to the new list, so the timeline then follows the Task page. No notification emails are sent.
+
+const ConvertToTasksSchema = z.object({
+  groups: z.array(z.object({
+    name: z.string().trim().min(1).max(100),
+    itemIds: z.array(z.string().min(1)).min(1).max(MAX_ITEMS_PER_TIMELINE),
+  })).min(1).max(100),
+  shape: z.enum(['FLAT', 'PARENT']).default('FLAT'),
+  targetTaskListId: z.string().min(1).optional(),
+  targetTaskListName: z.string().trim().min(1).max(100).optional(),
+  replaceOnTimeline: z.boolean().default(false),
+  dryRun: z.boolean().default(false),
+}).refine((d) => d.shape !== 'PARENT' || !!d.targetTaskListId || !!d.targetTaskListName, { message: 'Choose the task list the parent tasks go into' })
+  .refine((d) => !(d.replaceOnTimeline && d.shape === 'PARENT'), { message: 'Replacing rows with a linked swimlane is only available for flat task lists' });
+
+router.post('/:timelineId/convert-to-tasks', requireAdvancedFeatures as RequestHandler, (async (req, res) => {
+  const parsed = ConvertToTasksSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Validation failed', issues: parsed.error.issues });
+  const timeline = await loadTimeline(req.project.id, req.params.timelineId);
+  if (!timeline) return res.status(404).json({ error: 'Timeline not found' });
+  const projectId = req.project.id;
+  const { groups, shape, replaceOnTimeline, dryRun } = parsed.data;
+
+  const allIds = groups.flatMap((g) => g.itemIds);
+  if (new Set(allIds).size !== allIds.length) return res.status(400).json({ error: 'A row can only be in one group' });
+  const names = groups.map((g) => g.name.toLowerCase());
+  if (new Set(names).size !== names.length) return res.status(400).json({ error: 'Two groups have the same name' });
+  if (allIds.length > MAX_ITEMS_PER_TIMELINE) return res.status(400).json({ error: `Too many rows (max ${MAX_ITEMS_PER_TIMELINE})` });
+
+  const [dbItems, memberRows, lists] = await Promise.all([
+    prisma.timelineItem.findMany({ where: { timelineId: timeline.id, id: { in: allIds } } }),
+    prisma.projectMember.findMany({ where: { projectId }, select: { id: true, user: { select: { name: true, email: true } } } }),
+    prisma.taskList.findMany({ where: { projectId }, orderBy: { sortOrder: 'asc' } }),
+  ]);
+  const itemById = new Map(dbItems.map((i) => [i.id, i]));
+  const members: MemberRef[] = memberRows.map((m) => ({ id: m.id, name: m.user.name, email: m.user.email }));
+  const listByName = new Map(lists.map((l) => [l.name.toLowerCase(), l]));
+
+  // The one list every parent goes into (PARENT shape).
+  let parentList: { id: string | null; name: string } | null = null;
+  if (shape === 'PARENT') {
+    if (parsed.data.targetTaskListId) {
+      const l = lists.find((x) => x.id === parsed.data.targetTaskListId);
+      if (!l) return res.status(400).json({ error: 'That task list does not belong to this project' });
+      parentList = { id: l.id, name: l.name };
+    } else {
+      const name = parsed.data.targetTaskListName as string;
+      const ex = listByName.get(name.toLowerCase());
+      parentList = { id: ex?.id ?? null, name: ex?.name ?? name };
+    }
+  }
+
+  // ── Plan (shared by the preview and the real run) ──
+  interface Planned {
+    name: string;
+    listId: string | null;            // FLAT: the existing list with this name (null = will be created)
+    parentId: string | null;          // PARENT: the existing parent task with this title (null = will be created)
+    built: BuiltTask[];               // every usable row, in the order sent
+    toCreate: BuiltTask[];            // the rows not already in the list / under the parent
+    alreadyThere: number;
+    skippedLinked: number;
+    missing: number;
+    unmatched: string[];
+    statusCounts: Record<string, number>;
+  }
+  const plan: Planned[] = [];
+  for (const g of groups) {
+    const rows = g.itemIds.map((id) => itemById.get(id));
+    const missing = rows.filter((r) => !r).length;
+    const present = rows.filter((r): r is NonNullable<typeof r> => !!r);
+    const linked = present.filter((r) => r.taskId);
+    const usable = present.filter((r) => !r.taskId);
+    const built = usable.map((r) => buildTask({
+      id: r.id, title: r.title, type: r.type, startDate: r.startDate, endDate: r.endDate, percentComplete: r.percentComplete,
+      assignee: r.assignee, notes: r.notes, actualStartDate: r.actualStartDate, actualEndDate: r.actualEndDate,
+    }, members));
+
+    let listId: string | null = null;
+    let parentId: string | null = null;
+    let existing: { title: string; startDate: Date | null; dueDate: Date | null }[] = [];
+    if (shape === 'FLAT') {
+      listId = listByName.get(g.name.toLowerCase())?.id ?? null;
+      if (listId) existing = await prisma.task.findMany({ where: { projectId, taskListId: listId }, select: { title: true, startDate: true, dueDate: true } });
+    } else if (parentList?.id) {
+      const parent = await prisma.task.findFirst({ where: { projectId, taskListId: parentList.id, parentTaskId: null, title: { equals: g.name, mode: 'insensitive' } } });
+      parentId = parent?.id ?? null;
+      if (parentId) existing = await prisma.task.findMany({ where: { projectId, parentTaskId: parentId }, select: { title: true, startDate: true, dueDate: true } });
+    }
+    const left = countKeys(existing);
+    const toCreate: BuiltTask[] = [];
+    let alreadyThere = 0;
+    for (const b of built) {
+      const k = taskKey(b.data.title, b.data.startDate, b.data.dueDate);
+      const n = left.get(k) ?? 0;
+      if (n > 0) { left.set(k, n - 1); alreadyThere++; } else toCreate.push(b);
+    }
+    const statusCounts: Record<string, number> = { TO_DO: 0, IN_PROGRESS: 0, DONE: 0 };
+    toCreate.forEach((b) => { statusCounts[b.data.status]++; });
+    plan.push({
+      name: g.name, listId, parentId, built, toCreate, alreadyThere, skippedLinked: linked.length, missing,
+      unmatched: [...new Set(built.flatMap((b) => b.unmatched))], statusCounts,
+    });
+  }
+
+  const summary = {
+    shape,
+    targetList: parentList ? { name: parentList.name, exists: !!parentList.id } : null,
+    groups: plan.map((p) => ({
+      name: p.name,
+      exists: shape === 'FLAT' ? !!p.listId : !!p.parentId,
+      rows: p.built.length + p.skippedLinked,
+      toCreate: p.toCreate.length,
+      alreadyThere: p.alreadyThere,
+      skippedLinked: p.skippedLinked,
+      missing: p.missing,
+      statusCounts: p.statusCounts,
+    })),
+    totalToCreate: plan.reduce((n, p) => n + p.toCreate.length, 0),
+    totalAlreadyThere: plan.reduce((n, p) => n + p.alreadyThere, 0),
+    totalSkippedLinked: plan.reduce((n, p) => n + p.skippedLinked, 0),
+    unmatchedAssignees: [...new Set(plan.flatMap((p) => p.unmatched))].slice(0, 50),
+    replaceOnTimeline,
+  };
+  if (dryRun) return res.json({ committed: false, ...summary });
+  if (summary.totalToCreate === 0 && !replaceOnTimeline) return res.status(400).json({ error: 'Nothing to create — everything selected is already in the task list or already linked to a task' });
+
+  // ── Write ──
+  const written = await prisma.$transaction(async (tx) => {
+    let listSort = lists.reduce((mx, l) => Math.max(mx, l.sortOrder), -1) + 1;
+    const known = new Map(listByName);
+    const ensureList = async (name: string) => {
+      const ex = known.get(name.toLowerCase());
+      if (ex) return ex;
+      const l = await tx.taskList.create({ data: { projectId, name: name.slice(0, 100), sortOrder: listSort++ } });
+      known.set(name.toLowerCase(), l);
+      return l;
+    };
+    const nextSort = async (taskListId: string) => ((await tx.task.findFirst({ where: { projectId, taskListId }, orderBy: { sortOrder: 'desc' }, select: { sortOrder: true } }))?.sortOrder ?? -1) + 1;
+    const base = (taskListId: string, parentTaskId: string | null) => ({ projectId, taskListId, parentTaskId, createdByUserId: req.user.id });
+
+    const out = { listsCreated: [] as string[], listIds: new Map<string, string>(), tasksCreated: 0, parentsCreated: 0 };
+    const createdBefore = new Set(lists.map((l) => l.id));
+
+    if (shape === 'FLAT') {
+      for (const p of plan) {
+        const list = await ensureList(p.name);
+        out.listIds.set(p.name, list.id);
+        if (!createdBefore.has(list.id)) out.listsCreated.push(list.name);
+        let sort = await nextSort(list.id);
+        if (p.toCreate.length) {
+          await tx.task.createMany({ data: p.toCreate.map((b) => ({ ...base(list.id, null), ...b.data, sortOrder: sort++ })) });
+          out.tasksCreated += p.toCreate.length;
+        }
+      }
+    } else {
+      const list = await ensureList(parentList!.name);
+      if (!createdBefore.has(list.id)) out.listsCreated.push(list.name);
+      let sort = await nextSort(list.id);
+      for (const p of plan) {
+        if (p.toCreate.length === 0 && p.parentId) continue;
+        let parentId = p.parentId;
+        if (!parentId) {
+          const parent = await tx.task.create({ data: { ...base(list.id, null), ...parentDataFor(p.name, p.built.map((b) => b.data)), sortOrder: sort++ } });
+          parentId = parent.id;
+          out.parentsCreated++;
+        }
+        let kidSort = (await tx.task.findFirst({ where: { projectId, parentTaskId: parentId }, orderBy: { sortOrder: 'desc' }, select: { sortOrder: true } }))?.sortOrder ?? -1;
+        if (p.toCreate.length) {
+          await tx.task.createMany({ data: p.toCreate.map((b) => ({ ...base(list.id, parentId), ...b.data, sortOrder: ++kidSort })) });
+          out.tasksCreated += p.toCreate.length;
+        }
+        await rollupParentActuals(parentId, tx);
+      }
+    }
+
+    // Optionally swap the converted rows for a swimlane that follows the new list.
+    let replaced = 0;
+    let lanesLinked = 0;
+    if (replaceOnTimeline && shape === 'FLAT') {
+      const lanes = await tx.timelineSwimlane.findMany({ where: { timelineId: timeline.id }, orderBy: { sortOrder: 'asc' } });
+      let laneSort = (lanes[lanes.length - 1]?.sortOrder ?? -1) + 1;
+      for (const p of plan) {
+        const listId = out.listIds.get(p.name);
+        if (!listId || p.built.length === 0) continue;
+        const ids = p.built.map((b) => b.itemId);
+        const laneIds = new Set(ids.map((id) => itemById.get(id)?.swimlaneId ?? null));
+        const del = await tx.timelineItem.deleteMany({ where: { timelineId: timeline.id, id: { in: ids } } });
+        replaced += del.count;
+        const alreadyLinked = await tx.timelineSwimlane.findFirst({ where: { timelineId: timeline.id, taskListId: listId } });
+        if (alreadyLinked) continue;
+        const onlyLane = laneIds.size === 1 ? [...laneIds][0] : null;
+        const lane = onlyLane ? lanes.find((l) => l.id === onlyLane) : undefined;
+        const emptied = lane && !lane.taskListId && (await tx.timelineItem.count({ where: { timelineId: timeline.id, swimlaneId: lane.id } })) === 0;
+        if (lane && emptied) await tx.timelineSwimlane.update({ where: { id: lane.id }, data: { taskListId: listId } });
+        else await tx.timelineSwimlane.create({ data: { timelineId: timeline.id, name: p.name.slice(0, 100), taskListId: listId, sortOrder: laneSort++ } });
+        lanesLinked++;
+      }
+    }
+    return { ...out, replaced, lanesLinked };
+  }, { timeout: 120_000 });
+
+  if (replaceOnTimeline) await syncTimelineFromTasks(timeline.id);
+
+  res.json({
+    committed: true, ...summary,
+    listsCreated: written.listsCreated, tasksCreated: written.tasksCreated, parentsCreated: written.parentsCreated,
+    replaced: written.replaced, lanesLinked: written.lanesLinked,
+  });
 }) as RequestHandler);
 
 // ── GET /:timelineId/export-xlsx — round-trips through /import ──────────────

@@ -224,3 +224,44 @@ export function useTemplateAdmin() {
   });
   return { create, update, duplicate, reset, remove };
 }
+
+// ── Convert timeline rows into Task Lists / Tasks ───────────────────────────
+export interface ConvertGroupSummary {
+  name: string; exists: boolean; rows: number; toCreate: number; alreadyThere: number; skippedLinked: number; missing: number;
+  statusCounts: Record<string, number>;
+}
+export interface ConvertSummary {
+  committed: boolean;
+  shape: 'FLAT' | 'PARENT';
+  targetList: { name: string; exists: boolean } | null;
+  groups: ConvertGroupSummary[];
+  totalToCreate: number; totalAlreadyThere: number; totalSkippedLinked: number;
+  unmatchedAssignees: string[];
+  replaceOnTimeline: boolean;
+  // only once committed
+  listsCreated?: string[]; tasksCreated?: number; parentsCreated?: number; replaced?: number; lanesLinked?: number;
+}
+export interface ConvertPayload {
+  groups: { name: string; itemIds: string[] }[];
+  shape: 'FLAT' | 'PARENT';
+  targetTaskListId?: string;
+  targetTaskListName?: string;
+  replaceOnTimeline: boolean;
+  dryRun: boolean;
+}
+
+export function useConvertToTasks(projectId: string, timelineId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: ConvertPayload) =>
+      (await api.post<ConvertSummary>(`/projects/${projectId}/timelines/${timelineId}/convert-to-tasks`, payload)).data,
+    onSuccess: (data) => {
+      if (!data.committed) return;
+      void qc.invalidateQueries({ queryKey: ['task-lists', projectId] });
+      void qc.invalidateQueries({ queryKey: ['tasks', projectId] });
+      void qc.invalidateQueries({ queryKey: ['tasks-dashboard', projectId] });
+      void qc.invalidateQueries({ queryKey: ['timeline', projectId, timelineId] });
+      void qc.invalidateQueries({ queryKey: ['timelines', projectId] });
+    },
+  });
+}

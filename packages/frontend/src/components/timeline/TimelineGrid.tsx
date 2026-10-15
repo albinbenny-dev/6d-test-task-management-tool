@@ -1,12 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Eye, EyeOff, GripVertical, Link2, Plus, Trash2, Unlink } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Eye, EyeOff, GripVertical, Link2, ListPlus, Plus, Trash2, Unlink } from 'lucide-react';
 import type { TLItem, TLLane } from '../../lib/timeline/types';
 import { MILESTONE_MARKERS, TASK_MARKERS, shownOnTimeline } from '../../lib/timeline/types';
 import { todayYmd } from '../../lib/timeline/dates';
 import type { useTimelineEditor } from '../../hooks/useTimelines';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { MarkerIcon } from './MarkerIcon';
+import { ConvertToTasksDialog } from './ConvertToTasksDialog';
 import { DelayChip } from '../tasks/DelayChip';
 
 type Actions = ReturnType<typeof useTimelineEditor>;
@@ -290,7 +291,9 @@ function MarkerOption({ type, marker, color, active, onPick }: { type: 'TASK' | 
 }
 
 // ── Grid ────────────────────────────────────────────────────────────────────
-export function TimelineGrid({ items: allItems, lanes, canEdit, lanePalette, ignoreLaneColors, taskColor, milestoneColor, selectedItemId, onSelectItem, actions: a, granularity, onGranularity, hideDone, dateView, onHideDone }: {
+export function TimelineGrid({ projectId, timelineId, items: allItems, lanes, canEdit, lanePalette, ignoreLaneColors, taskColor, milestoneColor, selectedItemId, onSelectItem, actions: a, granularity, onGranularity, hideDone, dateView, onHideDone }: {
+  projectId: string;
+  timelineId: string;
   items: TLItem[];
   lanes: TLLane[];
   canEdit: boolean;
@@ -322,6 +325,7 @@ export function TimelineGrid({ items: allItems, lanes, canEdit, lanePalette, ign
   const [dragId, setDragId] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
   const [colorLane, setColorLane] = useState<string | null>(null);
+  const [convertDlg, setConvertDlg] = useState<'selection' | 'lanes' | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
 
@@ -458,11 +462,30 @@ export function TimelineGrid({ items: allItems, lanes, canEdit, lanePalette, ign
 
   return (
     <div>
+      {convertDlg && (
+        <ConvertToTasksDialog
+          projectId={projectId} timelineId={timelineId} mode={convertDlg} lanes={sortedLanes}
+          items={convertDlg === 'lanes' ? allItems : checkedItems}
+          onClose={() => setConvertDlg(null)} onDone={() => setChecked(new Set())}
+        />
+      )}
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
         {canEdit && (
           <button className="tb-btn tb-btn-ghost" onClick={addLane} disabled={a.createLane.isPending} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <Plus size={13} /> Add swimlane
+          </button>
+        )}
+        {canEdit && checked.size > 0 && (
+          <button className="tb-btn tb-btn-ghost" onClick={() => setConvertDlg('selection')} style={{ display: 'flex', alignItems: 'center', gap: 5 }}
+            title="Turn the ticked rows into a task list, or into a parent task with subtasks">
+            <ListPlus size={13} /> Create task list from {checked.size}
+          </button>
+        )}
+        {canEdit && checked.size === 0 && allItems.length > 0 && (
+          <button className="tb-btn tb-btn-ghost" onClick={() => setConvertDlg('lanes')} style={{ display: 'flex', alignItems: 'center', gap: 5 }}
+            title="Turn each swimlane into its own task list (tick rows first to convert just those)">
+            <ListPlus size={13} /> Convert swimlanes to task lists…
           </button>
         )}
         {canEdit && checked.size > 0 && (
@@ -542,6 +565,19 @@ export function TimelineGrid({ items: allItems, lanes, canEdit, lanePalette, ign
                   {...dragProps(lane.id, null)}
                   style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 10px 8px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', boxShadow: overKey === `${lane.id}:null` && count === 0 ? 'inset 0 2px 0 var(--cyan)' : undefined }}
                 >
+                  {canEdit && count > 0 && (() => {
+                    const laneItems = byLane.get(lane.id) ?? [];
+                    const all = laneItems.length > 0 && laneItems.every((i) => checked.has(i.id));
+                    const some = laneItems.some((i) => checked.has(i.id));
+                    return (
+                      <input
+                        type="checkbox" checked={all} title={all ? 'Untick every row in this swimlane' : 'Tick every row in this swimlane'}
+                        ref={(el) => { if (el) el.indeterminate = some && !all; }}
+                        onChange={(e) => setChecked((c) => { const n = new Set(c); laneItems.forEach((i) => { if (e.target.checked) n.add(i.id); else n.delete(i.id); }); return n; })}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    );
+                  })()}
                   <div style={{ position: 'relative' }}>
                     <button
                       disabled={!canEdit} onClick={() => setColorLane(colorLane === lane.id ? null : lane.id)}
