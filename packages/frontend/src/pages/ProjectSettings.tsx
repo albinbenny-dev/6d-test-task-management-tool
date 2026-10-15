@@ -1941,6 +1941,12 @@ const NOTIFICATION_GROUPS: Array<{ title: string; triggers: Array<{ key: Notific
     ],
   },
   {
+    title: 'Payment Milestones',
+    triggers: [
+      { key: 'milestoneReminder',  label: 'Evidence-date reminder', description: 'A daily digest to project Admins and Super Users (and Super Admins) for payment milestones that have no invoice raised yet: 7 and 3 days before the Documentary Evidence Date, on the day, then weekly while overdue. Dates come from the last CRM upload.' },
+    ],
+  },
+  {
     title: 'Test Cycles',
     triggers: [
       { key: 'cycleItemAssigned',  label: 'Test case assigned', description: 'Email the tester when test cases in a cycle are assigned to them (one email per bulk assignment).' },

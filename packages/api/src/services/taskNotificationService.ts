@@ -17,7 +17,7 @@ import { isTriggerOn, parseNotificationSettings, type NotificationTrigger } from
 // Notifications (Project.notificationSettings). Every send is best-effort: a
 // mail failure is logged and never fails the API request that triggered it.
 
-function isEnabled(): boolean {
+export function isEnabled(): boolean {
   return !!process.env.SMTP_HOST && process.env.TASK_NOTIFY_ENABLED !== 'false';
 }
 
@@ -25,22 +25,22 @@ export function reminderTimeZone(): string {
   return process.env.TASK_REMINDER_TZ ?? 'Asia/Kolkata';
 }
 
-function appUrl(): string {
+export function appUrl(): string {
   return (process.env.APP_URL ?? 'http://localhost:3200').replace(/\/+$/, '');
 }
 
 // Calendar date (YYYY-MM-DD) of an instant in the reminder time zone. Due
 // dates are saved from a date picker as UTC midnight, so comparing calendar
 // dates — not timestamps — keeps "due today" correct in IST.
-function dateKey(d: Date): string {
+export function dateKey(d: Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: reminderTimeZone() }).format(d);
 }
 
-function formatDate(d: Date): string {
+export function formatDate(d: Date): string {
   return d.toLocaleDateString('en-IN', { timeZone: reminderTimeZone(), day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function daysBetween(fromKey: string, toKey: string): number {
+export function daysBetween(fromKey: string, toKey: string): number {
   return Math.round((Date.parse(toKey) - Date.parse(fromKey)) / 86_400_000);
 }
 
@@ -72,7 +72,7 @@ interface NotifyTask {
   assignee: { user: { id: string; name: string; email: string } } | null;
 }
 
-function projectAllows(project: { notificationSettings: string }, trigger: NotificationTrigger): boolean {
+export function projectAllows(project: { notificationSettings: string }, trigger: NotificationTrigger): boolean {
   return isTriggerOn(parseNotificationSettings(project.notificationSettings), trigger);
 }
 
@@ -114,7 +114,7 @@ function taskTable(rows: string): string {
     </table>`;
 }
 
-function layout(heading: string, intro: string, body: string): string {
+export function layout(heading: string, intro: string, body: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -135,11 +135,11 @@ function layout(heading: string, intro: string, body: string): string {
 </html>`;
 }
 
-function sectionTitle(text: string, color: string): string {
+export function sectionTitle(text: string, color: string): string {
   return `<div style="font-size:13px;font-weight:700;color:${color};margin:0 0 8px;">${text}</div>`;
 }
 
-async function send(to: string, subject: string, html: string): Promise<void> {
+export async function send(to: string, subject: string, html: string): Promise<void> {
   await createTransporter().sendMail({
     from: process.env.SMTP_FROM ?? 'no-reply@6dtech.co.in',
     to,

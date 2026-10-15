@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Upload } from 'lucide-react';
 import Topbar from '../components/layout/Topbar';
 import { useProject } from '../hooks/useProjects';
 import { useRBAC } from '../hooks/useRBAC';
@@ -10,6 +10,7 @@ import {
   useMilestoneLists, useCreateMilestoneList, useUpdateMilestoneList, useDeleteMilestoneList,
 } from '../hooks/useMilestoneLists';
 import { StatCard } from '../components/testCycles/StatCards';
+import { ImportMilestonesModal } from '../components/milestones/ImportMilestonesModal';
 import {
   milestoneDueBucket, isMilestoneOverdue, baselineSlipDays, executionSlipDays,
   deviationTone, DEVIATION_COLOR,
@@ -54,6 +55,14 @@ function DateCell({ value, editable, onCommit }: { value: string | null | undefi
   );
 }
 
+/** Evidence date is what invoice reminders fire on — flag it once it has passed with no invoice raised. */
+function evidenceOverdue(m: Milestone): boolean {
+  if (!m.evidenceDate || m.invoiceRaised) return false;
+  const d = new Date(m.evidenceDate);
+  const now = new Date();
+  return d.getTime() < Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
 function MilestoneRow({ milestone, canEdit, onUpdate, onDelete }: {
   milestone: Milestone;
   canEdit: boolean;
@@ -68,7 +77,7 @@ function MilestoneRow({ milestone, canEdit, onUpdate, onDelete }: {
 
   return (
     <tr style={overdue ? { background: 'var(--rose-dim)' } : undefined}>
-      <td className="primary" style={{ minWidth: 200 }}>
+      <td className="primary" style={{ minWidth: 200 }} title={milestone.crmComments ?? undefined}>
         {canEdit ? (
           <input
             className="input-field"
@@ -83,6 +92,9 @@ function MilestoneRow({ milestone, canEdit, onUpdate, onDelete }: {
       </td>
       <td><DateCell value={milestone.baselineDate} editable={canEdit} onCommit={(iso) => onUpdate(milestone.id, { baselineDate: iso })} /></td>
       <td><DateCell value={milestone.targetDate} editable={canEdit} onCommit={(iso) => onUpdate(milestone.id, { targetDate: iso })} /></td>
+      <td style={evidenceOverdue(milestone) ? { color: 'var(--fail)', fontWeight: 700 } : undefined} title={evidenceOverdue(milestone) ? 'Evidence date passed and no invoice raised' : undefined}>
+        <DateCell value={milestone.evidenceDate} editable={canEdit} onCommit={(iso) => onUpdate(milestone.id, { evidenceDate: iso })} />
+      </td>
       <td><SlipBadge label="Slipped vs. baseline" days={baseSlip} /></td>
       <td style={{ textAlign: 'center' }}>
         <input
@@ -277,6 +289,7 @@ export default function Milestones() {
   const updateMilestone = useUpdateMilestone(projectId ?? '');
   const deleteMilestone = useDeleteMilestone(projectId ?? '');
   const [newName, setNewName] = useState('');
+  const [importOpen, setImportOpen] = useState(false);
 
   const paymentLinked = milestones.filter((m) => m.isPaymentLinked);
   const overdueCount = milestones.filter((m) => isMilestoneOverdue(m)).length;
@@ -330,10 +343,17 @@ export default function Milestones() {
       <Topbar breadcrumbs={[{ label: project?.name ?? slug ?? 'Project' }, { label: 'Milestones' }]} />
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 24, display: 'grid', gridTemplateColumns: '1fr', alignContent: 'start', gap: 20 }}>
-        <div>
-          <div className="page-eyebrow">Delivery Tracking</div>
-          <h1 className="page-title">Payment Milestones</h1>
-          <p className="page-sub">Key delivery milestones for this project, grouped into lists (Project / CR / MS milestones, etc.), with baseline vs. revised dates and which ones have payment tied to them. No amounts are tracked here — status only.</p>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+          <div style={{ flex: 1 }}>
+            <div className="page-eyebrow">Delivery Tracking</div>
+            <h1 className="page-title">Payment Milestones</h1>
+            <p className="page-sub">Key delivery milestones for this project, grouped into lists (one per PO, or Project / CR / MS milestones), with baseline vs. revised dates, the evidence date that invoicing waits on, and which milestones have payment tied to them. No amounts are tracked here — status only. Upload the CRM PO report to load or refresh them; reminder emails go out ahead of each evidence date.</p>
+          </div>
+          {canManageMilestones && projectId && (
+            <button className="tb-btn tb-btn-primary" onClick={() => setImportOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+              <Upload size={14} /> Import from CRM
+            </button>
+          )}
         </div>
 
         {listsLoading ? (
@@ -381,12 +401,13 @@ export default function Milestones() {
 
                 <div className="card" style={{ padding: 16 }}>
                   <div style={{ overflowX: 'auto' }}>
-                    <table className="data-table" style={{ minWidth: 980 }}>
+                    <table className="data-table" style={{ minWidth: 1100 }}>
                       <thead>
                         <tr>
                           <th>Milestone</th>
                           <th>As per PIP (baseline)</th>
                           <th>Revised / Target</th>
+                          <th title="Documentary Evidence Date — invoice reminders fire on this date">Evidence (DED)</th>
                           <th>Baseline Slip</th>
                           <th>Delivered?</th>
                           <th>Delivered On</th>
@@ -402,7 +423,7 @@ export default function Milestones() {
                           <MilestoneRow key={m.id} milestone={m} canEdit={canManageMilestones} onUpdate={handleUpdate} onDelete={handleDelete} />
                         ))}
                         {milestones.length === 0 && (
-                          <tr><td colSpan={canManageMilestones ? 11 : 10} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: 24 }}>No milestones in this list yet.</td></tr>
+                          <tr><td colSpan={canManageMilestones ? 12 : 11} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: 24 }}>No milestones in this list yet.</td></tr>
                         )}
                       </tbody>
                     </table>
@@ -429,6 +450,7 @@ export default function Milestones() {
           </>
         )}
       </div>
+      {importOpen && projectId && <ImportMilestonesModal projectId={projectId} onClose={() => setImportOpen(false)} />}
     </div>
   );
 }

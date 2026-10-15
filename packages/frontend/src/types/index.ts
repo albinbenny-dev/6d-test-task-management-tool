@@ -685,6 +685,13 @@ export interface Milestone {
   isPaymentLinked: boolean;
   invoiceRaised: boolean;
   notes?: string | null;
+  /** CRM import — see api lib/milestoneImport.ts. Evidence date = when the invoice paperwork is due (reminders fire on it). */
+  evidenceDate?: string | null;
+  poNumber?: string | null;
+  poName?: string | null;
+  crmRecordId?: string | null;
+  crmComments?: string | null;
+  lastImportedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   milestoneList?: { id: string; name: string; color: string };

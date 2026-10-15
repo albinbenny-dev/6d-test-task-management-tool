@@ -575,6 +575,14 @@ model Milestone {
   isPaymentLinked Boolean       @default(false) // true when an invoice can be raised against this milestone
   invoiceRaised   Boolean       @default(false) // status only — no amount is ever stored here
   notes           String?
+  // CRM import (routes/milestones.ts POST /import). Owned by the CRM export and overwritten on re-upload;
+  // `notes` stays the PM's own and is never touched by an import. Still no amounts — those stay in the CRM.
+  evidenceDate    DateTime? // "Documentary Evidence Date" — when the invoice paperwork is due; reminder emails fire against it
+  poNumber        String?
+  poName          String?
+  crmRecordId     String? // CRM "Record Id (Invoicing Milestones)" — the upsert key for re-uploads
+  crmComments     String? // Sales / Project Manager comments from the CRM, merged
+  lastImportedAt  DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -583,6 +591,7 @@ model Milestone {
   @@index([projectId])
   @@index([milestoneListId])
   @@index([projectId, isPaymentLinked])
+  @@unique([projectId, crmRecordId])
 }
 
 // A private, per-user to-do tracker — deliberately NOT project-scoped. Only

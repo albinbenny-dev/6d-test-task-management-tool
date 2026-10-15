@@ -29,6 +29,7 @@ export interface MilestoneInput {
   baselineDate?: string | null;
   targetDate?: string | null;
   actualDate?: string | null;
+  evidenceDate?: string | null;
   isPaymentLinked?: boolean;
   invoiceRaised?: boolean;
   notes?: string | null;
@@ -74,5 +75,52 @@ export function useDeleteMilestone(projectId: string) {
       await api.delete(`/projects/${projectId}/milestones/${milestoneId}`);
     },
     onSuccess: () => invalidateAll(qc, projectId),
+  });
+}
+
+// ── CRM import (POST /milestones/import) ────────────────────────────────────
+// Same file is sent twice: commit=false previews, commit=true applies.
+
+export interface MilestoneImportPo {
+  /** Selection key — the PO number, or the PO name when the number is blank. */
+  key: string;
+  poNumber: string;
+  poName: string;
+  rows: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  notInvoiced: number;
+  missingEvidence: number;
+  newList: boolean;
+}
+
+export interface MilestoneImportResult {
+  committed: boolean;
+  created: number;
+  updated: number;
+  unchanged: number;
+  pos: MilestoneImportPo[];
+  evidenceShifts: Array<{ poKey: string; poName: string; milestone: string; from: string | null; to: string | null }>;
+  missingEvidence: number;
+  projectManagers: Array<{ name: string; count: number }>;
+  skippedOtherPm: number;
+  skippedEmpty: number;
+  warnings: string[];
+}
+
+export function useImportMilestones(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ file, projectManager, commit, poKeys }: { file: File; projectManager: string; commit: boolean; poKeys?: string[] }) => {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('projectManager', projectManager);
+      form.append('commit', String(commit));
+      if (poKeys) form.append('poKeys', JSON.stringify(poKeys)); // omitted on preview → the server lists every PO
+      const res = await api.post<MilestoneImportResult>(`/projects/${projectId}/milestones/import`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      return res.data;
+    },
+    onSuccess: (data) => { if (data.committed) invalidateAll(qc, projectId); },
   });
 }

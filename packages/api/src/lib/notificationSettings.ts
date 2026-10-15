@@ -12,6 +12,7 @@ export const NOTIFICATION_TRIGGERS = [
   'taskDueDateChanged',
   'taskReminder',
   'leadReminder',
+  'milestoneReminder',
   'cycleItemAssigned',
 ] as const;
 

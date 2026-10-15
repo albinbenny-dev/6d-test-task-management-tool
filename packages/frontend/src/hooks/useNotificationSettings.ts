@@ -11,6 +11,7 @@ export interface NotificationSettings {
   taskDueDateChanged: boolean;
   taskReminder: boolean;
   leadReminder: boolean;
+  milestoneReminder: boolean;
   cycleItemAssigned: boolean;
 }
 
