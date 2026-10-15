@@ -125,6 +125,8 @@ export interface TemplateConfig {
     bandOpacity: number;
     /** Fill of the translucent band behind each lane; unset = the lane's own colour. Drawn at bandOpacity. */
     bandColor?: string;
+    /** Empty space (pt) between neighbouring lanes, so each band reads as its own block. 0 = lanes touch. */
+    gap: number;
     showLabels: boolean;
     border: 'none' | 'dotted';
     /** pack: items share a row when they do not overlap · single: one item per row, in grid order. */
@@ -217,4 +219,6 @@ export interface LayoutResult {
   fitScale?: number;
   /** "Fit on one slide" is on but the plan is too long to fit even at the maximum shrink, so it is still split. */
   fitFailed?: boolean;
+  /** Style tweaks "fit on one slide" made to keep the text larger (e.g. "task labels beside the bars"). */
+  fitAdjusted?: string[];
 }

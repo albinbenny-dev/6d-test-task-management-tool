@@ -50,6 +50,7 @@ export function TimelinePreview({ layout, fontFamily, pageIndex, onPageIndex, se
       {layout.fitScale !== undefined && (
         <div style={{ textAlign: 'center', fontSize: 11, color: layout.fitScale < 0.6 ? 'var(--amber)' : 'var(--text-dim)', marginTop: 4 }}>
           Fitted onto one slide at {Math.round(layout.fitScale * 100)}% of normal size.
+          {layout.fitAdjusted && ` To keep the text larger it put the ${layout.fitAdjusted.join(' and ')}.`}
           {layout.fitScale < 0.6 && ' Text is getting small — consider hiding completed rows or collapsing lanes.'}
         </div>
       )}

@@ -74,6 +74,7 @@ export const SECTIONS: Section[] = [
       { path: 'swimlane.style', label: 'Lane style', kind: 'select', options: [['sidebar', 'Label sidebar'], ['band', 'Tinted band'], ['header', 'Header strip']], when: (c) => c.layout === 'swimlane' },
       { path: 'swimlane.labelWidth', label: 'Sidebar width', kind: 'number', min: 60, max: 300, when: (c) => c.layout === 'swimlane' && c.swimlane.style === 'sidebar' },
       { path: 'swimlane.bandOpacity', label: 'Band tint', kind: 'number', min: 0, max: 0.5, step: 0.02, hint: 'Also used for the lane headers in the Gantt layout.' },
+      { path: 'swimlane.gap', label: 'Gap between lanes', kind: 'number', min: 0, max: 16, step: 1, when: (c) => c.layout === 'swimlane', hint: 'Empty space between neighbouring lanes (pt). 0 = they touch.' },
       { path: 'swimlane.rowMode', label: 'Rows', kind: 'select', options: [['pack', 'Compact (share rows)'], ['single', 'One item per row']], when: (c) => c.layout === 'swimlane', hint: 'One item per row keeps the order of your task list.' },
       { path: 'swimlane.border', label: 'Lane border', kind: 'select', options: [['none', 'None'], ['dotted', 'Dotted']], when: (c) => c.layout === 'swimlane' },
     ],

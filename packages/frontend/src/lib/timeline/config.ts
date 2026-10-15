@@ -16,7 +16,7 @@ export const DEFAULT_CONFIG: TemplateConfig = {
   axis: { scale: 'auto', position: 'top', style: 'filled', fill: '#1F3A5F', textColor: '#FFFFFF', pastTint: 0, yearLabels: false, yearColor: '#E8501E', showToday: true, todayColor: '#DC2626', gridlines: 'major' },
   task: { height: 20, shape: 'pill', labelPosition: 'inside', showDates: false, datesPlacement: 'inline', showPercent: true, percentInside: false, progressStyle: 'tint', colorSource: 'lane', boldLabels: false },
   milestone: { size: 18, labelPosition: 'right', showDate: true, dateFormat: 'dd MMM yy', railAboveAxis: false },
-  swimlane: { style: 'band', labelWidth: 130, bandOpacity: 0.12, showLabels: true, border: 'none', rowMode: 'pack' },
+  swimlane: { style: 'band', labelWidth: 130, bandOpacity: 0.12, gap: 0, showLabels: true, border: 'none', rowMode: 'pack' },
   table: { labelWidth: 220, showStart: false, showEnd: false, showDuration: true, showAssignee: false },
 };
 

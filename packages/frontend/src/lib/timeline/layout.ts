@@ -308,7 +308,7 @@ function drawTaskBar(out: Primitive[], ctx: Ctx, item: TLItem, cy: number, h: nu
   }
 
   // "60%" inside the bar: right-aligned at the end of the completed part (or after it if that part is too short).
-  if (showPct && tk.percentInside && w >= 34) {
+  if (showPct && tk.percentInside && w >= PCT_INSIDE_MIN_W) {
     const txt = `${pct}%`;
     const size = Math.max(7, Math.min(ctx.base - 1, h - 4));
     const tw = ctx.tw(txt, size);
@@ -378,6 +378,8 @@ interface Plan {
   datesAt?: 'right' | 'in' | 'left';
   /** Extent incl. the baseline outline (== x0 / x1 unless the "both" view draws one). */
   u0?: number; u1?: number;
+  /** Milestone labels above / below the marker: the last line of `lines` is the date (styled small and muted). */
+  dateLast?: boolean;
   /** Left edge of an "above" label, shifted left when it would run past the right edge of the plot. */
   aboveX?: number;
   /** "+5d" / "−2d" pill after everything else on the row (drawn only when it fits). */
@@ -389,9 +391,15 @@ function taskDatesText(ctx: Ctx, item: TLItem): string {
   return `${formatDate(item.startDate, f)} – ${formatDate(item.endDate, f)}`;
 }
 
-function taskLabelText(ctx: Ctx, item: TLItem): string[] {
+/** drawTaskBar only prints a "% inside the bar" when the bar is at least this wide. */
+const PCT_INSIDE_MIN_W = 34;
+
+function taskLabelText(ctx: Ctx, item: TLItem, barW = Infinity): string[] {
   const t = ctx.cfg.task;
-  const pct = t.showPercent && !t.percentInside ? pctLabel(item) : '';
+  // A bar too short to hold its "% inside" would otherwise lose the figure altogether — show it after the name instead.
+  const pctInBar = t.showPercent && t.percentInside && barW >= PCT_INSIDE_MIN_W;
+  // Same rule as inside the bar: when % is shown with the bar, a 0% bar says "0%" too (the plain after-the-name mode omits 0%).
+  const pct = t.showPercent && !pctInBar ? (t.percentInside ? `${Math.max(0, Math.min(100, item.percentComplete))}%` : pctLabel(item)) : '';
   const txt = pct ? `${item.title}  ${pct}` : item.title;
   const datesRight = t.showDates && t.datesPlacement === 'right' && t.labelPosition !== 'above';
   if (!t.showDates || datesRight) return [txt];
@@ -413,21 +421,25 @@ function planItem(ctx: Ctx, item: TLItem): Plan {
     let side: LabelSide = cfg.milestone.labelPosition;
     let lines = side === 'right' ? [date ? `${item.title}  ${date}` : item.title] : [item.title, ...(date ? [date] : [])];
     let lw = Math.max(...lines.map((l) => ctx.tw(l)));
-    let left: number; let right: number;
+    let left: number; let right: number; let dateLast = false;
     if (side === 'right') {
       if (cx + size / 2 + gap + lw > fr.plotRight) { side = 'left'; }
     }
     if (side === 'right') { left = cx - size / 2; right = cx + size / 2 + gap + lw; }
     else if (side === 'left') { left = cx - size / 2 - gap - lw; right = cx + size / 2; }
     else {
+      // Long titles wrap to two lines rather than being cut short; the date stays on its own line.
       lw = Math.min(lw, 180);
-      lines = lines.map((l) => fitText(l, lw, ctx.base, ctx.fam));
+      const titleLines = wrapLines(item.title, lw, ctx.base, ctx, 2);
+      lines = [...titleLines, ...(date ? [date] : [])];
+      dateLast = !!date;
+      lw = Math.max(...titleLines.map((l) => ctx.tw(l, ctx.base, true)), date ? ctx.tw(date, Math.max(7, ctx.base - 2)) : 0);
       // Same box drawPlan uses (centred on the marker but kept inside the plot), so packing matches what is drawn.
       const boxW = Math.max(lw, size) + 6;
       left = Math.max(fr.plotX - 4, Math.min(cx - boxW / 2, fr.plotRight - boxW + 4));
       right = left + boxW;
     }
-    return withDelayTag(ctx, { item, color, x0: cx, x1: cx, cx, side, lines, lw, left, right });
+    return withDelayTag(ctx, { item, color, x0: cx, x1: cx, cx, side, lines, lw, left, right, dateLast });
   }
 
   const x0 = ctx.x(parseYmd(item.startDate));
@@ -439,7 +451,7 @@ function planItem(ctx: Ctx, item: TLItem): Plan {
     const b1 = Math.max(ctx.x(addDays(parseYmd(item.baseline.endDate), 1)), b0 + 3);
     u0 = Math.min(x0, b0); u1 = Math.max(x1, b1);
   }
-  const lines = taskLabelText(ctx, item);
+  const lines = taskLabelText(ctx, item, x1 - x0);
   const bold = cfg.task.boldLabels;
   const lw = Math.max(...lines.map((l) => ctx.tw(l, ctx.base, bold)));
   let side: LabelSide = cfg.task.labelPosition;
@@ -544,7 +556,8 @@ function drawPlan(out: Primitive[], ctx: Ctx, p: Plan, cy: number, shapeH: numbe
       x = Math.max(ctx.fr.plotX - 4, Math.min(x, ctx.fr.plotRight - w + 4));
       const y = p.side === 'below' ? cy + shapeH / 2 + 2 : cy - shapeH / 2 - 2 - lineBlock;
       p.lines.forEach((line, i) => {
-        out.push({ kind: 'text', x, y: y + i * lh, w, h: lh, text: line, size: i === 0 ? base : Math.max(7, base - 2), color: i === 0 ? textColor : cfg.palette.muted, bold: false, align: 'center', itemId: id });
+        const isDate = !!p.dateLast && i === p.lines.length - 1;
+        out.push({ kind: 'text', x, y: y + i * lh, w, h: lh, text: line, size: isDate ? Math.max(7, base - 2) : base, color: isDate ? cfg.palette.muted : textColor, bold: false, align: 'center', itemId: id });
       });
     }
     if (p.tag) drawDelayTag(out, ctx, p.item, p.tag.x, cy);
@@ -630,7 +643,7 @@ function chromeAfter(ctx: Ctx, bottom: number): Primitive[] {
     const tagW = ctx.tw('Today', Math.max(7, base - 2), true) + 10;
     const tagY = cfg.axis.position === 'top' ? fr.bodyTop : bottom - 13;
     out.push({ kind: 'rect', x: x - tagW / 2, y: tagY, w: tagW, h: 13, rx: 3, fill: cfg.axis.todayColor });
-    out.push({ kind: 'text', x: x - tagW / 2, y: tagY, w: tagW, h: 13, text: 'Today', size: Math.max(7, base - 2), color: '#FFFFFF', bold: true, align: 'center' });
+    out.push({ kind: 'text', x: x - tagW / 2, y: tagY, w: tagW, h: 13, text: 'Today', size: Math.max(7, base - 2), color: readableOn(cfg.axis.todayColor), bold: true, align: 'center' });
   }
 
   // Axis
@@ -845,11 +858,9 @@ interface Band {
   plans: Plan[];
   rowOf: number[];
   subRows: number;
-  // Per-band row anatomy — a lane with no milestone labels doesn't pay for them.
-  topExtra: number;
-  botExtra: number;
-  shapeH: number;
-  nat: number; // natural sub-row height
+  // Per-row anatomy — a row only pays for the labels (above / below its shapes) that it actually has.
+  rows: { topExtra: number; botExtra: number; shapeH: number; nat: number }[];
+  natTotal: number; // natural height of all the rows together
   minInner: number; // sidebar lane labels need this much height to show un-truncated
 }
 
@@ -861,19 +872,25 @@ function layoutSwimlane(ctx: Ctx, items: TLItem[], rail?: RailResult): LayoutPag
   const mk = (lane: TLLane | null, its: TLItem[]): Band => {
     const plans = lane?.collapsed ? [] : its.map((i) => planItem(ctx, i));
     const rowOf = sw.rowMode === 'single' ? plans.map((_, i) => i) : pack(plans);
-    const label = (side: LabelSide) => plans.filter((p) => p.side === side);
-    const block = lineH * Math.max(1, ...plans.map((p) => p.lines.length)) + 2;
-    const topExtra = label('above').length ? block : 0;
-    const botExtra = label('below').length ? block : 0;
-    const shapeH = Math.max(
-      plans.some((p) => p.item.type === 'TASK') ? cfg.task.height : 0,
-      plans.some((p) => p.item.type === 'MILESTONE') ? cfg.milestone.size : 0,
-      lineH,
-    );
+    const subRows = lane?.collapsed ? 0 : Math.max(1, ...rowOf.map((r) => r + 1));
+    const rows = Array.from({ length: subRows }, (_, r) => {
+      const rp = plans.filter((_p, i) => rowOf[i] === r);
+      const block = (side: LabelSide) => {
+        const ps = rp.filter((p) => p.side === side);
+        return ps.length ? lineH * Math.max(...ps.map((p) => p.lines.length)) + 2 : 0;
+      };
+      const topExtra = block('above');
+      const botExtra = block('below');
+      const shapeH = Math.max(
+        rp.some((p) => p.item.type === 'TASK') ? cfg.task.height : 0,
+        rp.some((p) => p.item.type === 'MILESTONE') ? cfg.milestone.size : 0,
+        lineH,
+      );
+      return { topExtra, botExtra, shapeH, nat: topExtra + shapeH + botExtra + 6 };
+    });
     return {
       lane, color: lane ? ctx.laneColor(lane.id) : null, plans, rowOf,
-      subRows: lane?.collapsed ? 0 : Math.max(1, ...rowOf.map((r) => r + 1)),
-      topExtra, botExtra, shapeH, nat: topExtra + shapeH + botExtra + 6,
+      subRows, rows, natTotal: rows.reduce((n, r) => n + r.nat, 0),
       minInner: lane && sw.style === 'sidebar' && sw.showLabels && !lane.collapsed
         ? wrapLines(lane.name, fr.leftW - 20, base, ctx, 3).length * lineH + 10 : 0,
     };
@@ -886,9 +903,9 @@ function layoutSwimlane(ctx: Ctx, items: TLItem[], rail?: RailResult): LayoutPag
 
   const headerStrip = sw.style === 'sidebar' ? 0 : lineH + 6;
   const collapsedH = Math.max(lineH + 8, 22);
-  const fixedH = (b: Band) => (b.lane?.collapsed ? collapsedH : (b.lane ? headerStrip : 0) + 4);
+  const fixedH = (b: Band) => (b.lane?.collapsed ? collapsedH : (b.lane ? headerStrip : 0) + 4) + (b.lane ? sw.gap : 0);
   // Height of a band at row-squeeze factor `k` — rows shrink, but never below what the lane label needs.
-  const heightAt = (b: Band, k: number) => fixedH(b) + (b.lane?.collapsed ? 0 : Math.max(b.subRows * b.nat * k, b.minInner - 4));
+  const heightAt = (b: Band, k: number) => fixedH(b) + (b.lane?.collapsed ? 0 : Math.max(b.natTotal * k, b.minInner - 4));
   const bodyH = fr.bodyBottom - fr.bodyTop;
   const natural = bands.map((b) => heightAt(b, 1));
   const total = natural.reduce((n, h) => n + h, 0);
@@ -921,42 +938,47 @@ function layoutSwimlane(ctx: Ctx, items: TLItem[], rail?: RailResult): LayoutPag
       const h = Math.min(bandH(b), fr.bodyBottom - y);
       const lc = b.color ?? cfg.palette.accent;
       const lane = b.lane;
+      const gp = lane ? sw.gap : 0; // empty space under the band
+      const sh = h - gp;            // drawn height of the band itself
       if (lane) {
         if (sw.style === 'header') {
           bgPrims.push({ kind: 'rect', x: fr.leftX, y, w: fr.plotRight - fr.leftX, h: headerStrip, fill: lc });
-          bgPrims.push({ kind: 'rect', x: fr.leftX, y: y + headerStrip, w: fr.plotRight - fr.leftX, h: h - headerStrip, fill: bandColor(sw.bandColor ?? lc, ctx.bg, sw.bandOpacity) });
+          bgPrims.push({ kind: 'rect', x: fr.leftX, y: y + headerStrip, w: fr.plotRight - fr.leftX, h: sh - headerStrip, fill: bandColor(sw.bandColor ?? lc, ctx.bg, sw.bandOpacity) });
           itemPrims.push({ kind: 'text', x: fr.leftX + 8, y, w: fr.plotRight - fr.leftX - 16, h: headerStrip, text: fitText((lane.collapsed ? '▸ ' : '') + lane.name, fr.plotRight - fr.leftX - 20, base, ctx.fam, true), size: base, color: readableOn(lc), bold: true, align: 'left' });
         } else {
-          bgPrims.push({ kind: 'rect', x: fr.leftX, y, w: fr.plotRight - fr.leftX, h, fill: bandColor(sw.bandColor ?? lc, ctx.bg, sw.bandOpacity) });
+          bgPrims.push({ kind: 'rect', x: fr.leftX, y, w: fr.plotRight - fr.leftX, h: sh, fill: bandColor(sw.bandColor ?? lc, ctx.bg, sw.bandOpacity) });
           if (sw.style === 'sidebar') {
             if (sw.showLabels) {
-              bgPrims.push({ kind: 'rect', x: fr.leftX, y, w: fr.leftW - 4, h, fill: lc });
-              const maxL = Math.max(1, Math.floor((h - 6) / lineH));
+              bgPrims.push({ kind: 'rect', x: fr.leftX, y, w: fr.leftW - 4, h: sh, fill: lc });
+              const maxL = Math.max(1, Math.floor((sh - 6) / lineH));
               const lines = wrapLines((lane.collapsed ? '▸ ' : '') + lane.name, fr.leftW - 20, base, ctx, maxL);
-              const top = y + (h - lines.length * lineH) / 2;
+              const top = y + (sh - lines.length * lineH) / 2;
               lines.forEach((l, i) => itemPrims.push({ kind: 'text', x: fr.leftX + 8, y: top + i * lineH, w: fr.leftW - 20, h: lineH, text: l, size: base, color: readableOn(lc), bold: true, align: 'left' }));
             }
           } else {
             itemPrims.push({ kind: 'text', x: fr.leftX + 8, y, w: fr.plotRight - fr.leftX - 16, h: headerStrip, text: fitText((lane.collapsed ? '▸ ' : '') + lane.name, fr.plotRight - fr.leftX - 20, base, ctx.fam, true), size: base, color: lc, bold: true, align: 'left' });
-            bgPrims.push({ kind: 'rect', x: fr.leftX, y, w: 4, h, fill: lc });
+            bgPrims.push({ kind: 'rect', x: fr.leftX, y, w: 4, h: sh, fill: lc });
           }
         }
       }
       if (lane && sw.border === 'dotted') {
         const bx = fr.leftX + (sw.style === 'sidebar' && sw.showLabels ? fr.leftW - 4 : 0);
-        bgPrims.push({ kind: 'rect', x: bx, y: y + 0.5, w: fr.plotRight - bx, h: h - 1, stroke: tint(lc, 0.3), strokeWidth: 0.9, dash: [1.5, 2.5] });
-      } else {
+        bgPrims.push({ kind: 'rect', x: bx, y: y + 0.5, w: fr.plotRight - bx, h: sh - 1, stroke: tint(lc, 0.3), strokeWidth: 0.9, dash: [1.5, 2.5] });
+      } else if (gp === 0) {
         bgPrims.push({ kind: 'line', x1: fr.leftX, y1: y + h, x2: fr.plotRight, y2: y + h, color: cfg.palette.grid, width: 0.5 });
       }
 
       if (!lane?.collapsed) {
-        const subH = b.nat * s;
+        const rowH = b.rows.map((r) => r.nat * s);
+        const rowOff: number[] = []; // top of each row, relative to the first
+        rowH.reduce((acc, rh, ri) => { rowOff[ri] = acc; return acc + rh; }, 0);
         const inner = h - fixedH(b);
-        const top = y + (lane ? headerStrip : 0) + 2 + Math.max(0, (inner - b.subRows * subH) / 2);
+        const top = y + (lane ? headerStrip : 0) + 2 + Math.max(0, (inner - rowH.reduce((n, v) => n + v, 0)) / 2);
         b.plans.forEach((p, i) => {
-          const rowTop = top + b.rowOf[i] * subH;
-          const cy = rowTop + b.topExtra + b.shapeH / 2 + (subH - (b.topExtra + b.shapeH + b.botExtra)) / 2;
-          drawPlan(itemPrims, ctx, p, cy, b.shapeH);
+          const r = b.rowOf[i];
+          const ra = b.rows[r];
+          const cy = top + rowOff[r] + ra.topExtra + ra.shapeH / 2 + (rowH[r] - (ra.topExtra + ra.shapeH + ra.botExtra)) / 2;
+          drawPlan(itemPrims, ctx, p, cy, ra.shapeH);
         });
       }
       y += h;
@@ -1235,25 +1257,54 @@ function scalePrimitive(p: Primitive, f: number): Primitive {
   }
 }
 
-export function layoutTimeline(input: LayoutInput): LayoutResult {
-  const natural = layoutOnce(input, 1);
-  if (!input.config.slide.fitOnePage || natural.pages.length <= 1) return natural;
-
+/** Smallest uniform zoom-out at which the plan fits on one page, or null if even the maximum zoom-out is not enough. */
+function fitSearch(input: LayoutInput): { result: LayoutResult; fitScale: number } | null {
   let hi = MAX_FIT_ZOOM_OUT;
   let best = layoutOnce(input, hi);
-  if (best.pages.length > 1) return { ...natural, fitFailed: true };
+  if (best.pages.length > 1) return null;
   let lo = 1;
-  for (let i = 0; i < 7; i++) { // smallest zoom-out that still fits (≈1.5% precision)
+  for (let i = 0; i < 7; i++) { // ≈1.5% precision
     const mid = (lo + hi) / 2;
     const r = layoutOnce(input, mid);
     if (r.pages.length === 1) { hi = mid; best = r; } else lo = mid;
   }
-  const f = 1 / hi;
-  const page = best.pages[0];
+  return { result: best, fitScale: 1 / hi };
+}
+
+export function layoutTimeline(input: LayoutInput): LayoutResult {
+  const natural = layoutOnce(input, 1);
+  const cfg = input.config;
+  if (!cfg.slide.fitOnePage || natural.pages.length <= 1) return natural;
+
+  // Forced onto one slide, legible text matters more than where the labels sit: a label above every bar roughly
+  // doubles a row's height on a slide that has plenty of horizontal room. Try the more compact placements too and
+  // keep whichever shrinks the text least (the configured style wins unless a variant is clearly better).
+  const candidates: { cfg: TemplateConfig; changes: string[] }[] = [{ cfg, changes: [] }];
+  if (cfg.layout !== 'gantt') {
+    const beside = cfg.task.labelPosition === 'above' ? { ...cfg, task: { ...cfg.task, labelPosition: 'right' as const } } : null;
+    if (beside) candidates.push({ cfg: beside, changes: ['task labels beside the bars'] });
+    if (cfg.layout === 'swimlane' && cfg.milestone.labelPosition !== 'right') {
+      const from = beside ?? cfg;
+      candidates.push({
+        cfg: { ...from, milestone: { ...from.milestone, labelPosition: 'right' as const } },
+        changes: [...(beside ? ['task labels beside the bars'] : []), 'milestone labels beside the markers'],
+      });
+    }
+  }
+  let best: { result: LayoutResult; fitScale: number; changes: string[] } | null = null;
+  for (const c of candidates) {
+    const r = fitSearch({ ...input, config: c.cfg });
+    if (r && (!best || r.fitScale > best.fitScale + 0.05)) best = { ...r, changes: c.changes };
+  }
+  if (!best) return { ...natural, fitFailed: true };
+
+  const f = best.fitScale;
+  const page = best.result.pages[0];
   return {
     pages: [{ width: page.width * f, height: page.height * f, primitives: page.primitives.map((p) => scalePrimitive(p, f)) }],
     paginated: false,
-    scale: best.scale,
+    scale: best.result.scale,
     fitScale: f,
+    ...(best.changes.length ? { fitAdjusted: best.changes } : {}),
   };
 }
