@@ -25,7 +25,7 @@ const TASK_COLUMNS: (ResizableColumnDef & { label: string; resizable: boolean })
   { key: 'name', label: 'Name', width: 280, min: 160, resizable: true },
   { key: 'actions', label: '', width: 36, min: 36, max: 36, resizable: false },
   { key: 'assignee', label: 'Assignee', width: 120, min: 80, resizable: true },
-  { key: 'due', label: 'Due date', width: 100, min: 80, resizable: true },
+  { key: 'due', label: 'Due date', width: 140, min: 120, resizable: true }, // room for '⏰ 19 Aug' + the delay chip on one line
   { key: 'priority', label: 'Priority', width: 110, min: 80, resizable: true },
   { key: 'status', label: 'Status', width: 140, min: 90, resizable: true },
   { key: 'labels', label: 'Labels', width: 150, min: 90, resizable: true },

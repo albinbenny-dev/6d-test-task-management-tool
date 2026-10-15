@@ -1305,6 +1305,7 @@ html[data-density="compact"] {
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    white-space: nowrap; /* never wrap "19 Aug" onto two lines beside the delay chip */
   }
   .tm-due-chip.overdue { color: var(--fail); font-weight: 700; }
 

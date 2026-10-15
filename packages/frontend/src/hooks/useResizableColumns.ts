@@ -27,7 +27,8 @@ function loadWidths(storageKey: string, columns: ResizableColumnDef[]): Record<s
     const saved = JSON.parse(raw) as Record<string, number>;
     columns.forEach((c) => {
       const v = saved[c.key];
-      if (typeof v === 'number' && v > 0) widths[c.key] = v;
+      // Clamp to the column's current bounds so a width saved before a column's minimum was raised can't stay too narrow.
+      if (typeof v === 'number' && v > 0) widths[c.key] = Math.min(c.max ?? 900, Math.max(c.min ?? 40, v));
     });
   } catch {
     // corrupt/blocked storage — fall back to defaults
