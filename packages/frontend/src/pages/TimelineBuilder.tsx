@@ -92,6 +92,12 @@ export default function TimelineBuilder() {
   useEffect(() => { if (pageIndex > layout.pages.length - 1) setPageIndex(Math.max(0, layout.pages.length - 1)); }, [layout, pageIndex]);
 
   function pickTemplate(id: string) {
+    // Style tweaks made on this timeline sit on top of whichever template is chosen, so a new template can look unchanged.
+    const tweaks = overridePaths(overrides).size;
+    if (tweaks > 0 && window.confirm(`This timeline has ${tweaks} customised style setting${tweaks === 1 ? '' : 's'} that override the template, so the new template would barely show.\n\nOK = reset those settings and apply the template as designed.\nCancel = switch template but keep your settings.`)) {
+      dirtyOverrides.current = true;
+      setOverrides({});
+    }
     setTemplateId(id);
     actions.updateTimeline.mutate({ templateId: id }, { onError: () => toast.error('Could not change the template') });
   }
@@ -257,6 +263,16 @@ export default function TimelineBuilder() {
 
               {rightTab === 'templates' ? (
                 <>
+                  {canManageTimelines && overridePaths(overrides).size > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--amber-dim)', border: '1px solid var(--amber)', borderRadius: 8, padding: '8px 10px', fontSize: 11.5, marginBottom: 10 }}>
+                      <span style={{ flex: 1 }}>
+                        This timeline has <b>{overridePaths(overrides).size}</b> customised style setting{overridePaths(overrides).size === 1 ? '' : 's'} on top of the template, so a different template may look unchanged.
+                      </span>
+                      <button onClick={resetOverrides} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: 'var(--cyan)', cursor: 'pointer', fontSize: 11.5, whiteSpace: 'nowrap' }}>
+                        <RotateCcw size={11} /> Reset to template
+                      </button>
+                    </div>
+                  )}
                   <TemplateGallery
                     templates={templateList} selectedId={activeTemplate?.id ?? null} items={shownItems} lanes={lanes} title={name} dateView={dateView}
                     onSelect={canManageTimelines ? pickTemplate : () => toast('You have view-only access to this timeline')}

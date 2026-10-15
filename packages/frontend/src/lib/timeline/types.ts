@@ -90,6 +90,8 @@ export interface TemplateConfig {
     /** Big year at each end of the axis; tier 1 then shows plain month names. */
     yearLabels: boolean; yearColor: string;
     showToday: boolean; todayColor: string;
+    /** A slim line along the axis from the plan's first start date to today — elapsed time at a glance. */
+    progressLine: boolean; progressColor: string;
     gridlines: 'none' | 'major' | 'all';
   };
   task: {

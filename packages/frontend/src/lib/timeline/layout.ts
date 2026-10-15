@@ -134,6 +134,8 @@ interface Ctx {
   bg: string;
   title: string;
   today: string;
+  /** Earliest start among the items being drawn (where the progress line begins), or null with no items. */
+  projectStart: Date | null;
   showDelays: boolean;
   lanes: TLLane[];
   laneColor: (laneId: string | null) => string | null;
@@ -190,14 +192,15 @@ function buildFrame(cfg: TemplateConfig, items: TLItem[], titleShown: boolean, t
   const plotRight = W - MARGIN.r - yearPad;
   const contentTop = MARGIN.t + titleH + railH;
   const bottom = H - MARGIN.b;
+  const progH = cfg.axis.progressLine ? 6 : 0; // the slim progress line hugs the axis; the body starts below it
   const axisTop = cfg.axis.position === 'top';
   const axisY = axisTop ? contentTop : bottom - axisH;
 
   return {
     W, H, leftX: MARGIN.l, leftW, plotX, plotW: plotRight - plotX, plotRight, titleH,
     axisY, axisH, tierH,
-    bodyTop: axisTop ? contentTop + axisH : contentTop,
-    bodyBottom: axisTop ? bottom : axisY,
+    bodyTop: axisTop ? contentTop + axisH + progH : contentTop,
+    bodyBottom: axisTop ? bottom : axisY - progH,
     range, totalDays: diffDays(range.start, range.end), scale, minor, major,
   };
 }
@@ -679,6 +682,17 @@ function chromeAfter(ctx: Ctx, bottom: number): Primitive[] {
       }
     });
   });
+  // Progress line: a slim, differently coloured line right against the axis from the plan's start to today.
+  if (cfg.axis.progressLine && ctx.projectStart && t >= ctx.projectStart && t >= fr.range.start) {
+    const dayW = fr.plotW / fr.totalDays;
+    const xs = Math.max(fr.plotX, ctx.x(ctx.projectStart));
+    const xe = Math.min(fr.plotRight, ctx.x(t) + dayW / 2);
+    if (xe - xs > 1) {
+      const y = cfg.axis.position === 'top' ? fr.axisY + fr.axisH + 1.5 : fr.axisY - 4.5;
+      out.push({ kind: 'rect', x: xs, y, w: xe - xs, h: 3, rx: 1.5, fill: cfg.axis.progressColor });
+      out.push({ kind: 'shape', shape: 'ellipse', x: xe - 3.5, y: y + 1.5 - 3.5, w: 7, h: 7, fill: cfg.axis.progressColor });
+    }
+  }
   if (cfg.axis.yearLabels) {
     const size = base + 8;
     const y1 = addDays(fr.range.end, -1).getUTCFullYear();
@@ -1202,6 +1216,7 @@ function layoutOnce(input: LayoutInput, k: number): LayoutResult {
 
   const makeCtx = (fr: Frame): Ctx => ({
     cfg, fr, fam, base, lineH: base + 3, bg: cfg.slide.background, title: input.title, today, lanes,
+    projectStart: items.length ? items.reduce((m, i) => { const d = parseYmd(i.startDate); return d < m ? d : m; }, parseYmd(items[0].startDate)) : null,
     showDelays: input.showDelays !== false && (input.dateView ?? 'BASELINE') !== 'BASELINE',
     laneColor: (id) => {
       if (!id) return null;

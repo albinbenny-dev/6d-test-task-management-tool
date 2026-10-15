@@ -13,7 +13,7 @@ export const DEFAULT_CONFIG: TemplateConfig = {
     taskDefault: '#2563AB', milestoneDefault: '#E8501E',
     laneColors: ['#2563AB', '#0E9F6E', '#E8501E', '#8B5CF6', '#D97706', '#0891B2'],
   },
-  axis: { scale: 'auto', position: 'top', style: 'filled', fill: '#1F3A5F', textColor: '#FFFFFF', pastTint: 0, yearLabels: false, yearColor: '#E8501E', showToday: true, todayColor: '#DC2626', gridlines: 'major' },
+  axis: { scale: 'auto', position: 'top', style: 'filled', fill: '#1F3A5F', textColor: '#FFFFFF', pastTint: 0, yearLabels: false, yearColor: '#E8501E', showToday: true, todayColor: '#DC2626', progressLine: false, progressColor: '#F59E0B', gridlines: 'major' },
   task: { height: 20, shape: 'pill', labelPosition: 'inside', showDates: false, datesPlacement: 'inline', showPercent: true, percentInside: false, progressStyle: 'tint', colorSource: 'lane', boldLabels: false },
   milestone: { size: 18, labelPosition: 'right', showDate: true, dateFormat: 'dd MMM yy', railAboveAxis: false },
   swimlane: { style: 'band', labelWidth: 130, bandOpacity: 0.12, gap: 0, showLabels: true, border: 'none', rowMode: 'pack' },
