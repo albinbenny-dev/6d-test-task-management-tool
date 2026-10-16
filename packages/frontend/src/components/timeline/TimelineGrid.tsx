@@ -364,6 +364,9 @@ export function TimelineGrid({ projectId, timelineId, items: allItems, lanes, ca
   const [focusLaneId, setFocusLaneId] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
+  // Dragging a whole swimlane (its rows stay with it): which lane, and which lane header it is hovering over ('__end' = after the last one).
+  const [laneDragId, setLaneDragId] = useState<string | null>(null);
+  const [laneOver, setLaneOver] = useState<string | null>(null);
   const [colorLane, setColorLane] = useState<string | null>(null);
   const [convertDlg, setConvertDlg] = useState<'selection' | 'lanes' | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -440,18 +443,46 @@ export function TimelineGrid({ projectId, timelineId, items: allItems, lanes, ca
     } catch (e) { toast.error(errMsg(e, 'Could not add the swimlane')); }
   }
 
-  function moveItem(itemId: string, laneId: string | null, beforeId: string | null) {
-    const moving = items.find((i) => i.id === itemId);
-    if (!moving || itemId === beforeId) return;
-    const sourceLane = moving.swimlaneId && laneIds.has(moving.swimlaneId) ? moving.swimlaneId : null;
-    const target = (byLane.get(laneId) ?? []).filter((i) => i.id !== itemId);
+  /** Put these rows (kept in table order) into a swimlane, before `beforeId` or at the end. Rows that follow a Task List can't be moved. */
+  function moveItems(ids: string[], laneId: string | null, beforeId: string | null) {
+    const set = new Set(ids);
+    if (beforeId && set.has(beforeId)) return;
+    const tableOrder = [...(byLane.get(null) ?? []), ...sortedLanes.flatMap((l) => byLane.get(l.id) ?? [])];
+    const movers = tableOrder.filter((i) => set.has(i.id) && !i.taskId);
+    if (movers.length === 0) return;
+    const moving = new Set(movers.map((i) => i.id));
+    const target = (byLane.get(laneId) ?? []).filter((i) => !moving.has(i.id));
     const at = beforeId ? Math.max(0, target.findIndex((i) => i.id === beforeId)) : target.length;
-    target.splice(at, 0, moving);
+    target.splice(at, 0, ...movers);
     const moves = target.map((it, i) => ({ id: it.id, swimlaneId: laneId, sortOrder: i }));
-    if (sourceLane !== laneId) {
-      (byLane.get(sourceLane) ?? []).filter((i) => i.id !== itemId).forEach((it, i) => moves.push({ id: it.id, swimlaneId: sourceLane, sortOrder: i }));
-    }
+    const sources = new Set(movers.map((i) => (i.swimlaneId && laneIds.has(i.swimlaneId) ? i.swimlaneId : null)));
+    sources.forEach((src) => {
+      if (src === laneId) return;
+      (byLane.get(src) ?? []).filter((i) => !moving.has(i.id)).forEach((it, i) => moves.push({ id: it.id, swimlaneId: src, sortOrder: i }));
+    });
     a.reorderItems.mutate(moves, { onError: () => toast.error('Could not reorder') });
+  }
+
+  /** Dragging a ticked row moves every ticked row; otherwise just the row that was grabbed. */
+  function moveItem(itemId: string, laneId: string | null, beforeId: string | null) {
+    const multi = checked.has(itemId) && checked.size > 1;
+    moveItems(multi ? [...checked] : [itemId], laneId, beforeId);
+    if (multi) setChecked(new Set());
+  }
+
+  async function moveTicked(target: string) {
+    const ids = items.filter((i) => checked.has(i.id) && !i.taskId).map((i) => i.id);
+    if (ids.length === 0) { toast.error('The ticked rows follow a Task List, so they cannot be moved here'); return; }
+    let laneId: string | null;
+    if (target === '__new') {
+      const name = window.prompt('Name for the new swimlane', 'New swimlane')?.trim();
+      if (!name) return;
+      try { laneId = (await a.createLane.mutateAsync({ name })).id; } catch (e) { toast.error(errMsg(e, 'Could not add the swimlane')); return; }
+    } else laneId = target === '__none' ? null : target;
+    moveItems(ids, laneId, null);
+    setChecked(new Set());
+    const skipped = checked.size - ids.length;
+    toast.success(`Moved ${ids.length} row${ids.length === 1 ? '' : 's'}${skipped > 0 ? ` (${skipped} linked to a Task List left where they are)` : ''}`);
   }
 
   function moveLane(id: string, dir: -1 | 1) {
@@ -461,6 +492,18 @@ export function TimelineGrid({ projectId, timelineId, items: allItems, lanes, ca
     [ids[i], ids[j]] = [ids[j], ids[i]];
     a.reorderLanes.mutate(ids);
   }
+
+  /** Drag-and-drop: put swimlane `srcId` before `beforeId` (null = at the end). Its rows travel with it. */
+  function moveLaneTo(srcId: string, beforeId: string | null) {
+    if (srcId === beforeId) return;
+    const ids = sortedLanes.map((l) => l.id).filter((id) => id !== srcId);
+    const at = beforeId ? ids.indexOf(beforeId) : ids.length;
+    if (at < 0) return;
+    ids.splice(at, 0, srcId);
+    if (ids.every((id, i) => id === sortedLanes[i].id)) return; // dropped where it already was
+    a.reorderLanes.mutate(ids, { onError: () => toast.error('Could not move the swimlane') });
+  }
+  const endLaneDrag = () => { setLaneDragId(null); setLaneOver(null); };
 
   function deleteLane(l: TLLane) {
     const n = byLane.get(l.id)?.length ?? 0;
@@ -472,6 +515,20 @@ export function TimelineGrid({ projectId, timelineId, items: allItems, lanes, ca
   const dragProps = (laneId: string | null, beforeId: string | null) => ({
     onDragOver: (e: React.DragEvent) => { if (!dragId) return; e.preventDefault(); setOverKey(`${laneId}:${beforeId}`); },
     onDrop: (e: React.DragEvent) => { e.preventDefault(); if (dragId) moveItem(dragId, laneId, beforeId); setDragId(null); setOverKey(null); },
+  });
+
+  // A swimlane header accepts another swimlane (reorder) or a task (drop it into this lane).
+  const laneHeaderDrop = (laneId: string) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (laneDragId) { e.preventDefault(); setLaneOver(laneId); return; }
+      if (!dragId) return; e.preventDefault(); setOverKey(`${laneId}:null`);
+    },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      if (laneDragId) { moveLaneTo(laneDragId, laneId); endLaneDrag(); return; }
+      if (dragId) moveItem(dragId, laneId, null);
+      setDragId(null); setOverKey(null);
+    },
   });
 
   const addRow = (laneId: string | null) => (
@@ -499,7 +556,7 @@ export function TimelineGrid({ projectId, timelineId, items: allItems, lanes, ca
       showActual={showActual} showDelay={showDelay} dragOk={!delayedOnly}
       laneSwatches={lanePalette}
       selected={selectedItemId === it.id} checked={checked.has(it.id)} focusMe={focusItemId === it.id}
-      dragging={dragId === it.id} dropTarget={overKey === `${laneId}:${it.id}`} a={rowActions}
+      dragging={dragId === it.id || (!!dragId && checked.has(dragId) && checked.has(it.id))} dropTarget={overKey === `${laneId}:${it.id}`} a={rowActions}
       onSelect={onSelectRow} onCheck={onCheckRow} onFocused={onFocusedRow}
       onDragStart={onDragStartRow} onDragEnd={onDragEndRow} onDragOver={onDragOverRow} onDrop={onDropRow}
     />
@@ -534,6 +591,17 @@ export function TimelineGrid({ projectId, timelineId, items: allItems, lanes, ca
             title="Turn the ticked rows into a task list, or into a parent task with subtasks">
             <ListPlus size={13} /> Create task list from {checked.size}
           </button>
+        )}
+        {canEdit && checked.size > 0 && (
+          <select
+            className="input-field" value="" onChange={(e) => { const v = e.target.value; e.target.value = ''; if (v) void moveTicked(v); }}
+            title="Move the ticked rows into a swimlane (you can also drag a ticked row)" style={{ fontSize: 12, padding: '4px 8px', width: 'auto' }}
+          >
+            <option value="">Move {checked.size} to swimlane…</option>
+            {sortedLanes.filter((l) => !l.taskListId).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            <option value="__none">Ungrouped (no swimlane)</option>
+            <option value="__new">+ New swimlane…</option>
+          </select>
         )}
         {canEdit && checked.size === 0 && allItems.length > 0 && (
           <button className="tb-btn tb-btn-ghost" onClick={() => setConvertDlg('lanes')} style={{ display: 'flex', alignItems: 'center', gap: 5 }}
@@ -603,10 +671,10 @@ export function TimelineGrid({ projectId, timelineId, items: allItems, lanes, ca
 
           {/* Ungrouped items sit above the first swimlane */}
           {(byLane.get(null)?.length ?? 0) > 0 || sortedLanes.length === 0 ? (
-            <>
+            <div style={{ display: laneDragId ? 'none' : undefined }}>
               {renderRows(null)}
               {addRow(null)}
-            </>
+            </div>
           ) : null}
 
           {sortedLanes.map((lane, idx) => {
@@ -615,9 +683,23 @@ export function TimelineGrid({ projectId, timelineId, items: allItems, lanes, ca
             return (
               <div key={lane.id}>
                 <div
-                  {...dragProps(lane.id, null)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 10px 8px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', boxShadow: overKey === `${lane.id}:null` && count === 0 ? 'inset 0 2px 0 var(--cyan)' : undefined }}
+                  {...laneHeaderDrop(lane.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 10px 8px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', opacity: laneDragId === lane.id ? 0.45 : 1, boxShadow: laneOver === lane.id && laneDragId && laneDragId !== lane.id ? 'inset 0 3px 0 var(--cyan)' : overKey === `${lane.id}:null` && count === 0 ? 'inset 0 2px 0 var(--cyan)' : undefined }}
                 >
+                  {canEdit && (
+                    <span
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', `lane:${lane.id}`);
+                        const head = e.currentTarget.parentElement; if (head) e.dataTransfer.setDragImage(head, 20, 14);
+                        // Collapse every lane to its header once the drag has begun, so far-apart lanes fit on screen (changing the DOM inside dragstart would cancel the drag).
+                        setTimeout(() => setLaneDragId(lane.id), 0);
+                      }}
+                      onDragEnd={endLaneDrag}
+                      title="Drag to move this swimlane (its rows go with it)"
+                      style={{ cursor: 'grab', color: 'var(--text-dim)', display: 'flex' }}
+                    ><GripVertical size={16} /></span>
+                  )}
                   {canEdit && count > 0 && (() => {
                     const laneItems = byLane.get(lane.id) ?? [];
                     const all = laneItems.length > 0 && laneItems.every((i) => checked.has(i.id));
@@ -667,11 +749,21 @@ export function TimelineGrid({ projectId, timelineId, items: allItems, lanes, ca
                     </span>
                   )}
                 </div>
-                {renderRows(lane.id)}
-                {lane.taskListId ? null : addRow(lane.id)}
+                <div style={{ display: laneDragId ? 'none' : undefined }}>
+                  {renderRows(lane.id)}
+                  {lane.taskListId ? null : addRow(lane.id)}
+                </div>
               </div>
             );
           })}
+
+          {laneDragId && (
+            <div
+              onDragOver={(e) => { e.preventDefault(); setLaneOver('__end'); }}
+              onDrop={(e) => { e.preventDefault(); moveLaneTo(laneDragId, null); endLaneDrag(); }}
+              style={{ padding: '12px', textAlign: 'center', fontSize: 12, color: 'var(--text-dim)', borderTop: '1px solid var(--border)', boxShadow: laneOver === '__end' ? 'inset 0 3px 0 var(--cyan)' : undefined }}
+            >Drop here to move the swimlane to the end</div>
+          )}
 
           {items.length === 0 && sortedLanes.length === 0 && (
             <div style={{ padding: '18px 14px', fontSize: 12, color: 'var(--text-dim)' }}>
