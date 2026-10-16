@@ -278,6 +278,7 @@ export default function TimelineBuilder() {
                 <div style={{ fontSize: 12, color: 'var(--text-dim)', textAlign: 'center', marginTop: 8 }}>
                   Showing an empty plan. Add tasks in the grid{canManageTimelines ? ' or use Import' : ''} and this preview updates live.
                 </div>
+                fitScreen={view === 'timeline'}
               )}
 
               <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', margin: '18px 0 12px' }}>

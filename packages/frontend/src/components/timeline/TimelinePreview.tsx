@@ -4,16 +4,20 @@ import { pageToSvg } from '../../lib/timeline/svg';
 
 // Live preview — renders the layout engine's output as inline SVG. Clicking
 // any bar/marker/label reports its item id so the grid can scroll to it.
-export function TimelinePreview({ layout, fontFamily, pageIndex, onPageIndex, selectedItemId, onSelectItem }: {
+export function TimelinePreview({ layout, fontFamily, pageIndex, onPageIndex, selectedItemId, onSelectItem, fitScreen }: {
   layout: LayoutResult;
   fontFamily: string;
   pageIndex: number;
   onPageIndex: (i: number) => void;
   selectedItemId?: string | null;
   onSelectItem?: (id: string) => void;
+  /** Size the slide so the whole of it fits on screen (full-width Timeline view) instead of running off the bottom. */
+  fitScreen?: boolean;
 }) {
   const pageCount = layout.pages.length;
   const idx = Math.min(pageIndex, pageCount - 1);
+  const page = layout.pages[idx];
+  const ratio = page ? page.width / page.height : 16 / 9;
   const svg = useMemo(() => pageToSvg(layout.pages[idx], fontFamily, { responsive: true }), [layout, idx, fontFamily]);
   // cuid ids are alphanumeric; sanitising keeps a hostile id from breaking out of the selector.
   const safeId = selectedItemId ? selectedItemId.replace(/[^A-Za-z0-9_-]/g, '') : '';
@@ -30,7 +34,7 @@ export function TimelinePreview({ layout, fontFamily, pageIndex, onPageIndex, se
           const id = el?.getAttribute('data-item-id');
           if (id) onSelectItem?.(id);
         }}
-        style={{ border: '1px solid var(--border2)', borderRadius: 6, overflow: 'hidden', boxShadow: 'var(--shadow-card)', background: '#fff', lineHeight: 0, cursor: onSelectItem ? 'pointer' : 'default' }}
+        style={{ ...(fitScreen ? { width: `min(100%, calc((100vh - 330px) * ${ratio}))`, minWidth: 'min(100%, 480px)', margin: '0 auto' } : {}), border: '1px solid var(--border2)', borderRadius: 6, overflow: 'hidden', boxShadow: 'var(--shadow-card)', background: '#fff', lineHeight: 0, cursor: onSelectItem ? 'pointer' : 'default' }}
         dangerouslySetInnerHTML={{ __html: svg }}
       />
       {pageCount > 1 && (

@@ -8,7 +8,9 @@ import { resolveConfig } from '../../lib/timeline/config';
 import { sampleTimeline } from '../../lib/timeline/sample';
 
 const THUMB_ITEM_CAP = 120;
-const FIRST_TEMPLATES = 4; // the rest sit behind "Show all" — fewer thumbnails to draw, and less clutter // keep gallery rendering cheap on very large plans
+// These four are shown by default; the rest sit behind "Show all" — fewer thumbnails to draw, and less clutter.
+const DEFAULT_KEYS = ['classic-gantt', 'roadmap-dark', 'roadmap-progress', 'clean-minimal'];
+const FIRST_TEMPLATES = 4; // fallback count when none of the default templates exist // keep gallery rendering cheap on very large plans
 
 /** One template card whose thumbnail is rendered from the user's own data. */
 export function TemplateThumb({ template, items, lanes, title, dateView, selected, onSelect, footer }: {
@@ -68,7 +70,9 @@ export function TemplateGallery({ templates, selectedId, items, lanes, title, da
     return <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: 12 }}>No templates are available yet.</div>;
   }
   // The chosen template always stays on show, even when it is beyond the first few.
-  const shown = showAll ? templates : templates.filter((t, i) => i < FIRST_TEMPLATES || t.id === selectedId);
+  const defaults = templates.filter((t) => t.builtInKey && DEFAULT_KEYS.includes(t.builtInKey));
+  const base = defaults.length > 0 ? defaults : templates.slice(0, FIRST_TEMPLATES);
+  const shown = showAll ? templates : templates.filter((t) => base.includes(t) || t.id === selectedId);
   const hidden = templates.length - shown.length;
   return (
     <div>
@@ -77,7 +81,7 @@ export function TemplateGallery({ templates, selectedId, items, lanes, title, da
           <TemplateThumb key={t.id} template={t} items={slowItems} lanes={lanes} title={title} dateView={slowDateView} selected={t.id === selectedId} onSelect={() => onSelect(t.id)} />
         ))}
       </div>
-      {(hidden > 0 || (showAll && templates.length > FIRST_TEMPLATES)) && (
+      {(hidden > 0 || (showAll && templates.length > base.length)) && (
         <button
           onClick={() => setShowAll((v) => !v)}
           style={{ display: 'block', margin: '10px auto 0', background: 'none', border: 'none', color: 'var(--cyan)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
