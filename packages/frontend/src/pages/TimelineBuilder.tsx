@@ -17,11 +17,12 @@ import { shownOnTimeline } from '../lib/timeline/types';
 import { hasActual, type DateView } from '../lib/timeline/dateView';
 import { TimelineGrid } from '../components/timeline/TimelineGrid';
 import { TimelinePreview } from '../components/timeline/TimelinePreview';
+import { TimelineGantt } from '../components/timeline/TimelineGantt';
 import { TemplateGallery } from '../components/timeline/TemplateGallery';
 import { ConfigControls, overridePaths, setIn, unsetIn } from '../components/timeline/ConfigControls';
 import { ImportTimelineModal } from '../components/timeline/ImportTimelineModal';
 
-type ViewMode = 'data' | 'split' | 'timeline';
+type ViewMode = 'data' | 'split' | 'gantt' | 'timeline';
 
 /** Returns `value` while `live`, otherwise the last live value — lets a hidden pane skip recomputing until it is shown again. */
 function useFrozen<T>(value: T, live: boolean): T {
@@ -98,7 +99,10 @@ export default function TimelineBuilder() {
   const shownItems = useMemo(() => items.filter((i) => shownOnTimeline(i, hideDone, dateView)), [items, hideDone, dateView]);
   const showDelays = detail?.timeline.showDelays ?? true;
   // The preview, thumbnails and slide layout are only worked out while the Timeline pane is on screen.
-  const showTimeline = view !== 'data';
+  const showTimeline = view === 'split' || view === 'timeline';
+  const showGantt = view === 'gantt';
+  // The Gantt pane, like the slide preview, only works while it is on screen.
+  const gItems = useFrozen(items, showGantt), gLanes = useFrozen(lanes, showGantt), gDateView = useFrozen(dateView, showGantt), gDelays = useFrozen(showDelays, showGantt);
   const lName = useFrozen(name, showTimeline), lItems = useFrozen(shownItems, showTimeline), lLanes = useFrozen(lanes, showTimeline);
   const lConfig = useFrozen(config, showTimeline), lDateView = useFrozen(dateView, showTimeline), lDelays = useFrozen(showDelays, showTimeline);
   const layout = useMemo(() => layoutTimeline({ title: lName, items: lItems, lanes: lLanes, config: lConfig, dateView: lDateView, showDelays: lDelays }), [lName, lItems, lLanes, lConfig, lDateView, lDelays]);
@@ -148,13 +152,15 @@ export default function TimelineBuilder() {
     </button>
   );
 
-  const showData = view !== 'timeline';
+  const showData = view === 'data' || view === 'split';
   // Once the table has been shown it stays mounted (just hidden) — rebuilding hundreds of rows every time you flip views is what made big plans slow.
   const dataMounted = useRef(false);
   if (showData) dataMounted.current = true;
   // Same for the preview side: flipping between Split / Data / Timeline just shows or hides it instead of rebuilding the slide and every template thumbnail.
   const timelineMounted = useRef(false);
   if (showTimeline) timelineMounted.current = true;
+  const ganttMounted = useRef(false);
+  if (showGantt) ganttMounted.current = true;
 
   if (error) {
     return (
@@ -231,7 +237,7 @@ export default function TimelineBuilder() {
           </div>
         )}
         <div style={{ display: 'inline-flex', border: '1px solid var(--border2)', borderRadius: 8, overflow: 'hidden', marginLeft: showDatesToggle ? 0 : 'auto' }}>
-          {([['data', 'Data'], ['split', 'Split'], ['timeline', 'Timeline']] as [ViewMode, string][]).map(([k, label]) => (
+          {([['data', 'Data'], ['split', 'Split'], ['gantt', 'Gantt'], ['timeline', 'Timeline']] as [ViewMode, string][]).map(([k, label]) => (
             <button key={k} onClick={() => setView(k)} style={{ padding: '6px 14px', fontSize: 12.5, fontWeight: 600, border: 'none', cursor: 'pointer', background: view === k ? 'var(--cyan)' : 'var(--surface)', color: view === k ? '#fff' : 'var(--text-mid)' }}>{label}</button>
           ))}
         </div>
@@ -256,11 +262,23 @@ export default function TimelineBuilder() {
             </div>
           )}
 
+          {ganttMounted.current && (
+            <div style={{ display: showGantt ? undefined : 'none', flex: '1 1 100%', minWidth: 0, overflowY: 'auto', paddingBottom: 16 }}>
+              <TimelineGantt
+                timelineId={timelineId ?? ''} visible={showGantt}
+                items={gItems} lanes={gLanes} dateView={gDateView} showDelays={gDelays}
+                lanePalette={config.palette.laneColors} ignoreLaneColors={config.palette.laneColorMode === 'palette'} taskColor={config.palette.taskDefault} milestoneColor={config.palette.milestoneDefault}
+                selectedItemId={selectedItemId} onSelectItem={setSelectedItemId}
+              />
+            </div>
+          )}
+
           {timelineMounted.current && (
             <div style={{ display: showTimeline ? undefined : 'none', flex: view === 'timeline' ? '1 1 100%' : '1 1 44%', minWidth: 0, overflowY: 'auto', paddingBottom: 24 }}>
               <TimelinePreview
                 layout={layout} fontFamily={config.font.family} pageIndex={pageIndex} onPageIndex={setPageIndex}
                 selectedItemId={selectedItemId} onSelectItem={view === 'timeline' ? undefined : setSelectedItemId}
+                fitScreen={view === 'timeline'}
               />
               {dateView !== 'BASELINE' && hasItems && (
                 <div style={{ fontSize: 11, color: 'var(--text-dim)', textAlign: 'center', marginTop: 6 }}>
@@ -278,7 +296,6 @@ export default function TimelineBuilder() {
                 <div style={{ fontSize: 12, color: 'var(--text-dim)', textAlign: 'center', marginTop: 8 }}>
                   Showing an empty plan. Add tasks in the grid{canManageTimelines ? ' or use Import' : ''} and this preview updates live.
                 </div>
-                fitScreen={view === 'timeline'}
               )}
 
               <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', margin: '18px 0 12px' }}>
