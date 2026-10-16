@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import { Check } from 'lucide-react';
 import type { TimelineTemplateDTO, TLItem, TLLane } from '../../lib/timeline/types';
 import { layoutTimeline } from '../../lib/timeline/layout';
@@ -7,7 +7,8 @@ import { pageToSvg } from '../../lib/timeline/svg';
 import { resolveConfig } from '../../lib/timeline/config';
 import { sampleTimeline } from '../../lib/timeline/sample';
 
-const THUMB_ITEM_CAP = 120; // keep gallery rendering cheap on very large plans
+const THUMB_ITEM_CAP = 120;
+const FIRST_TEMPLATES = 4; // the rest sit behind "Show all" — fewer thumbnails to draw, and less clutter // keep gallery rendering cheap on very large plans
 
 /** One template card whose thumbnail is rendered from the user's own data. */
 export function TemplateThumb({ template, items, lanes, title, dateView, selected, onSelect, footer }: {
@@ -62,14 +63,28 @@ export function TemplateGallery({ templates, selectedId, items, lanes, title, da
   // Urgent updates (a click, a switch) paint first; the thumbnails catch up right after.
   const slowItems = useDeferredValue(items);
   const slowDateView = useDeferredValue(dateView);
+  const [showAll, setShowAll] = useState(false);
   if (templates.length === 0) {
     return <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: 12 }}>No templates are available yet.</div>;
   }
+  // The chosen template always stays on show, even when it is beyond the first few.
+  const shown = showAll ? templates : templates.filter((t, i) => i < FIRST_TEMPLATES || t.id === selectedId);
+  const hidden = templates.length - shown.length;
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10 }}>
-      {templates.map((t) => (
-        <TemplateThumb key={t.id} template={t} items={slowItems} lanes={lanes} title={title} dateView={slowDateView} selected={t.id === selectedId} onSelect={() => onSelect(t.id)} />
-      ))}
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10 }}>
+        {shown.map((t) => (
+          <TemplateThumb key={t.id} template={t} items={slowItems} lanes={lanes} title={title} dateView={slowDateView} selected={t.id === selectedId} onSelect={() => onSelect(t.id)} />
+        ))}
+      </div>
+      {(hidden > 0 || (showAll && templates.length > FIRST_TEMPLATES)) && (
+        <button
+          onClick={() => setShowAll((v) => !v)}
+          style={{ display: 'block', margin: '10px auto 0', background: 'none', border: 'none', color: 'var(--cyan)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+        >
+          {showAll ? 'Show fewer templates' : `Show all ${templates.length} templates`}
+        </button>
+      )}
     </div>
   );
 }
