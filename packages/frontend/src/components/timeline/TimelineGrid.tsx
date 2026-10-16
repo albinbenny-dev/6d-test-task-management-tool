@@ -579,34 +579,40 @@ export function TimelineGrid({ projectId, timelineId, items: allItems, lanes, ca
           onClose={() => setConvertDlg(null)} onDone={() => setChecked(new Set())}
         />
       )}
-      {/* Toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+      {/* Toolbar: actions on the first line, view options on the second (both wrap as a whole, never mid-label) */}
+      <div className="tl-toolbar" style={{ marginBottom: 10 }}>
+      <div className="tl-toolbar-row">
         {canEdit && (
-          <button className="tb-btn tb-btn-ghost" onClick={addLane} disabled={a.createLane.isPending} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <button className="tb-btn tb-btn-ghost" onClick={addLane} disabled={a.createLane.isPending}>
             <Plus size={13} /> Add swimlane
           </button>
         )}
         {canEdit && checked.size > 0 && (
-          <button className="tb-btn tb-btn-ghost" onClick={() => setConvertDlg('selection')} style={{ display: 'flex', alignItems: 'center', gap: 5 }}
+          <span className="tl-toolbar-sel">{checked.size} selected
+            <button onClick={() => setChecked(new Set())} title="Untick all rows">Clear</button>
+          </span>
+        )}
+        {canEdit && checked.size > 0 && (
+          <button className="tb-btn tb-btn-ghost" onClick={() => setConvertDlg('selection')}
             title="Turn the ticked rows into a task list, or into a parent task with subtasks">
-            <ListPlus size={13} /> Create task list from {checked.size}
+            <ListPlus size={13} /> Create task list
           </button>
         )}
         {canEdit && checked.size > 0 && (
           <select
-            className="input-field" value="" onChange={(e) => { const v = e.target.value; e.target.value = ''; if (v) void moveTicked(v); }}
-            title="Move the ticked rows into a swimlane (you can also drag a ticked row)" style={{ fontSize: 12, padding: '4px 8px', width: 'auto' }}
+            className="input-field tl-toolbar-select" value="" onChange={(e) => { const v = e.target.value; e.target.value = ''; if (v) void moveTicked(v); }}
+            title="Move the ticked rows into a swimlane (you can also drag a ticked row)"
           >
-            <option value="">Move {checked.size} to swimlane…</option>
+            <option value="">Move to swimlane…</option>
             {sortedLanes.filter((l) => !l.taskListId).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             <option value="__none">Ungrouped (no swimlane)</option>
             <option value="__new">+ New swimlane…</option>
           </select>
         )}
         {canEdit && checked.size === 0 && allItems.length > 0 && (
-          <button className="tb-btn tb-btn-ghost" onClick={() => setConvertDlg('lanes')} style={{ display: 'flex', alignItems: 'center', gap: 5 }}
+          <button className="tb-btn tb-btn-ghost" onClick={() => setConvertDlg('lanes')}
             title="Turn each swimlane into its own task list (tick rows first to convert just those)">
-            <ListPlus size={13} /> Convert swimlanes to task lists…
+            <ListPlus size={13} /> Convert to task lists…
           </button>
         )}
         {canEdit && checked.size > 0 && (
@@ -614,43 +620,46 @@ export function TimelineGrid({ projectId, timelineId, items: allItems, lanes, ca
             className="tb-btn tb-btn-ghost" style={{ color: 'var(--rose)', borderColor: 'rgba(220,38,38,0.3)' }}
             onClick={() => { if (window.confirm(`Delete ${checked.size} selected item${checked.size === 1 ? '' : 's'}?`)) { a.deleteItems.mutate([...checked]); setChecked(new Set()); } }}
           >
-            <Trash2 size={12} style={{ marginRight: 4, verticalAlign: -1 }} />Delete {checked.size}
+            <Trash2 size={12} /> Delete
           </button>
         )}
         {canEdit && toHide.length > 0 && (
           <button className="tb-btn tb-btn-ghost" title="Keep these rows in the table but leave them off the timeline view and exports"
             onClick={() => { a.hideItems.mutate({ ids: toHide.map((i) => i.id), hidden: true }, { onError: () => toast.error('Could not hide the rows') }); setChecked(new Set()); }}>
-            <EyeOff size={12} style={{ marginRight: 4, verticalAlign: -1 }} />Hide {toHide.length} from timeline
+            <EyeOff size={12} /> Hide{toHide.length === checkedItems.length ? '' : ` ${toHide.length}`} from timeline
           </button>
         )}
         {canEdit && toShow.length > 0 && (
           <button className="tb-btn tb-btn-ghost"
             onClick={() => { a.hideItems.mutate({ ids: toShow.map((i) => i.id), hidden: false }, { onError: () => toast.error('Could not show the rows') }); setChecked(new Set()); }}>
-            <Eye size={12} style={{ marginRight: 4, verticalAlign: -1 }} />Show {toShow.length} on timeline
+            <Eye size={12} /> Show{toShow.length === checkedItems.length ? '' : ` ${toShow.length}`} on timeline
           </button>
         )}
+      </div>
+      <div className="tl-toolbar-row tl-toolbar-opts">
         {showDelay && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-mid)', cursor: 'pointer' }} title="Show only rows that are late (table only — drag-reordering is off while this is on)">
+          <label style={{ cursor: 'pointer' }} title="Show only rows that are late (table only — drag-reordering is off while this is on)">
             <input type="checkbox" checked={delayedOnly} onChange={(e) => setDelayedOnly(e.target.checked)} />
             Delayed only
           </label>
         )}
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-mid)', cursor: canEdit ? 'pointer' : 'default' }} title="Leave rows that are 100% complete off the timeline view and exports (they stay in this table)">
+        <label style={{ cursor: canEdit ? 'pointer' : 'default' }} title="Leave rows that are 100% complete off the timeline view and exports (they stay in this table)">
           <input type="checkbox" checked={hideDone} disabled={!canEdit} onChange={(e) => onHideDone(e.target.checked)} />
           Hide completed{doneCount > 0 ? ` (${doneCount})` : ''}
         </label>
         {anyLinked && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-mid)' }} title="How lanes linked to Task Lists are drawn">
+          <label title="How lanes linked to Task Lists are drawn">
             Linked lists show
-            <select className="input-field" value={granularity} disabled={!canEdit} onChange={(e) => onGranularity(e.target.value as 'TASKS' | 'SUBTASKS')} style={{ fontSize: 12, padding: '3px 6px', width: 'auto' }}>
+            <select className="input-field tl-toolbar-select" value={granularity} disabled={!canEdit} onChange={(e) => onGranularity(e.target.value as 'TASKS' | 'SUBTASKS')}>
               <option value="TASKS">Tasks</option>
               <option value="SUBTASKS">Subtasks</option>
             </select>
           </label>
         )}
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-dim)' }}>
+        <span className="tl-toolbar-info">
           {items.length} item{items.length === 1 ? '' : 's'}{offCount > 0 ? ` · ${offCount} hidden from the timeline` : ''} · duration counts working days (Mon–Fri)
         </span>
+      </div>
       </div>
       {anyLinked && (
         <div style={{ fontSize: 11.5, color: 'var(--text-mid)', background: 'var(--cyan-dim)', border: '1px solid rgba(2,132,199,0.25)', borderRadius: 8, padding: '7px 10px', marginBottom: 10, lineHeight: 1.5 }}>
