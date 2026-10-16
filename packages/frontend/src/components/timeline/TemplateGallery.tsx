@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useDeferredValue, useMemo } from 'react';
 import { Check } from 'lucide-react';
 import type { TimelineTemplateDTO, TLItem, TLLane } from '../../lib/timeline/types';
 import { layoutTimeline } from '../../lib/timeline/layout';
@@ -59,13 +59,16 @@ export function TemplateGallery({ templates, selectedId, items, lanes, title, da
   dateView?: DateView;
   onSelect: (id: string) => void;
 }) {
+  // Urgent updates (a click, a switch) paint first; the thumbnails catch up right after.
+  const slowItems = useDeferredValue(items);
+  const slowDateView = useDeferredValue(dateView);
   if (templates.length === 0) {
     return <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: 12 }}>No templates are available yet.</div>;
   }
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10 }}>
       {templates.map((t) => (
-        <TemplateThumb key={t.id} template={t} items={items} lanes={lanes} title={title} dateView={dateView} selected={t.id === selectedId} onSelect={() => onSelect(t.id)} />
+        <TemplateThumb key={t.id} template={t} items={slowItems} lanes={lanes} title={title} dateView={slowDateView} selected={t.id === selectedId} onSelect={() => onSelect(t.id)} />
       ))}
     </div>
   );

@@ -18,6 +18,45 @@ function Plain({ children }: { children: React.ReactNode }) {
   return <span style={{ fontSize: 12.5, padding: '5px 6px', display: 'block' }}>{children}</span>;
 }
 
+/**
+ * A date cell that only becomes a real `<input type="date">` when it is clicked or tabbed into. Browsers build native
+ * date inputs slowly (~0.3 ms each, 7× a text box) and a 300-row plan has four per row, so creating them all up front
+ * was most of the lag when opening the table or switching on the Actual columns.
+ */
+function DateCell({ value, min, disabled, empty = '', style, onCommit }: {
+  value: string; min?: string; disabled?: boolean; empty?: string; style?: React.CSSProperties; onCommit: (v: string) => void;
+}) {
+  const [mode, setMode] = useState<'view' | 'click' | 'focus'>('view');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const editing = mode !== 'view';
+  // Runs once when the real input appears — not on every re-render, which would keep stealing focus back.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!editing || !el) return;
+    el.focus();
+    if (mode === 'click') { try { el.showPicker?.(); } catch { /* needs a user gesture — the field is still focused for typing */ } }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+  if (mode === 'view') {
+    return (
+      <button
+        type="button" disabled={disabled} onClick={() => setMode('click')} onFocus={() => setMode('focus')}
+        style={{ ...cellInput, ...style, textAlign: 'left', cursor: disabled ? 'default' : 'pointer', lineHeight: 'normal', color: value ? 'var(--text)' : 'var(--text-dim)' }}
+      >
+        {value ? fmt(value) : empty || ' '}
+      </button>
+    );
+  }
+  return (
+    <input
+      type="date" defaultValue={value} min={min} style={{ ...cellInput, ...style }}
+      ref={inputRef}
+      onChange={(e) => onCommit(e.target.value)}
+      onBlur={() => setMode('view')}
+    />
+  );
+}
+
 // Actual-dates columns slot in after End (only when the timeline is showing actual dates).
 const gridCols = (compact: boolean, showActual: boolean, showDelay: boolean) => {
   const lead = compact ? ['18px', '22px', 'minmax(110px,1fr)'] : ['22px', '26px', 'minmax(180px,1fr)'];
@@ -32,6 +71,11 @@ const MARKER_LABEL: Record<string, string> = {
   diamond: 'Diamond', flag: 'Flag', star: 'Star', circle: 'Circle', triangle: 'Triangle',
 };
 const SWATCHES = ['#2563AB', '#0E9F6E', '#E8501E', '#8B5CF6', '#D97706', '#0891B2', '#DC2626', '#DB2777', '#4B5563', '#111827'];
+
+// A big plan is put on screen in batches: the first rows appear straight away and the rest follow a few at a time, so
+// opening the table never freezes the page while hundreds of rows are built in one go.
+const FIRST_ROWS = 40;
+const ROW_BATCH = 40;
 
 const cellInput = {
   width: '100%', background: 'transparent', border: '1px solid transparent', borderRadius: 4,
@@ -196,15 +240,13 @@ function ItemRowImpl({ item, laneKey, color, laneSwatches, canEdit, compact, off
 
       <div onClick={(e) => e.stopPropagation()}>
         {own ? (
-          <input type="date" key={`s-${item.startDate}`} defaultValue={item.startDate} style={cellInput}
-            onChange={(e) => { if (e.target.value && e.target.value !== item.startDate) save({ id: item.id, startDate: e.target.value }); }} />
+          <DateCell value={item.startDate} onCommit={(v) => { if (v && v !== item.startDate) save({ id: item.id, startDate: v }); }} />
         ) : <Plain>{fmt(item.startDate)}</Plain>}
       </div>
       <div onClick={(e) => e.stopPropagation()}>
         {own ? (
-          <input type="date" key={`e-${item.endDate}`} defaultValue={item.endDate} disabled={isMs} min={item.startDate}
-            style={{ ...cellInput, opacity: isMs ? 0.6 : 1 }}
-            onChange={(e) => { if (e.target.value && e.target.value !== item.endDate) save({ id: item.id, endDate: e.target.value }); }} />
+          <DateCell value={item.endDate} disabled={isMs} min={item.startDate} style={{ opacity: isMs ? 0.6 : 1 }}
+            onCommit={(v) => { if (v && v !== item.endDate) save({ id: item.id, endDate: v }); }} />
         ) : <Plain>{fmt(item.endDate)}</Plain>}
       </div>
 
@@ -213,14 +255,12 @@ function ItemRowImpl({ item, laneKey, color, laneSwatches, canEdit, compact, off
           {/* Actual start / end — copied from the task for linked rows (read-only here); editable on manual rows. A milestone has one actual date: its end. */}
           <div onClick={(e) => e.stopPropagation()}>
             {isMs ? <Plain>—</Plain> : own ? (
-              <input type="date" key={`as-${item.actualStartDate ?? ''}`} defaultValue={item.actualStartDate ?? ''} style={cellInput}
-                onChange={(e) => { if (e.target.value !== (item.actualStartDate ?? '')) save({ id: item.id, actualStartDate: e.target.value || null }); }} />
+              <DateCell value={item.actualStartDate ?? ''} empty="—" onCommit={(v) => { if (v !== (item.actualStartDate ?? '')) save({ id: item.id, actualStartDate: v || null }); }} />
             ) : <Plain>{item.actualStartDate ? fmt(item.actualStartDate) : '—'}</Plain>}
           </div>
           <div onClick={(e) => e.stopPropagation()}>
             {own ? (
-              <input type="date" key={`ae-${item.actualEndDate ?? ''}`} defaultValue={item.actualEndDate ?? ''} min={item.actualStartDate ?? undefined} style={cellInput}
-                onChange={(e) => { if (e.target.value !== (item.actualEndDate ?? '')) save({ id: item.id, actualEndDate: e.target.value || null }); }} />
+              <DateCell value={item.actualEndDate ?? ''} empty="—" min={item.actualStartDate ?? undefined} onCommit={(v) => { if (v !== (item.actualEndDate ?? '')) save({ id: item.id, actualEndDate: v || null }); }} />
             ) : <Plain>{item.actualEndDate ? fmt(item.actualEndDate) : '—'}</Plain>}
           </div>
         </>
@@ -328,6 +368,12 @@ export function TimelineGrid({ projectId, timelineId, items: allItems, lanes, ca
   const [convertDlg, setConvertDlg] = useState<'selection' | 'lanes' | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
+  const [rowLimit, setRowLimit] = useState(FIRST_ROWS);
+  useEffect(() => {
+    if (rowLimit >= allItems.length) return;
+    const t = setTimeout(() => setRowLimit((n) => n + ROW_BATCH), 0);
+    return () => clearTimeout(t);
+  }, [rowLimit, allItems.length]);
 
   // Rows are memoised, so everything handed to them has to be referentially stable: one actions object that always
   // calls the latest mutations, and handlers that read the latest state through a ref instead of closing over it.
@@ -439,7 +485,14 @@ export function TimelineGrid({ projectId, timelineId, items: allItems, lanes, ca
     </div>
   );
 
-  const renderItems = (laneId: string | null) => (byLane.get(laneId) ?? []).map((it) => (
+  let rowBudget = rowLimit; // shared across lanes, which render top to bottom
+  const renderItems = (laneId: string | null) => {
+    const all = byLane.get(laneId) ?? [];
+    const part = rowBudget >= all.length ? all : all.slice(0, Math.max(0, rowBudget));
+    rowBudget -= part.length;
+    return part;
+  };
+  const renderRows = (laneId: string | null) => renderItems(laneId).map((it) => (
     <ItemRow
       key={it.id} item={it} laneKey={laneId} color={itemColor(it)} canEdit={canEdit} compact={compact}
       offTimeline={!shownOnTimeline(it, hideDone, dateView)} noActualYet={dateView === 'ACTUAL' && !it.actualStartDate && !it.actualEndDate}
@@ -551,7 +604,7 @@ export function TimelineGrid({ projectId, timelineId, items: allItems, lanes, ca
           {/* Ungrouped items sit above the first swimlane */}
           {(byLane.get(null)?.length ?? 0) > 0 || sortedLanes.length === 0 ? (
             <>
-              {renderItems(null)}
+              {renderRows(null)}
               {addRow(null)}
             </>
           ) : null}
@@ -614,7 +667,7 @@ export function TimelineGrid({ projectId, timelineId, items: allItems, lanes, ca
                     </span>
                   )}
                 </div>
-                {renderItems(lane.id)}
+                {renderRows(lane.id)}
                 {lane.taskListId ? null : addRow(lane.id)}
               </div>
             );

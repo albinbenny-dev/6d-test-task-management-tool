@@ -23,6 +23,13 @@ import { ImportTimelineModal } from '../components/timeline/ImportTimelineModal'
 
 type ViewMode = 'data' | 'split' | 'timeline';
 
+/** Returns `value` while `live`, otherwise the last live value — lets a hidden pane skip recomputing until it is shown again. */
+function useFrozen<T>(value: T, live: boolean): T {
+  const last = useRef(value);
+  if (live) last.current = value;
+  return last.current;
+}
+
 export default function TimelineBuilder() {
   const { slug, timelineId } = useParams<{ slug: string; timelineId: string }>();
   const { data: project } = useProject(slug);
@@ -90,7 +97,11 @@ export default function TimelineBuilder() {
   // Rows hidden by hand (or 100% rows while "hide completed" is on, or rows with no actual dates in the Actual view) stay in the table but never reach the preview, thumbnails or exports.
   const shownItems = useMemo(() => items.filter((i) => shownOnTimeline(i, hideDone, dateView)), [items, hideDone, dateView]);
   const showDelays = detail?.timeline.showDelays ?? true;
-  const layout = useMemo(() => layoutTimeline({ title: name, items: shownItems, lanes, config, dateView, showDelays }), [name, shownItems, lanes, config, dateView, showDelays]);
+  // The preview, thumbnails and slide layout are only worked out while the Timeline pane is on screen.
+  const showTimeline = view !== 'data';
+  const lName = useFrozen(name, showTimeline), lItems = useFrozen(shownItems, showTimeline), lLanes = useFrozen(lanes, showTimeline);
+  const lConfig = useFrozen(config, showTimeline), lDateView = useFrozen(dateView, showTimeline), lDelays = useFrozen(showDelays, showTimeline);
+  const layout = useMemo(() => layoutTimeline({ title: lName, items: lItems, lanes: lLanes, config: lConfig, dateView: lDateView, showDelays: lDelays }), [lName, lItems, lLanes, lConfig, lDateView, lDelays]);
   useEffect(() => { if (pageIndex > layout.pages.length - 1) setPageIndex(Math.max(0, layout.pages.length - 1)); }, [layout, pageIndex]);
 
   function pickTemplate(id: string) {
@@ -138,10 +149,12 @@ export default function TimelineBuilder() {
   );
 
   const showData = view !== 'timeline';
-  const showTimeline = view !== 'data';
   // Once the table has been shown it stays mounted (just hidden) — rebuilding hundreds of rows every time you flip views is what made big plans slow.
   const dataMounted = useRef(false);
   if (showData) dataMounted.current = true;
+  // Same for the preview side: flipping between Split / Data / Timeline just shows or hides it instead of rebuilding the slide and every template thumbnail.
+  const timelineMounted = useRef(false);
+  if (showTimeline) timelineMounted.current = true;
 
   if (error) {
     return (
@@ -243,8 +256,8 @@ export default function TimelineBuilder() {
             </div>
           )}
 
-          {showTimeline && (
-            <div style={{ flex: view === 'timeline' ? '1 1 100%' : '1 1 44%', minWidth: 0, overflowY: 'auto', paddingBottom: 24 }}>
+          {timelineMounted.current && (
+            <div style={{ display: showTimeline ? undefined : 'none', flex: view === 'timeline' ? '1 1 100%' : '1 1 44%', minWidth: 0, overflowY: 'auto', paddingBottom: 24 }}>
               <TimelinePreview
                 layout={layout} fontFamily={config.font.family} pageIndex={pageIndex} onPageIndex={setPageIndex}
                 selectedItemId={selectedItemId} onSelectItem={view === 'timeline' ? undefined : setSelectedItemId}
@@ -286,7 +299,7 @@ export default function TimelineBuilder() {
                     </div>
                   )}
                   <TemplateGallery
-                    templates={templateList} selectedId={activeTemplate?.id ?? null} items={shownItems} lanes={lanes} title={name} dateView={dateView}
+                    templates={templateList} selectedId={activeTemplate?.id ?? null} items={lItems} lanes={lLanes} title={lName} dateView={lDateView}
                     onSelect={canManageTimelines ? pickTemplate : () => toast('You have view-only access to this timeline')}
                   />
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 10 }}>
