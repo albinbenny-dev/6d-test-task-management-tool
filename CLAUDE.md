@@ -13,6 +13,8 @@ pnpm monorepo: `packages/api` (Express + Prisma + Postgres, BullMQ/Redis) and `p
 - On macOS, `node_modules` from Windows can't be reused: `rm -rf node_modules packages/*/node_modules && pnpm install`.
 
 ## Run it locally
+- **macOS (preferred):** `./scripts/dev.sh` — starts a dev Postgres/Redis (`docker-compose.dev.yml`, ports 5499/6399, volume `ttmt-dev-pgdata`), applies the schema, seeds the admin, then runs the API (:4000) and UI (:3000). `--reset` wipes the dev DB, `--down` stops the containers. Needs Node 20 (`brew install node@20`, keg-only; the script adds it to PATH) and pnpm 9.15.9 (`corepack enable --install-directory ~/.local/bin`). Never touches the `ttmt-*` stack, which stays on http://localhost:3200 (`docker compose up -d --build ttmt-postgres ttmt-redis ttmt-api ttmt-ui`; skip `ttmt-runner` on Apple Silicon — its Chrome build is x86-only).
+- Plain `pnpm dev` only works if the API can find its env: the API reads `.env` from `packages/api/` only, so use the script (it passes `--env-file=../../.env`).
 - `pnpm install`, then `pnpm dev` (API + UI). The API needs `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `SMTP_*`, and `SEED_ADMIN_EMAIL/PASSWORD/NAME` (the root `.env` is gitignored — copy it over from the old machine, never commit it).
 - Schema is applied with `prisma db push` (no migration history to rely on). `prisma/seed.ts` creates the first SUPER_ADMIN.
 - Frontend type-check: `pnpm --filter @qaasr/frontend type-check`. A handful of old, unrelated TS errors exist (ChatWidget, RunHistoryTable, ScriptResultsTable…) — only worry about files you touched.
